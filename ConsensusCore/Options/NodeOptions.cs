@@ -10,5 +10,6 @@ namespace ConsensusCore.Options
         // The node Id
         public Guid Id { get; set; }
         public string Name { get; set; }
+        public bool EnableLeader { get; set; } = true;
     }
 }
