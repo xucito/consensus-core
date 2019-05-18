@@ -1,7 +1,4 @@
-﻿using ConsensusCore.BaseClasses;
-using ConsensusCore.Exceptions;
-using ConsensusCore.Messages;
-using ConsensusCore.Utility;
+﻿using ConsensusCore.Exceptions;
 using ConsensusCore.ViewModels;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;

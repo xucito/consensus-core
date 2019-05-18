@@ -16,7 +16,7 @@ namespace ConsensusCore.Services
         where StateMachine : StateMachine<Command, State>
         where Repository : INodeRepository<Command>
     {
-        NodeOptions _options { get; }
+        /*NodeOptions _options { get; }
         INodeRepository<Command> _repository { get; }
         NodeInfo<Command> Information { get; }
         NodeRole CurrentRole { get; set; }
@@ -25,5 +25,6 @@ namespace ConsensusCore.Services
         bool RequestVote(RequestVote vote);
         State GetState();
         Task<bool> ProcessCommandsAsync(List<Command> commands, int timeoutMs = 10000);
+    */
     }
 }
