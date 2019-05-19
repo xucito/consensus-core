@@ -31,7 +31,7 @@ namespace ConsensusCore.Node.Repositories
 
         public override void SaveNodeData()
         {
-            throw new NotImplementedException();
+
         }
     }
 }

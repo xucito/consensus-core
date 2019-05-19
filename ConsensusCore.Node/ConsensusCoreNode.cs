@@ -16,13 +16,14 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node
 {
-    public class ConsensusCoreNode<Command, State, Repository>
+    public class ConsensusCoreNode<Command, State, Repository> : IConsensusCoreNode<Command, State, Repository>
         where Command : BaseCommand
         where State : BaseState<Command>, new()
         where Repository : BaseRepository<Command>
     {
         private Timer _heartbeatTimer;
         private Timer _electionTimeoutTimer;
+        private Thread _commitThread;
 
         private NodeOptions _nodeOptions { get; }
         private ClusterOptions _clusterOptions { get; }
@@ -31,7 +32,8 @@ namespace ConsensusCore.Node
         public ILogger<ConsensusCoreNode<Command, State, Repository>> Logger { get; }
 
         public Dictionary<string, HttpNodeConnector> NodeConnectors { get; private set; } = new Dictionary<string, HttpNodeConnector>();
-        public Dictionary<Guid, string> NodeNextIndexes { get; private set; }
+        public Dictionary<string, int> NextIndex { get; private set; } = new Dictionary<string, int>();
+        public Dictionary<string, int> MatchIndex { get; private set; } = new Dictionary<string, int>();
 
         public StateMachine<Command, State> _stateMachine { get; private set; }
         public Guid LeaderId { get; private set; }
@@ -60,15 +62,16 @@ namespace ConsensusCore.Node
             NodeStorage<Command, Repository> nodeStorage,
             ILogger<ConsensusCoreNode<Command,
             State,
-            Repository>> logger)
+            Repository>> logger,
+            StateMachine<Command, State> stateMachine)
         {
             _nodeOptions = nodeOptions.Value;
             _clusterOptions = clusterOptions.Value;
             _nodeStorage = nodeStorage;
             Logger = logger;
-
             _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
             _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+            _stateMachine = stateMachine;
             SetNodeRole(NodeState.Follower);
 
             BootstrapThread = new Thread(() =>
@@ -82,37 +85,76 @@ namespace ConsensusCore.Node
             BootstrapThread.Start();
         }
 
+        public void ResetLeaderState()
+        {
+            NextIndex.Clear();
+            MatchIndex.Clear();
+            foreach (var url in _clusterOptions.NodeUrls)
+            {
+                NextIndex.Add(url, _nodeStorage.GetLogCount());
+                MatchIndex.Add(url, 0);
+            }
+        }
+
+        public Thread NewCommitThread()
+        {
+            return new Thread(() =>
+            {
+                Thread.CurrentThread.IsBackground = true;
+                while (CurrentState == NodeState.Leader)
+                {
+                    while (CommitIndex < _nodeStorage.GetLastLogIndex())
+                    {
+                        if (MatchIndex.Values.Count(x => x >= CommitIndex + 1) >= (_clusterOptions.MinimumNodes - 1))
+                        {
+                            _stateMachine.ApplyLogToStateMachine(_nodeStorage.GetLogAtIndex(CommitIndex + 1));
+                            CommitIndex++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    Thread.Sleep(100);
+                }
+            });
+        }
+
         public void BootstrapNode()
         {
             Logger.LogInformation("Bootstrapping Node!");
 
-            foreach (var url in _clusterOptions.NodeUrls)
+            while (MyUrl == null)
             {
-                var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs));
+                NodeConnectors.Clear();
+                foreach (var url in _clusterOptions.NodeUrls)
+                {
+                    var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs));
 
-                Guid? nodeUrl = null;
-                try
-                {
-                    nodeUrl = testConnector.GetNodeInfoAsync().GetAwaiter().GetResult().Id;
-                }
-                catch (Exception e)
-                {
-                    Logger.LogWarning("Node at url " + url + " was unreachable...");
+                    Guid? nodeUrl = null;
+                    try
+                    {
+                        nodeUrl = testConnector.GetNodeInfoAsync().GetAwaiter().GetResult().Id;
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning("Node at url " + url + " was unreachable...");
+                    }
+
+                    if (nodeUrl != _nodeStorage.Id)
+                    {
+                        NodeConnectors.Add(url, testConnector);
+                    }
+                    else
+                    {
+                        MyUrl = url;
+                    }
                 }
 
-                if (nodeUrl != _nodeStorage.Id)
+                if (MyUrl == null)
                 {
-                    NodeConnectors.Add(url, testConnector);
+                    Logger.LogWarning("Node is not discoverable from the given node urls!");
                 }
-                else
-                {
-                    MyUrl = url;
-                }
-            }
-
-            if (MyUrl == null)
-            {
-                Logger.LogWarning("Node is not discoverable from the given node urls!");
             }
         }
 
@@ -121,7 +163,9 @@ namespace ConsensusCore.Node
             if (IsBootstrapped)
             {
                 Logger.LogDebug("Detected election timeout event.");
+                _nodeStorage.UpdateCurrentTerm(_nodeStorage.CurrentTerm + 1);
                 SetNodeRole(NodeState.Candidate);
+
                 var totalVotes = 1;
 
                 Parallel.ForEach(NodeConnectors, connector =>
@@ -162,6 +206,48 @@ namespace ConsensusCore.Node
         public void SendHeartbeats()
         {
             Logger.LogDebug("Sending heartbeats");
+            Parallel.ForEach(NodeConnectors, connector =>
+            {
+                try
+                {
+                    var entriesToSend = new List<LogEntry<Command>>();
+
+                    var prevLogIndex = Math.Max(0, NextIndex[connector.Key] - 1);
+                    int prevLogTerm = (_nodeStorage.GetLogCount() > 0 && prevLogIndex > 0) ? prevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+
+                    if (NextIndex[connector.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0)
+                    {
+                        entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
+                        Logger.LogDebug("Detected node " + connector.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+                    }
+
+                    var result = connector.Value.SendAppendEntry<Command>(_nodeStorage.CurrentTerm, _nodeStorage.Id, prevLogIndex, prevLogTerm, entriesToSend, CommitIndex).GetAwaiter().GetResult();
+                    if (entriesToSend.Count() > 0)
+                    {
+                        NextIndex[connector.Key] = entriesToSend.Last().Index + 1;
+                        MatchIndex[connector.Key] = entriesToSend.Last().Index;
+                    }
+                }
+                catch (ConflictingLogEntryException e)
+                {
+                    var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Term == e.ConflictingTerm).FirstOrDefault();
+                    var revertedIndex = firstEntryOfTerm.Index < e.FirstTermIndex ? firstEntryOfTerm.Index : e.FirstTermIndex;
+                    Logger.LogWarning("Detected node " + connector.Value + " has conflicting values, reverting to " + revertedIndex);
+
+                    //Revert back to the first index of that term
+                    MatchIndex[connector.Key] = revertedIndex;
+                }
+                catch (MissingLogEntryException e)
+                {
+                    Logger.LogWarning("Detected node " + connector.Value + " is missing the previous log, sending logs from log " + e.LastLogEntryIndex + 1);
+                    MatchIndex[connector.Key] = e.LastLogEntryIndex + 1;
+                }
+                catch (Exception e)
+                {
+                    Logger.LogWarning("Encountered error while sending heartbeat to node " + connector.Key + ", request failed with error \"" + e.Message + "\"" + e.StackTrace);
+
+                }
+            });
         }
 
         public void SetNodeRole(NodeState newState)
@@ -174,16 +260,19 @@ namespace ConsensusCore.Node
                 switch (newState)
                 {
                     case NodeState.Candidate:
-                        ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
+                        ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs);
                         StopTimer(_heartbeatTimer);
                         break;
                     case NodeState.Follower:
-                        ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
+                        ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs);
                         StopTimer(_heartbeatTimer);
                         break;
                     case NodeState.Leader:
+                        ResetLeaderState();
                         ResetTimer(_heartbeatTimer, _clusterOptions.ElectionTimeoutMs - _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs - _clusterOptions.LatencyToleranceMs);
                         StopTimer(_electionTimeoutTimer);
+                        _commitThread = NewCommitThread();
+                        _commitThread.Start();
                         break;
                 }
             }
@@ -201,54 +290,100 @@ namespace ConsensusCore.Node
 
         public bool RequestVote(RequestVote requestVoteRPC)
         {
-            //Ref1 $5.2, $5.4
-            if (_nodeStorage.CurrentTerm < requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
-                (requestVoteRPC.LastLogIndex >= _nodeStorage.GetLogCount() - 1 && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+            if (IsBootstrapped)
             {
-                return true;
+                //Ref1 $5.2, $5.4
+                if (_nodeStorage.CurrentTerm < requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
+                (requestVoteRPC.LastLogIndex >= _nodeStorage.GetLogCount() - 1 && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+                {
+                    _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
+                    Logger.LogInformation("Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
+                    SetNodeRole(NodeState.Follower);
+                    return true;
+                }
+                return false;
             }
             return false;
         }
 
         public bool AppendEntry(AppendEntry<Command> entry)
         {
-
-            if (entry.Term < _nodeStorage.CurrentTerm)
+            if (IsBootstrapped)
             {
-                return false;
-            }
-
-            var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
-
-
-            if (previousEntry == null && entry.PrevLogIndex != 0)
-            {
-                Logger.LogWarning("Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
-                throw new MissingLogEntryException()
+                ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs);
+                if (entry.Term < _nodeStorage.CurrentTerm)
                 {
-                    LastLogEntryIndex = _nodeStorage.GetLogCount()
-                };
-            }
+                    return false;
+                }
 
-            if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
-            {
-                Logger.LogWarning("Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogTerm + " from term " + entry.PrevLogTerm + " does not exist.");
-                throw new ConflictingLogEntryException()
+                var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
+
+
+                if (previousEntry == null && entry.PrevLogIndex != 0)
                 {
-                    ConflictingTerm = entry.PrevLogTerm,
-                    FirstTermIndex = _nodeStorage.Logs.Where(l => l.Term == entry.PrevLogTerm).First().Index
-                };
+                    Logger.LogWarning("Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    throw new MissingLogEntryException()
+                    {
+                        LastLogEntryIndex = _nodeStorage.GetLogCount()
+                    };
+                }
+
+                if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
+                {
+                    Logger.LogWarning("Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogTerm + " from term " + entry.PrevLogTerm + " does not exist.");
+                    throw new ConflictingLogEntryException()
+                    {
+                        ConflictingTerm = entry.PrevLogTerm,
+                        FirstTermIndex = _nodeStorage.Logs.Where(l => l.Term == entry.PrevLogTerm).First().Index
+                    };
+                }
+
+                SetNodeRole(NodeState.Follower);
+
+                _nodeStorage.AddLogs(entry.Entries);
+
+                if (CommitIndex < entry.LeaderCommit)
+                {
+                    Logger.LogDebug("Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
+                    var allLogsToBeCommited = _nodeStorage.Logs.Where(l => l.Index > CommitIndex && l.Index <= entry.LeaderCommit);
+                    _stateMachine.ApplyLogsToStateMachine(allLogsToBeCommited);
+                    CommitIndex = entry.LeaderCommit;
+                }
+                return true;
             }
+            return false;
+        }
 
-            _nodeStorage.AddLogs(entry.Entries);
-
-            if (CommitIndex < entry.LeaderCommit)
+        public int AddCommand(List<Command> command, bool waitForCommitment = false)
+        {
+            if (CurrentState == NodeState.Leader)
             {
-                Logger.LogDebug("Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
-                var allLogsToBeCommited = _nodeStorage.Logs.Where(l => l.Index > CommitIndex && l.Index >= entry.LeaderCommit);
-                _stateMachine.ApplyLogsToStateMachine(allLogsToBeCommited);
+                var newLog = new LogEntry<Command>()
+                {
+                    Commands = command,
+                    Index = _nodeStorage.GetLastLogIndex() + 1,
+                    Term = _nodeStorage.CurrentTerm
+                };
+                _nodeStorage.AddLog(newLog);
+
+                while (waitForCommitment)
+                {
+                    if (CommitIndex >= newLog.Index)
+                    {
+                        return newLog.Index;
+                    }
+                    else
+                    {
+                        Thread.Sleep(10);
+                    }
+                }
+
+                return 0;
             }
-            return true;
+            else
+            {
+                return 0;
+            }
         }
 
         public State GetState()

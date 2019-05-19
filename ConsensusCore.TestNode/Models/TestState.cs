@@ -8,9 +8,11 @@ namespace ConsensusCore.TestNode.Models
 {
     public class TestState : BaseState<TestCommand>
     {
+        public List<int> Values = new List<int>();
+
         public override void ApplyCommand(TestCommand command)
         {
-            throw new NotImplementedException();
+            Values.Add(command.ValueAdd);
         }
     }
 }

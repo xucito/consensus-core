@@ -19,7 +19,8 @@ namespace ConsensusCore.Node.Utility
         {
             services.AddSingleton<Repository>();
             services.AddSingleton<NodeStorage<Command, Repository>>();
-            services.AddSingleton<ConsensusCoreNode<Command, State, Repository>>();
+            services.AddSingleton<StateMachine<Command, State>>();
+            services.AddSingleton<IConsensusCoreNode<Command, State, Repository>, ConsensusCoreNode<Command, State, Repository>>();
             services.AddTransient<NodeController<Command, State, Repository>>();
 
             services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)

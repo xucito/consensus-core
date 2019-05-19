@@ -19,7 +19,7 @@ namespace ConsensusCore.Node.Interfaces
         public Z DefaultState { get; set; }
         public Z CurrentState { get; private set; }
 
-        public StateMachine(List<LogEntry<T>> entries)
+        public StateMachine()
         {
             DefaultState = new Z();
             CurrentState = DefaultState;

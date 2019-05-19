@@ -44,7 +44,8 @@ namespace ConsensusCore.Node.Connectors
              int LastLogTerm
             )
         {
-            var result = await PostAsJsonAsync("/api/node/request-vote", new RequestVote() {
+            var result = await PostAsJsonAsync("/api/node/request-vote", new RequestVote()
+            {
                 CandidateId = CandidateId,
                 LastLogIndex = LastLogIndex,
                 Term = Term,
@@ -63,9 +64,21 @@ namespace ConsensusCore.Node.Connectors
             return await _httpClient.PostAsync(url, new StringContent(JsonConvert.SerializeObject(o), Encoding.UTF8, "application/json"));
         }
 
-        public async Task<bool> SendAppendEntry<T>(string url, AppendEntry<T> entry) where T : BaseCommand
+        public async Task<bool> SendAppendEntry<T>(int term,
+         Guid leaderId,
+         int prevLogIndex,
+         int prevLogTerm,
+         List<LogEntry<T>> entries,
+         int leaderCommit) where T : BaseCommand
         {
-            var result = await PostAsJsonAsync("/api/node/append-entry", entry);
+            var result = await PostAsJsonAsync("/api/node/append-entry", new AppendEntry<T>() {
+                Term = term,
+                LeaderId = leaderId,
+                PrevLogIndex = prevLogIndex,
+                PrevLogTerm = prevLogTerm,
+                Entries = entries,
+                LeaderCommit = leaderCommit
+            });
 
             if (result.IsSuccessStatusCode)
             {

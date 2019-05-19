@@ -23,10 +23,10 @@ namespace ConsensusCore.Node.Controllers
         where State : BaseState<Command>, new()
         where Repository : BaseRepository<Command>
     {
-        private ConsensusCoreNode<Command, State, Repository> _node;
+        private IConsensusCoreNode<Command, State, Repository> _node;
         private ILogger<NodeController<Command, State, Repository>> Logger;
 
-        public NodeController(ConsensusCoreNode<Command, State, Repository> manager, ILogger<NodeController<Command, State, Repository>> logger)
+        public NodeController(IConsensusCoreNode<Command, State, Repository> manager, ILogger<NodeController<Command, State, Repository>> logger)
         {
             _node = manager;
             Logger = logger;

@@ -20,7 +20,7 @@ namespace ConsensusCore.Node.Services
 
         public int GetLogCount()
         {
-            return Logs.Count() + 1;
+            return Logs.Count();
         }
 
         public int GetLastLogTerm()
@@ -66,6 +66,16 @@ namespace ConsensusCore.Node.Services
                 }
             }
         }
+
+        public void UpdateCurrentTerm(int newterm)
+        {
+            CurrentTerm = newterm;
+        }
+
+        public void SetVotedFor(Guid candidateId)
+        {
+            VotedFor = candidateId ;
+        }
     }
 
     public class NodeStorage<TCommand, TRepository> : NodeStorage<TCommand>, INodeStorage<TCommand, TRepository>
@@ -103,6 +113,18 @@ namespace ConsensusCore.Node.Services
             {
                 Logs.Add(log);
             }
+            _repository.SaveNodeData();
+        }
+
+        public new void UpdateCurrentTerm(int newterm)
+        {
+            CurrentTerm = newterm;
+            _repository.SaveNodeData();
+        }
+
+        public new void SetVotedFor(Guid candidateId)
+        {
+            VotedFor = candidateId;
             _repository.SaveNodeData();
         }
     }
