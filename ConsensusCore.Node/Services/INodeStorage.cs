@@ -15,8 +15,7 @@ namespace ConsensusCore.Node.Services
         double Version { get; }
         Guid? VotedFor { get; }
 
-        void AddLog(LogEntry<TCommand> log);
-        void AddLogs(List<LogEntry<TCommand>> logs);
+        int AddLog(List<TCommand> commands, int term);
         int GetLastLogTerm();
         LogEntry<TCommand> GetLogAtIndex(int logIndex);
         int GetLogCount();
@@ -33,8 +32,7 @@ namespace ConsensusCore.Node.Services
         double Version { get; }
         Guid? VotedFor { get; }
 
-        void AddLog(LogEntry<TCommand> log);
-        void AddLogs(List<LogEntry<TCommand>> logs);
+        int AddLog(List<TCommand> commands, int term);
         int GetLastLogTerm();
         LogEntry<TCommand> GetLogAtIndex(int logIndex);
         int GetLogCount();

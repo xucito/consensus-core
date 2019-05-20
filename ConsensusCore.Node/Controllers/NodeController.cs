@@ -55,7 +55,7 @@ namespace ConsensusCore.Node.Controllers
                 var isSuccess = _node.AppendEntry(entry);
                 return Ok();
             }
-            catch(ConflictingLogEntryException e)
+            catch (ConflictingLogEntryException e)
             {
                 return BadRequest(new InvalidAppendEntryResponse()
                 {
@@ -64,7 +64,7 @@ namespace ConsensusCore.Node.Controllers
                     FirstTermIndex = e.FirstTermIndex
                 });
             }
-            catch(MissingLogEntryException e)
+            catch (MissingLogEntryException e)
             {
                 return BadRequest(new InvalidAppendEntryResponse()
                 {
@@ -76,9 +76,10 @@ namespace ConsensusCore.Node.Controllers
             }
         }
 
-        [HttpPost("routed-command")]
-        public IActionResult Post([FromBody] List<Command> command)
+        [HttpPost("routed-command/{wait-for-commit?}")]
+        public IActionResult Post([FromBody] List<Command> command, [FromRoute(Name = "wait-for-commit")] bool waitForCommit = false)
         {
+            _node.AddCommand(command, waitForCommit);
             //Logger.LogInformation("Detect routed request from " + Request.HttpContext.Connection.RemoteIpAddress + ":" + Request.HttpContext.Connection.RemotePort);
             //return Ok(_node.ProcessCommandsAsync(command));
             return Ok();

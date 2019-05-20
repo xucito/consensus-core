@@ -36,10 +36,12 @@ namespace ConsensusCore.Node
         public Dictionary<string, int> MatchIndex { get; private set; } = new Dictionary<string, int>();
 
         public StateMachine<Command, State> _stateMachine { get; private set; }
-        public Guid LeaderId { get; private set; }
         public string MyUrl { get; private set; }
-        public Thread BootstrapThread;
         public bool IsBootstrapped = false;
+        public KeyValuePair<Guid?, string> CurrentLeader;
+
+        public Thread BootstrapThread;
+        private Thread _findLeaderThread;
 
         /// <summary>
         /// What logs have been commited to the state
@@ -91,7 +93,7 @@ namespace ConsensusCore.Node
             MatchIndex.Clear();
             foreach (var url in _clusterOptions.NodeUrls)
             {
-                NextIndex.Add(url, _nodeStorage.GetLogCount());
+                NextIndex.Add(url, _nodeStorage.GetLogCount() + 1);
                 MatchIndex.Add(url, 0);
             }
         }
@@ -115,7 +117,28 @@ namespace ConsensusCore.Node
                             break;
                         }
                     }
-                    Thread.Sleep(100);
+                    Thread.Sleep(10);
+                }
+            });
+        }
+
+        public Thread FindLeaderThread(Guid id)
+        {
+            return new Thread(() =>
+            {
+                while (CurrentLeader.Value == null)
+                {
+                    var nodeUrl = FindNodeUrl(id);
+                    if (nodeUrl == "")
+                    {
+                        Logger.LogWarning("Leader was not found in cluster, routing via this node may fail... will sleep and try again..");
+                        Thread.Sleep(100);
+                    }
+                    else
+                    {
+                        Logger.LogDebug("Leader was found at URL " + nodeUrl);
+                        CurrentLeader = new KeyValuePair<Guid?, string>(id, nodeUrl);
+                    }
                 }
             });
         }
@@ -131,17 +154,17 @@ namespace ConsensusCore.Node
                 {
                     var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs));
 
-                    Guid? nodeUrl = null;
+                    Guid? nodeId = null;
                     try
                     {
-                        nodeUrl = testConnector.GetNodeInfoAsync().GetAwaiter().GetResult().Id;
+                        nodeId = testConnector.GetNodeInfoAsync().GetAwaiter().GetResult().Id;
                     }
                     catch (Exception e)
                     {
                         Logger.LogWarning("Node at url " + url + " was unreachable...");
                     }
 
-                    if (nodeUrl != _nodeStorage.Id)
+                    if (nodeId != _nodeStorage.Id)
                     {
                         NodeConnectors.Add(url, testConnector);
                     }
@@ -156,6 +179,33 @@ namespace ConsensusCore.Node
                     Logger.LogWarning("Node is not discoverable from the given node urls!");
                 }
             }
+        }
+
+        public string FindNodeUrl(Guid id)
+        {
+            string nodeUrl = "";
+            Parallel.ForEach(NodeConnectors, (connector, state) =>
+            {
+                try
+                {
+                    var nodeId = connector.Value.GetNodeInfoAsync().GetAwaiter().GetResult().Id;
+                    if (nodeId == id)
+                    {
+                        nodeUrl = connector.Key;
+                        state.Break();
+                    }
+                }
+                catch (Exception e)
+                {
+                    //Logger.LogWarning("Error finding node " + id.ToString());
+                }
+            });
+
+            if (nodeUrl == "")
+            {
+                Logger.LogWarning("Could not find node " + id.ToString());
+            }
+            return nodeUrl;
         }
 
         public void ElectionTimeoutEventHandler(object args)
@@ -188,7 +238,6 @@ namespace ConsensusCore.Node
                 if (totalVotes >= _clusterOptions.MinimumNodes)
                 {
                     Logger.LogInformation("Recieved enough votes to be promoted, promoting to leader.");
-                    LeaderId = LeaderId;
                     SetNodeRole(NodeState.Leader);
                 }
             }
@@ -217,7 +266,8 @@ namespace ConsensusCore.Node
 
                     if (NextIndex[connector.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0)
                     {
-                        entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
+                        entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[connector.Key] - 1, _nodeStorage.GetLogCount() - NextIndex[connector.Key] + 1).ToList();
+                       // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
                         Logger.LogDebug("Detected node " + connector.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
                     }
 
@@ -235,17 +285,16 @@ namespace ConsensusCore.Node
                     Logger.LogWarning("Detected node " + connector.Value + " has conflicting values, reverting to " + revertedIndex);
 
                     //Revert back to the first index of that term
-                    MatchIndex[connector.Key] = revertedIndex;
+                    NextIndex[connector.Key] = revertedIndex;
                 }
                 catch (MissingLogEntryException e)
                 {
                     Logger.LogWarning("Detected node " + connector.Value + " is missing the previous log, sending logs from log " + e.LastLogEntryIndex + 1);
-                    MatchIndex[connector.Key] = e.LastLogEntryIndex + 1;
+                    NextIndex[connector.Key] = e.LastLogEntryIndex + 1;
                 }
                 catch (Exception e)
                 {
                     Logger.LogWarning("Encountered error while sending heartbeat to node " + connector.Key + ", request failed with error \"" + e.Message + "\"" + e.StackTrace);
-
                 }
             });
         }
@@ -268,6 +317,7 @@ namespace ConsensusCore.Node
                         StopTimer(_heartbeatTimer);
                         break;
                     case NodeState.Leader:
+                        CurrentLeader = new KeyValuePair<Guid?, string>(_nodeStorage.Id, MyUrl);
                         ResetLeaderState();
                         ResetTimer(_heartbeatTimer, _clusterOptions.ElectionTimeoutMs - _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs - _clusterOptions.LatencyToleranceMs);
                         StopTimer(_electionTimeoutTimer);
@@ -338,9 +388,19 @@ namespace ConsensusCore.Node
                     };
                 }
 
+                if (CurrentLeader.Key != entry.LeaderId)
+                {
+                    Logger.LogDebug("Detected uncontacted leader, discovering leader now.");
+                    _findLeaderThread = FindLeaderThread(entry.LeaderId);
+                    _findLeaderThread.Start();
+                }
+
                 SetNodeRole(NodeState.Follower);
 
-                _nodeStorage.AddLogs(entry.Entries);
+                foreach(var log in entry.Entries)
+                {
+                    _nodeStorage.AddLog(log.Commands, entry.Term);
+                }
 
                 if (CommitIndex < entry.LeaderCommit)
                 {
@@ -354,7 +414,7 @@ namespace ConsensusCore.Node
             return false;
         }
 
-        public int AddCommand(List<Command> command, bool waitForCommitment = false)
+        public int AddCommand(List<Command> command, bool waitForCommit = false)
         {
             if (CurrentState == NodeState.Leader)
             {
@@ -364,9 +424,9 @@ namespace ConsensusCore.Node
                     Index = _nodeStorage.GetLastLogIndex() + 1,
                     Term = _nodeStorage.CurrentTerm
                 };
-                _nodeStorage.AddLog(newLog);
+                _nodeStorage.AddLog(command, _nodeStorage.CurrentTerm);
 
-                while (waitForCommitment)
+                while (waitForCommit)
                 {
                     if (CommitIndex >= newLog.Index)
                     {
@@ -382,6 +442,8 @@ namespace ConsensusCore.Node
             }
             else
             {
+                Logger.LogDebug("Recieved command but current state is " + CurrentState.ToString() + " routing to leader " + CurrentLeader.Key);
+                NodeConnectors[CurrentLeader.Value].RouteCommands<Command>(command, waitForCommit).GetAwaiter().GetResult();
                 return 0;
             }
         }

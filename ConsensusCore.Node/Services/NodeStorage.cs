@@ -17,6 +17,7 @@ namespace ConsensusCore.Node.Services
         public int CurrentTerm { get; set; } = 0;
         public Guid? VotedFor { get; set; } = null;
         public List<LogEntry<TCommand>> Logs { get; set; } = new List<LogEntry<TCommand>>();
+        public readonly object _locker = new object();
 
         public int GetLogCount()
         {
@@ -45,26 +46,35 @@ namespace ConsensusCore.Node.Services
 
         public LogEntry<TCommand> GetLogAtIndex(int logIndex)
         {
-            return Logs.Where(l => l.Index == logIndex).FirstOrDefault();
-        }
-
-        public void AddLog(LogEntry<TCommand> log)
-        {
-            if (Logs.Where(l => l.Index == log.Index && l.Term == log.Term).Count() == 0)
+            if(logIndex == 0 || Logs.Count() < logIndex)
             {
-                Logs.Add(log);
+                return null;
+            }
+            var log = Logs[logIndex - 1];
+            if (log.Index == logIndex)
+            {
+                return log;
+            }
+            else
+            {
+                return Logs.Where(l => l.Index == logIndex).FirstOrDefault();
             }
         }
 
-        public void AddLogs(List<LogEntry<TCommand>> logs)
+        public int AddLog(List<TCommand> commands, int term)
         {
-            foreach (var log in logs)
+            int index;
+            lock (_locker)
             {
-                if (Logs.Where(l => l.Index == log.Index && l.Term == log.Term).Count() == 0)
+                index = Logs.Count() + 1;
+                Logs.Add(new LogEntry<TCommand>()
                 {
-                    Logs.Add(log);
-                }
+                    Commands = commands,
+                    Term = term,
+                    Index = index
+                });
             }
+            return index;
         }
 
         public void UpdateCurrentTerm(int newterm)
@@ -74,7 +84,7 @@ namespace ConsensusCore.Node.Services
 
         public void SetVotedFor(Guid candidateId)
         {
-            VotedFor = candidateId ;
+            VotedFor = candidateId;
         }
     }
 
@@ -95,25 +105,21 @@ namespace ConsensusCore.Node.Services
             VotedFor = storedData.VotedFor;
         }
 
-        public new void AddLogs(List<LogEntry<TCommand>> logs)
+        public new int AddLog(List<TCommand> commands, int term)
         {
-            foreach (var log in logs)
+            int index;
+            lock (_locker)
             {
-                if (Logs.Where(l => l.Index == log.Index && l.Term == log.Term).Count() == 0)
+                index = Logs.Count() + 1;
+                Logs.Add(new LogEntry<TCommand>()
                 {
-                    Logs.Add(log);
-                }
+                    Commands = commands,
+                    Term = term,
+                    Index = index
+                });
             }
             _repository.SaveNodeData();
-        }
-
-        public new void AddLog(LogEntry<TCommand> log)
-        {
-            if (Logs.Where(l => l.Index == log.Index && l.Term == log.Term).Count() == 0)
-            {
-                Logs.Add(log);
-            }
-            _repository.SaveNodeData();
+            return index;
         }
 
         public new void UpdateCurrentTerm(int newterm)

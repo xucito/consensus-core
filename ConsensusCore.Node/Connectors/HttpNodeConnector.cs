@@ -71,7 +71,8 @@ namespace ConsensusCore.Node.Connectors
          List<LogEntry<T>> entries,
          int leaderCommit) where T : BaseCommand
         {
-            var result = await PostAsJsonAsync("/api/node/append-entry", new AppendEntry<T>() {
+            var result = await PostAsJsonAsync("/api/node/append-entry", new AppendEntry<T>()
+            {
                 Term = term,
                 LeaderId = leaderId,
                 PrevLogIndex = prevLogIndex,
@@ -107,9 +108,9 @@ namespace ConsensusCore.Node.Connectors
             return false;
         }
 
-        public async Task<VoteReply> RouteCommands<T>(string url, List<T> entry)
+        public async Task<VoteReply> RouteCommands<T>(List<T> entry, bool waitForCommit = false)
         {
-            var result = await PostAsJsonAsync("/api/node/routed-command", entry);
+            var result = await PostAsJsonAsync("/api/node/routed-command" + (waitForCommit ? "?wait-for-commit=true" : ""), entry);
 
             if (result.IsSuccessStatusCode)
             {

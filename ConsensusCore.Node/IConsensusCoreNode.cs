@@ -18,7 +18,6 @@ namespace ConsensusCore.Node
         StateMachine<Command, State> _stateMachine { get; }
         int CommitIndex { get; }
         NodeState CurrentState { get; }
-        Guid LeaderId { get; }
         ILogger<ConsensusCoreNode<Command, State, Repository>> Logger { get; }
         string MyUrl { get; }
         Dictionary<string, HttpNodeConnector> NodeConnectors { get; }
@@ -26,7 +25,7 @@ namespace ConsensusCore.Node
         Dictionary<string, int> NextIndex { get; }
         Dictionary<string, int> MatchIndex { get; }
 
-        int AddCommand(List<Command> command, bool awaitCommitment = false);
+        int AddCommand(List<Command> command, bool waitForCommit = false);
         bool AppendEntry(AppendEntry<Command> entry);
         void BootstrapNode();
         void ElectionTimeoutEventHandler(object args);
