@@ -9,21 +9,20 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Repositories
 {
-    public class NodeInMemoryRepository<TCommand> : BaseRepository<TCommand>
-        where TCommand : BaseCommand
+    public class NodeInMemoryRepository : BaseRepository
     {
         public NodeInMemoryRepository()
         {
 
         }
 
-        public override NodeStorage<TCommand> LoadNodeData()
+        public override NodeStorage LoadNodeData()
         {
-            return new NodeStorage<TCommand>()
+            return new NodeStorage()
             {
                 Id = Guid.NewGuid(),
                 CurrentTerm = 0,
-                Logs = new List<LogEntry<TCommand>>(),
+                Logs = new List<LogEntry>(),
                 Name = "",
                 Version = 1.0
             };

@@ -11,9 +11,6 @@ namespace ConsensusCore.TestNode.Models
     {
         public int ValueAdd;
 
-        public override bool IsEqual(LogEntry<BaseCommand> comparedEntry)
-        {
-            throw new NotImplementedException();
-        }
+        public override string CommandName => "TEST";
     }
 }

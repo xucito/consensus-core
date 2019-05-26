@@ -6,7 +6,6 @@ using ConsensusCore.Node.BaseClasses;
 using ConsensusCore.Node.Enums;
 using ConsensusCore.Node.Exceptions;
 using ConsensusCore.Node.Interfaces;
-using ConsensusCore.Node.Messages;
 using ConsensusCore.Node.Models;
 using ConsensusCore.Node.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -18,15 +17,14 @@ namespace ConsensusCore.Node.Controllers
 {
     [Route("api/node")]
     //[GenericController]
-    public class NodeController<Command, State, Repository> : Controller
-        where Command : BaseCommand
-        where State : BaseState<Command>, new()
-        where Repository : BaseRepository<Command>
+    public class NodeController<State, Repository> : Controller
+        where State : BaseState, new()
+        where Repository : BaseRepository
     {
-        private IConsensusCoreNode<Command, State, Repository> _node;
-        private ILogger<NodeController<Command, State, Repository>> Logger;
+        private IConsensusCoreNode<State, Repository> _node;
+        private ILogger<NodeController<State, Repository>> Logger;
 
-        public NodeController(IConsensusCoreNode<Command, State, Repository> manager, ILogger<NodeController<Command, State, Repository>> logger)
+        public NodeController(IConsensusCoreNode<State, Repository> manager, ILogger<NodeController<State, Repository>> logger)
         {
             _node = manager;
             Logger = logger;
@@ -38,6 +36,12 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_node.NodeInfo);
         }
 
+        [HttpPost("RPC")]
+        public IActionResult PostRPC([FromBody]IClusterRequest<object> request)
+        {
+            return Ok(_node.Send(request));
+        }
+        /*
         [HttpPost("request-vote")]
         public IActionResult PostRequestVote([FromBody] RequestVote vote)
         {
@@ -48,7 +52,7 @@ namespace ConsensusCore.Node.Controllers
         }
 
         [HttpPost("append-entry")]
-        public IActionResult PostAppendEntry([FromBody]AppendEntry<Command> entry)
+        public IActionResult PostAppendEntry([FromBody]AppendEntry entry)
         {
             try
             {
@@ -75,20 +79,54 @@ namespace ConsensusCore.Node.Controllers
                 });
             }
         }
+        
 
-        [HttpPost("routed-command/{wait-for-commit?}")]
-        public IActionResult Post([FromBody] List<Command> command, [FromRoute(Name = "wait-for-commit")] bool waitForCommit = false)
+
+        /// <summary>
+        /// Allocate a shard to this noce
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="type"></param>
+        /// <param name="shardId"></param>
+        /// <returns></returns>
+        [HttpPost("assign-shard-command/{type}/{id}")]
+        public IActionResult Post([FromBody] AssignDataShard shard)
         {
-            _node.AddCommand(command, waitForCommit);
-            //Logger.LogInformation("Detect routed request from " + Request.HttpContext.Connection.RemoteIpAddress + ":" + Request.HttpContext.Connection.RemotePort);
-            //return Ok(_node.ProcessCommandsAsync(command));
+            _node.AssignDataShard(shard);
             return Ok();
+        }
+
+        [HttpPost("routed-request")]
+        public IActionResult HandleRouteDataShardRequest([FromBody] BaseRequest request)
+        {
+            switch (request)
+            {
+                case ProcessCommandsRequest t1:
+                    return Ok(_node.Send((ProcessCommandsRequest) request));
+                case CreateDataShardRequest t1:
+                    return Ok(_node.CreateNewShardRequestHandler((CreateDataShardRequest)request));
+            }
+            return BadRequest("Request did not match a valid routed-request");
         }
 
         [HttpPut("{id}")]
         public void Put(int id, [FromBody]string value)
         {
         }
+
+        [HttpGet("state")]
+        public IActionResult GetState()
+        {
+            return Ok(_node.GetState());
+        }
+
+        [HttpGet("shards/{type}/{id}")]
+        public IActionResult GetData(string type, Guid id)
+        {
+            return Ok(_node.GetData(id, type));
+        }
+    }
+    */
 
         [HttpGet("state")]
         public IActionResult GetState()

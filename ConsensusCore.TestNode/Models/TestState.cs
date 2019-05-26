@@ -6,13 +6,19 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.TestNode.Models
 {
-    public class TestState : BaseState<TestCommand>
+    public class TestState : BaseState
     {
         public List<int> Values = new List<int>();
 
-        public override void ApplyCommand(TestCommand command)
+        public override void ApplyCommandToState(BaseCommand command)
         {
-            Values.Add(command.ValueAdd);
+            switch(command)
+            {
+                case TestCommand t1:
+                    TestCommand testCommand = (TestCommand)command;
+                    Values.Add(testCommand.ValueAdd);
+                    break;
+            }
         }
     }
 }

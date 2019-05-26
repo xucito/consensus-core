@@ -12,21 +12,19 @@ namespace ConsensusCore.Node.Utility
 {
     public static class StartupExtensions
     {
-        public static void AddConsensusCore<Command, State, Repository>(this IServiceCollection services)
-            where Command : BaseCommand
-            where State : BaseState<Command>, new()
-            where Repository : BaseRepository<Command>
+        public static void AddConsensusCore<State, Repository>(this IServiceCollection services)
+            where State : BaseState, new()
+            where Repository : BaseRepository
         {
             services.AddSingleton<Repository>();
-            services.AddSingleton<NodeStorage<Command, Repository>>();
-            services.AddSingleton<StateMachine<Command, State>>();
-            services.AddSingleton<IConsensusCoreNode<Command, State, Repository>, ConsensusCoreNode<Command, State, Repository>>();
-            services.AddTransient<NodeController<Command, State, Repository>>();
+            services.AddSingleton<NodeStorage>();
+            services.AddSingleton<StateMachine<State>>();
+            services.AddSingleton<IConsensusCoreNode<State, Repository>, ConsensusCoreNode<State, Repository>>();
+            services.AddTransient<NodeController<State, Repository>>();
 
             services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
                 .ConfigureApplicationPartManager(apm =>
                     apm.ApplicationParts.Add(new NodeControllerApplicationPart(new Type[] {
-                       typeof(Command),
                         typeof(State),
                         typeof(Repository)
                     })));

@@ -8,16 +8,28 @@ using System.Text;
 
 namespace ConsensusCore.Node.Services
 {
-    public class NodeStorage<TCommand> : INodeStorage<TCommand>
-        where TCommand : BaseCommand
+    public class NodeStorage
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public string Name { get; set; }
         public double Version { get; set; } = 1.0;
         public int CurrentTerm { get; set; } = 0;
         public Guid? VotedFor { get; set; } = null;
-        public List<LogEntry<TCommand>> Logs { get; set; } = new List<LogEntry<TCommand>>();
+        public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
         public readonly object _locker = new object();
+        private BaseRepository _repository;
+
+        public NodeStorage()
+        {
+
+        }
+
+
+        public NodeStorage(BaseRepository repository)
+        {
+            _repository = repository;
+            var storedData = _repository.LoadNodeData();
+        }
 
         public int GetLogCount()
         {
@@ -44,9 +56,11 @@ namespace ConsensusCore.Node.Services
             return 0;
         }
 
-        public LogEntry<TCommand> GetLogAtIndex(int logIndex)
+
+
+        public LogEntry GetLogAtIndex(int logIndex)
         {
-            if(logIndex == 0 || Logs.Count() < logIndex)
+            if (logIndex == 0 || Logs.Count() < logIndex)
             {
                 return null;
             }
@@ -61,77 +75,49 @@ namespace ConsensusCore.Node.Services
             }
         }
 
-        public int AddLog(List<TCommand> commands, int term)
+        public int AddLog(List<BaseCommand> commands, int term)
         {
             int index;
             lock (_locker)
             {
                 index = Logs.Count() + 1;
-                Logs.Add(new LogEntry<TCommand>()
+                Logs.Add(new LogEntry()
                 {
                     Commands = commands,
                     Term = term,
                     Index = index
                 });
             }
+
+            if (_repository != null)
+                _repository.SaveNodeData();
+
             return index;
         }
 
         public void UpdateCurrentTerm(int newterm)
         {
             CurrentTerm = newterm;
+
+            if (_repository != null)
+                _repository.SaveNodeData();
         }
 
         public void SetVotedFor(Guid candidateId)
-        {
+        { 
             VotedFor = candidateId;
-        }
-    }
-
-    public class NodeStorage<TCommand, TRepository> : NodeStorage<TCommand>, INodeStorage<TCommand, TRepository>
-        where TCommand : BaseCommand
-        where TRepository : BaseRepository<TCommand>
-    {
-        private TRepository _repository;
-
-        public NodeStorage(TRepository repository)
-        {
-            _repository = repository;
-            var storedData = _repository.LoadNodeData();
-            Id = storedData.Id;
-            Name = storedData.Name;
-            Version = storedData.Version;
-            CurrentTerm = storedData.CurrentTerm;
-            VotedFor = storedData.VotedFor;
+            if (_repository != null)
+                _repository.SaveNodeData();
         }
 
-        public new int AddLog(List<TCommand> commands, int term)
+        public void DeleteLogsFromIndex(int index)
         {
-            int index;
             lock (_locker)
             {
-                index = Logs.Count() + 1;
-                Logs.Add(new LogEntry<TCommand>()
-                {
-                    Commands = commands,
-                    Term = term,
-                    Index = index
-                });
+                Logs.RemoveRange(index + 1, Logs.Count() - index - 1);
+                if (_repository != null)
+                    _repository.SaveNodeData();
             }
-            _repository.SaveNodeData();
-            return index;
-        }
-
-        public new void UpdateCurrentTerm(int newterm)
-        {
-            CurrentTerm = newterm;
-            _repository.SaveNodeData();
-        }
-
-        public new void SetVotedFor(Guid candidateId)
-        {
-            VotedFor = candidateId;
-            _repository.SaveNodeData();
         }
     }
 }

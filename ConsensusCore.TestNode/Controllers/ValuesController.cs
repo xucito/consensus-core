@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
+using ConsensusCore.Node.RPCs;
+using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,23 +15,43 @@ namespace ConsensusCore.TestNode.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        IConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>> _node;
+        IConsensusCoreNode<TestState, NodeInMemoryRepository> _node;
 
-        public ValuesController(IConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>> node)
+        public ValuesController(IConsensusCoreNode<TestState, NodeInMemoryRepository> node)
         {
             _node = node;
         }
         // POST api/values
         [HttpPost]
-        public void Post([FromBody] int value)
+        public IActionResult Post([FromBody] int value)
         {
-            _node.AddCommand(new List<TestCommand>()
+            return Ok(_node.Send(new WriteDataShard()
             {
-                new TestCommand()
-                {
-                    ValueAdd = value
-                }
-            }, true);
+                Data = value,
+                Type = "number",
+                ShardId = null,
+                WaitForSafeWrite = true
+            }));
+        }
+
+        [HttpGet("{id}")]
+        public IActionResult GetNumber(Guid id)
+        {
+            return Ok(_node.GetData(id, "number"));
+        }
+
+        [HttpPut("{id}")]
+        public void UpdateValue(Guid id, [FromBody] int value)
+        {
+            _node.Send(new WriteDataShard()
+            {
+                Data = value,
+                ShardId = id,
+                Type = "number",
+                WaitForSafeWrite = true
+                //Need to pull the previous version
+            });
+            // _node.UpdateShardCommand(id, "number", value);
         }
     }
 }

@@ -1,7 +1,6 @@
 ﻿using ConsensusCore.Node.BaseClasses;
 using ConsensusCore.Node.Enums;
 using ConsensusCore.Node.Exceptions;
-using ConsensusCore.Node.Messages;
 using ConsensusCore.Node.Models;
 using Newtonsoft.Json;
 using System;
@@ -37,6 +36,25 @@ namespace ConsensusCore.Node.Connectors
             return null;
         }
 
+        public async Task<HttpResponseMessage> PostAsJsonAsync(string url, object o)
+        {
+            return await _httpClient.PostAsync(url, new StringContent(JsonConvert.SerializeObject(o), Encoding.UTF8, "application/json"));
+        }
+
+        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request)
+        {
+            var result = await PostAsJsonAsync("/api/node/RPC", request);
+
+            if(result.IsSuccessStatusCode)
+            {
+                 return JsonConvert.DeserializeObject<TResponse>(await result.Content.ReadAsStringAsync());
+            }
+
+            throw new Exception("Failed to send request.");
+        }
+
+        /*
+
         public async Task<VoteReply> SendRequestVote(
              int Term,
              Guid CandidateId,
@@ -64,14 +82,14 @@ namespace ConsensusCore.Node.Connectors
             return await _httpClient.PostAsync(url, new StringContent(JsonConvert.SerializeObject(o), Encoding.UTF8, "application/json"));
         }
 
-        public async Task<bool> SendAppendEntry<T>(int term,
+        public async Task<bool> SendAppendEntry(int term,
          Guid leaderId,
          int prevLogIndex,
          int prevLogTerm,
-         List<LogEntry<T>> entries,
-         int leaderCommit) where T : BaseCommand
+         List<LogEntry> entries,
+         int leaderCommit)
         {
-            var result = await PostAsJsonAsync("/api/node/append-entry", new AppendEntry<T>()
+            var result = await PostAsJsonAsync("/api/node/append-entry", new AppendEntry()
             {
                 Term = term,
                 LeaderId = leaderId,
@@ -108,7 +126,7 @@ namespace ConsensusCore.Node.Connectors
             return false;
         }
 
-        public async Task<VoteReply> RouteCommands<T>(List<T> entry, bool waitForCommit = false)
+        public async Task<VoteReply> RouteCommand<T>(List<T> entry, bool waitForCommit = false)
         {
             var result = await PostAsJsonAsync("/api/node/routed-command" + (waitForCommit ? "?wait-for-commit=true" : ""), entry);
 
@@ -119,5 +137,28 @@ namespace ConsensusCore.Node.Connectors
 
             return null;
         }
+
+        public async Task<bool> AssignShardAsync(AssignDataShard assignDataShard)
+        {
+            var result = await PostAsJsonAsync("/api/node/assign-shard-command/" + assignDataShard.Type + "/" + assignDataShard.ShardId, assignDataShard);
+
+            if (result.IsSuccessStatusCode)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public async Task<object> GetDataShard(string type,Guid shardId)
+        {
+            var result = await _httpClient.GetAsync("/api/node/shards" + type + "/" + shardId);
+            if (result.IsSuccessStatusCode)
+            {
+                return JsonConvert.DeserializeObject<object>(await result.Content.ReadAsStringAsync());
+            }
+            return null;
+        }
+        */
     }
 }

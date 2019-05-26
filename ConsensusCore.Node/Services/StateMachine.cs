@@ -12,9 +12,8 @@ namespace ConsensusCore.Node.Interfaces
     /// </summary>
     /// <typeparam name="T">Logs used to playback the state of the cluster</typeparam>
     /// <typeparam name="Z">Object representating the current state of the cluster</typeparam>
-    public class StateMachine<T, Z>
-        where T : BaseCommand
-        where Z : BaseState<T>, new()
+    public class StateMachine<Z>
+        where Z : BaseState, new()
     {
         public Z DefaultState { get; set; }
         public Z CurrentState { get; private set; }
@@ -25,7 +24,7 @@ namespace ConsensusCore.Node.Interfaces
             CurrentState = DefaultState;
         }
 
-        public void ApplyLogToStateMachine(LogEntry<T> entry)
+        public void ApplyLogToStateMachine(LogEntry entry)
         {
             foreach (var command in entry.Commands)
             {
@@ -33,7 +32,7 @@ namespace ConsensusCore.Node.Interfaces
             }
         }
 
-        public void ApplyLogsToStateMachine(IEnumerable<LogEntry<T>> entries)
+        public void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries)
         {
             foreach (var entry in entries.OrderBy(c => c.Index))
             {
@@ -47,6 +46,37 @@ namespace ConsensusCore.Node.Interfaces
         public Z GetCurrentState()
         {
             return CurrentState;
+        }
+
+        public bool ShardIsAssignedToNode(Guid shardId, Guid nodeId)
+        {
+            return CurrentState.Shards[shardId].Allocations.ContainsKey(nodeId);
+        }
+
+        public bool ShardIsPrimaryOnNode(Guid shardId, Guid nodeId)
+        {
+            return CurrentState.Shards[shardId].PrimaryAllocation == nodeId;
+        }
+
+        public bool ShardExists(Guid shardId)
+        {
+            return CurrentState.Shards.ContainsKey(shardId);
+        }
+
+        public bool NodeHasOlderShard(Guid nodeId, Guid shardId, int newVersion)
+        {
+            return CurrentState.Shards[shardId].Allocations[nodeId] < newVersion;
+        }
+
+        public bool NodeHasShardLatestVersion(Guid nodeId, Guid shardId)
+        {
+            return AllNodesWithUptoDateShard(shardId).Contains(nodeId);
+        }
+
+        public Guid[] AllNodesWithUptoDateShard(Guid shardId)
+        {
+            var latestVersion = CurrentState.Shards[shardId].Version;
+            return  CurrentState.Shards[shardId].Allocations.Where(a => a.Value == latestVersion).Select(s => s.Key).ToArray();
         }
     }
 }

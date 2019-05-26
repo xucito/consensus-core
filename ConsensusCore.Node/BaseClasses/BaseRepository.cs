@@ -5,10 +5,9 @@ using System.Text;
 
 namespace ConsensusCore.Node.BaseClasses
 {
-    public abstract class BaseRepository<Command> : IBaseRepository<Command>
-        where Command : BaseCommand
+    public abstract class BaseRepository
     {
         public abstract void SaveNodeData();
-        public abstract NodeStorage<Command> LoadNodeData();
+        public abstract NodeStorage LoadNodeData();
     }
 }
