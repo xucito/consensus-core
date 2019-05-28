@@ -7,7 +7,7 @@ namespace ConsensusCore.Node.RPCs
 {
     public class RequestDataShard : BaseRequest<RequestDataShardResponse>
     {
-        public Guid ShardId { get; set; }
+        public Guid ObjectId { get; set; }
         public string Type { get; set; }
 
         public override string RequestName => "GetDataShard";

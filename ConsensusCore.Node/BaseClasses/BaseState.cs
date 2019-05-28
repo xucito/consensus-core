@@ -44,15 +44,19 @@ namespace ConsensusCore.Node.BaseClasses
                         Nodes.Remove(deleteCommand.Id);
                     }
                     break;
-                case UpsertDataShardInformation t1:
-                    UpsertDataShardInformation updateShardCommand = (UpsertDataShardInformation)command;
+                case CreateDataShardInformation t1:
+                    CreateDataShardInformation updateShardCommand = (CreateDataShardInformation)command;
                     var newShardmetadata = new ShardMetadata()
                     {
                         Type = updateShardCommand.Type,
                         PrimaryAllocation = updateShardCommand.PrimaryAllocation,
                         Version = updateShardCommand.Version,
                         Initalized = updateShardCommand.Initalized,
-                        Allocations = updateShardCommand.Allocations
+                        Allocations = updateShardCommand.Allocations,
+                        DataTable = new Dictionary<Guid, DataStates>(),
+                        ShardNumber = t1.ShardNumber,
+                        MaxSize = t1.MaxSize,
+                        Id = t1.ShardId
                     };
 
                     if (Shards.ContainsKey(updateShardCommand.ShardId))
@@ -64,41 +68,69 @@ namespace ConsensusCore.Node.BaseClasses
                         Shards.Add(updateShardCommand.ShardId, newShardmetadata);
                     }
                     break;
-                case UpdateShardAllocation t1:
-                    UpdateShardAllocation updateShardAllocation = (UpdateShardAllocation)command;
-                    if (updateShardAllocation.Version == -1)
+                case UpdateShard t1:
+                    switch (t1.Action)
+                    {
+                        case UpdateShardAction.Append:
+                            Shards[t1.ShardId].DataTable.Add(t1.ObjectId, DataStates.Assigned);
+                            break;
+                        case UpdateShardAction.Delete:
+                            Shards[t1.ShardId].DataTable.Remove(t1.ObjectId);
+                            break;
+                        case UpdateShardAction.Update:
+                            throw new Exception("TO DO NOT IMPLEMENTED");
+                        case UpdateShardAction.Initialize:
+                            Shards[t1.ShardId].DataTable[t1.ObjectId] = DataStates.Initialized;
+                            break;
+                    }
+                    //Only the primary can update version so it's assumed the primary has written this
+
+                    if (Shards.ContainsKey(t1.ShardId))
+                    {
+                        if (Shards[t1.ShardId].Allocations.ContainsKey(Shards[t1.ShardId].PrimaryAllocation))
+                        {
+                            Shards[t1.ShardId].Allocations[Shards[t1.ShardId].PrimaryAllocation] = Shards[t1.ShardId].Version + 1;
+                        }
+                        else
+                        {
+                            Shards[t1.ShardId].Allocations.Add(Shards[t1.ShardId].PrimaryAllocation, Shards[t1.ShardId].Version + 1);
+                        }
+
+                        //There is a split second where the update may not happen
+                        Shards[t1.ShardId].Version++;
+                    }
+                    break;
+                /*
+                if (updateShardAllocation.Version == -1)
+                {
+                    if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
+                    {
+                        Shards[updateShardAllocation.ShardId].Allocations.Remove(updateShardAllocation.NodeId);
+                    }
+                }
+                //Update the version or add the allocation
+                else
+                {
+                    if (Shards.ContainsKey(updateShardAllocation.ShardId))
                     {
                         if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
                         {
-                            Shards[updateShardAllocation.ShardId].Allocations.Remove(updateShardAllocation.NodeId);
+                            Shards[updateShardAllocation.ShardId].Allocations[updateShardAllocation.NodeId] = updateShardAllocation.Version;
                         }
-                    }
-                    //Update the version or add the allocation
-                    else
-                    {
-                        if (Shards.ContainsKey(updateShardAllocation.ShardId))
+                        else
                         {
+                            Shards[updateShardAllocation.ShardId].Allocations.Add(updateShardAllocation.NodeId, updateShardAllocation.Version);
+                        }
 
+                        //There is a split second where the update may not happen
 
-
-                            if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
-                            {
-                                Shards[updateShardAllocation.ShardId].Allocations[updateShardAllocation.NodeId] = updateShardAllocation.Version;
-                            }
-                            else
-                            {
-                                Shards[updateShardAllocation.ShardId].Allocations.Add(updateShardAllocation.NodeId, updateShardAllocation.Version);
-                            }
-
-                            //There is a split second where the update may not happen
-
-                            if (updateShardAllocation.Version > Shards[updateShardAllocation.ShardId].Version)
-                            {
-                                Shards[updateShardAllocation.ShardId].Version = updateShardAllocation.Version;
-                            }
+                        if (updateShardAllocation.Version > Shards[updateShardAllocation.ShardId].Version)
+                        {
+                            Shards[updateShardAllocation.ShardId].Version = updateShardAllocation.Version;
                         }
                     }
-                    break;
+                }
+                break;*/
                 default:
                     ApplyCommandToState(command);
                     break;

@@ -68,6 +68,20 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Shards[shardId].Allocations[nodeId] < newVersion;
         }
 
+        public Guid? GetShardContainingObject(Guid objectId, string type)
+        {
+            var shards = CurrentState.Shards.Where(s => s.Value.DataTable.ContainsKey(objectId)).Select(s => s.Key);
+
+            if(shards.Count() == 0)
+            {
+                return null;
+            }
+            else
+            {
+                return shards.First();
+            }
+        }
+
         public bool NodeHasShardLatestVersion(Guid nodeId, Guid shardId)
         {
             return AllNodesWithUptoDateShard(shardId).Contains(nodeId);
@@ -87,6 +101,23 @@ namespace ConsensusCore.Node.Interfaces
         public int? GetLatestShardVersion(Guid shardId)
         {
             return CurrentState.Shards[shardId].Version;
+        }
+
+        public bool ShardTypeExists(string type)
+        {
+            return CurrentState.Shards.Where(s => s.Value.Type == type).Count() > 0;
+        }
+
+        public bool WritableShardExists(string type, out ShardMetadata lastShard)
+        {
+            var latestShard = CurrentState.Shards.Where(s => s.Value.Type == type).OrderByDescending(s => s.Value.ShardNumber);
+            if (latestShard.Count() == 0)
+            {
+                lastShard = null;
+                return false;
+            }
+            lastShard = latestShard.First().Value;
+            return latestShard.First().Value.DataTable.Count() < latestShard.First().Value.MaxSize;
         }
 
         public int TotalShards { get { return CurrentState.Shards.Count(); } }

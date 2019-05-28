@@ -53,7 +53,7 @@ namespace ConsensusCore.Node.Connectors
 
             switch (request)
             {
-                case WriteDataShard t1:
+                case WriteData t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
                 default:

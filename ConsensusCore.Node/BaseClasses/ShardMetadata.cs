@@ -14,10 +14,18 @@ namespace ConsensusCore.Node.BaseClasses
         // Whether the shard has been successfully created with first version of data
         public bool Initalized { get; set; }
         /// <summary>
-        /// Ids of what record is being stored here in this data shard
+        /// Ids of what record is being stored here in this data shard and whether it has been confirmed to be written for the first time to a primary
         /// </summary>
-        public Dictionary<Guid, int> DataTable { get; set; } 
+        public Dictionary<Guid, DataStates> DataTable { get; set; } 
         public int MaxSize { get; set; }
         public int ShardNumber { get; set; }
+        public Guid Id { get; set; }
+    }
+
+    public enum DataStates
+    {
+        Assigned,
+        Initialized,
+        MarkedForDeletion
     }
 }

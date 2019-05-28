@@ -25,11 +25,10 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpPost]
         public IActionResult Post([FromBody] int value)
         {
-            var result = (_node.Send(new WriteDataShard()
+            var result = (_node.Send(new WriteData()
             {
                 Data = value,
                 Type = "number",
-                ShardId = null,
                 WaitForSafeWrite = true
             }));
 
@@ -48,12 +47,12 @@ namespace ConsensusCore.TestNode.Controllers
         {
             return Ok(_node.Send(new RequestDataShard()
             {
-                ShardId = id,
+                ObjectId = id,
                 Type = "number"
             }));
         }
 
-        [HttpPut("{id}")]
+       /* [HttpPut("{id}")]
         public void UpdateValue(Guid id, [FromBody] int value)
         {
             var result = _node.Send(new WriteDataShard()
@@ -65,6 +64,6 @@ namespace ConsensusCore.TestNode.Controllers
                 //Need to pull the previous version
             });
             // _node.UpdateShardCommand(id, "number", value);
-        }
+        }*/
     }
 }
