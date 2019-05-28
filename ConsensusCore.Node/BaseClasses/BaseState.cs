@@ -64,6 +64,41 @@ namespace ConsensusCore.Node.BaseClasses
                         Shards.Add(updateShardCommand.ShardId, newShardmetadata);
                     }
                     break;
+                case UpdateShardAllocation t1:
+                    UpdateShardAllocation updateShardAllocation = (UpdateShardAllocation)command;
+                    if (updateShardAllocation.Version == -1)
+                    {
+                        if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
+                        {
+                            Shards[updateShardAllocation.ShardId].Allocations.Remove(updateShardAllocation.NodeId);
+                        }
+                    }
+                    //Update the version or add the allocation
+                    else
+                    {
+                        if (Shards.ContainsKey(updateShardAllocation.ShardId))
+                        {
+
+
+
+                            if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
+                            {
+                                Shards[updateShardAllocation.ShardId].Allocations[updateShardAllocation.NodeId] = updateShardAllocation.Version;
+                            }
+                            else
+                            {
+                                Shards[updateShardAllocation.ShardId].Allocations.Add(updateShardAllocation.NodeId, updateShardAllocation.Version);
+                            }
+
+                            //There is a split second where the update may not happen
+
+                            if (updateShardAllocation.Version > Shards[updateShardAllocation.ShardId].Version)
+                            {
+                                Shards[updateShardAllocation.ShardId].Version = updateShardAllocation.Version;
+                            }
+                        }
+                    }
+                    break;
                 default:
                     ApplyCommandToState(command);
                     break;

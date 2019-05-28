@@ -73,10 +73,22 @@ namespace ConsensusCore.Node.Interfaces
             return AllNodesWithUptoDateShard(shardId).Contains(nodeId);
         }
 
+        public Guid GetShardPrimaryNode(Guid shardId)
+        {
+            return CurrentState.Shards[shardId].PrimaryAllocation;
+        }
+
         public Guid[] AllNodesWithUptoDateShard(Guid shardId)
         {
             var latestVersion = CurrentState.Shards[shardId].Version;
-            return  CurrentState.Shards[shardId].Allocations.Where(a => a.Value == latestVersion).Select(s => s.Key).ToArray();
+            return CurrentState.Shards[shardId].Allocations.Where(a => a.Value == latestVersion).Select(s => s.Key).ToArray();
         }
+
+        public int? GetLatestShardVersion(Guid shardId)
+        {
+            return CurrentState.Shards[shardId].Version;
+        }
+
+        public int TotalShards { get { return CurrentState.Shards.Count(); } }
     }
 }

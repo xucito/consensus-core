@@ -37,7 +37,6 @@ namespace ConsensusCore.Node
          Guid? CreateNewShardRequestHandler(CreateDataShardRequest shard);
          bool UpdateShardCommand(Guid id,string type, object newData);
          object GetData(Guid id, string type);*/
-        object GetData(Guid id, string type);
         NodeInfo NodeInfo { get; }
         State GetState();
         TResponse Send<TResponse>(IClusterRequest<TResponse> request);

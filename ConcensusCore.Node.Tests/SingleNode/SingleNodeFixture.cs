@@ -11,8 +11,9 @@ using System.Text;
 
 namespace ConcensusCore.Node.Tests.SingleNode
 {
-    public class SingleNodeFixture : IDisposable
+    public class SingleNodeFixture 
     {
+        /*
         public ConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>> Node;
 
         public SingleNodeFixture()
@@ -44,6 +45,6 @@ namespace ConcensusCore.Node.Tests.SingleNode
 
         public void Dispose()
         {
-        }
+        }*/
     }
 }

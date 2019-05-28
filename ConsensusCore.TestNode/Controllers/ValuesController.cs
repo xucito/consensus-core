@@ -25,25 +25,38 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpPost]
         public IActionResult Post([FromBody] int value)
         {
-            return Ok(_node.Send(new WriteDataShard()
+            var result = (_node.Send(new WriteDataShard()
             {
                 Data = value,
                 Type = "number",
                 ShardId = null,
                 WaitForSafeWrite = true
             }));
+
+            if(result.IsSuccessful)
+            {
+                return Ok(result);
+            }
+            else
+            {
+                return StatusCode(500);
+            }
         }
 
         [HttpGet("{id}")]
         public IActionResult GetNumber(Guid id)
         {
-            return Ok(_node.GetData(id, "number"));
+            return Ok(_node.Send(new RequestDataShard()
+            {
+                ShardId = id,
+                Type = "number"
+            }));
         }
 
         [HttpPut("{id}")]
         public void UpdateValue(Guid id, [FromBody] int value)
         {
-            _node.Send(new WriteDataShard()
+            var result = _node.Send(new WriteDataShard()
             {
                 Data = value,
                 ShardId = id,

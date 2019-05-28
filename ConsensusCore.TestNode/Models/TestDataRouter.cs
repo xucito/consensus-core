@@ -11,30 +11,36 @@ namespace ConsensusCore.TestNode.Models
         Dictionary<Guid, int> _numberStore = new Dictionary<Guid, int>();
         object locker = new object();
 
-        public bool SaveData(string type, Guid shardId, object data)
+        public Guid WriteData(string type, object data, Guid? objectId = null)
         {
+            Guid? assignedGuid = objectId;
+            if(assignedGuid == null)
+            {
+                assignedGuid = Guid.NewGuid();
+            }
+
             switch (type)
             {
                 case "number":
                     lock (locker)
                     {
-                        if (_numberStore.ContainsKey(shardId))
+                        if (_numberStore.ContainsKey(assignedGuid.Value))
                         {
-                            _numberStore[shardId] = (int)data;
+                            _numberStore[assignedGuid.Value] = Convert.ToInt32(data);
                         }
                         else
                         {
-                            _numberStore.Add(shardId, (int)data);
+                            _numberStore.Add(assignedGuid.Value, Convert.ToInt32(data));
                         }
                     }
-                    return true;
+                    return assignedGuid.Value;
             }
-            return false;
+            return assignedGuid.Value;
         }
 
-        public object GetData(string type, Guid shardId)
+        public object GetData(string type, Guid objectId)
         {
-            return _numberStore[shardId];
+            return _numberStore[objectId];
         }
     }
 }

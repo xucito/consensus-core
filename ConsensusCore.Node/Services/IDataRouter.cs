@@ -6,7 +6,7 @@ namespace ConsensusCore.Node.Services
 {
     public interface IDataRouter
     {
-        bool SaveData(string type, Guid shardId, object data);
+        Guid WriteData(string type, object data, Guid? objectId = null);
         object GetData(string type, Guid shardId);
     }
 }

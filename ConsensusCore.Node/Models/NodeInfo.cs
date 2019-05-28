@@ -7,5 +7,6 @@ namespace ConsensusCore.Node.Models
     public class NodeInfo
     {
         public Guid Id { get; set; }
+        public int ShardCount { get; set; }
     }
 }

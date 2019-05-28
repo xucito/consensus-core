@@ -12,7 +12,7 @@ using Xunit;
 namespace ConcensusCore.Node.Tests.SingleNode
 {
     public class AppendEntriesRPC_Test
-    {
+    {/*
         public ConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>> Node;
         public NodeStorage<TestCommand, NodeInMemoryRepository<TestCommand>> NodeStorage;
 
@@ -140,6 +140,6 @@ namespace ConcensusCore.Node.Tests.SingleNode
             Assert.Equal(2, NodeStorage.Logs.Count());
             Assert.Equal(2, NodeStorage.Logs.Last().Index);
             Assert.Equal(9, NodeStorage.Logs.Last().Term);
-        }
+        }*/
     }
 }
