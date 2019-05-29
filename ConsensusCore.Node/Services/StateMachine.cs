@@ -17,6 +17,7 @@ namespace ConsensusCore.Node.Interfaces
     {
         public Z DefaultState { get; set; }
         public Z CurrentState { get; private set; }
+        private object currentStateLock = new object();
 
         public StateMachine()
         {
@@ -34,11 +35,15 @@ namespace ConsensusCore.Node.Interfaces
 
         public void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries)
         {
-            foreach (var entry in entries.OrderBy(c => c.Index))
+            lock (currentStateLock)
             {
-                foreach (var command in entry.Commands)
+                foreach (var entry in entries.OrderBy(c => c.Index))
                 {
-                    CurrentState.ApplyCommand(command);
+                    foreach (var command in entry.Commands)
+                    {
+                        Console.WriteLine("Applying command " + entry.Index + " commannd " + command.CommandName);
+                        CurrentState.ApplyCommand(command);
+                    }
                 }
             }
         }
@@ -72,7 +77,7 @@ namespace ConsensusCore.Node.Interfaces
         {
             var shards = CurrentState.Shards.Where(s => s.Value.DataTable.ContainsKey(objectId)).Select(s => s.Key);
 
-            if(shards.Count() == 0)
+            if (shards.Count() == 0)
             {
                 return null;
             }

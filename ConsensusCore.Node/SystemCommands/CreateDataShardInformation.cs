@@ -17,6 +17,6 @@ namespace ConsensusCore.Node.SystemCommands
         public int ShardNumber { get; set; }
         public int MaxSize { get; set; }
 
-        public override string CommandName => "UpsertDataShardInformation";
+        public override string CommandName => "CreateDataShardInformation";
     }
 }

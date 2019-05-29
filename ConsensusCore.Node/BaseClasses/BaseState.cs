@@ -2,6 +2,7 @@
 using ConsensusCore.Node.Models;
 using ConsensusCore.Node.SystemCommands;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace ConsensusCore.Node.BaseClasses
     {
         public BaseState() { }
         public Dictionary<Guid, NodeInformation> Nodes { get; set; } = new Dictionary<Guid, NodeInformation>();
-        public Dictionary<Guid, ShardMetadata> Shards { get; set; } = new Dictionary<Guid, ShardMetadata>();
+        public ConcurrentDictionary<Guid, ShardMetadata> Shards { get; set; } = new ConcurrentDictionary<Guid, ShardMetadata>();
 
         public void ApplyCommand(BaseCommand command)
         {
@@ -65,7 +66,7 @@ namespace ConsensusCore.Node.BaseClasses
                     }
                     else
                     {
-                        Shards.Add(updateShardCommand.ShardId, newShardmetadata);
+                        Shards.TryAdd(updateShardCommand.ShardId, newShardmetadata);
                     }
                     break;
                 case UpdateShard t1:

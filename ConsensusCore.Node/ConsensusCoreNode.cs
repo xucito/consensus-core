@@ -9,6 +9,7 @@ using ConsensusCore.Node.Services;
 using ConsensusCore.Node.SystemCommands;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -25,6 +26,7 @@ namespace ConsensusCore.Node
         private Timer _heartbeatTimer;
         private Timer _electionTimeoutTimer;
         private Timer _clusterInfoTimeoutTimer;
+        private Timer _shardCreationTimer;
 
         private Thread _commitThread;
 
@@ -86,6 +88,7 @@ namespace ConsensusCore.Node
             _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
             _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
             _clusterInfoTimeoutTimer = new Timer(ClusterInfoTimeoutHandler);
+            _shardCreationTimer = new Timer(ShardCreationTimeoutHandler);
             _stateMachine = stateMachine;
             SetNodeRole(NodeState.Follower);
 
@@ -124,19 +127,26 @@ namespace ConsensusCore.Node
                 Thread.CurrentThread.IsBackground = true;
                 while (CurrentState == NodeState.Leader)
                 {
+                    Console.WriteLine("Rerunning commit thread, current number of logs = " + _nodeStorage.GetLastLogIndex() + "Match index " + JsonConvert.SerializeObject(MatchIndex));
                     while (CommitIndex < _nodeStorage.GetLastLogIndex())
                     {
+                        Console.WriteLine("Current on commit " + CommitIndex + " and last log index is " + _nodeStorage.GetLastLogIndex());
+
+                        Console.WriteLine("Locking Match Index 2.");
                         if (MatchIndex.Values.Count(x => x >= CommitIndex + 1) >= (_clusterOptions.MinimumNodes - 1))
                         {
+                            Console.WriteLine("Detected majority writes to logs.");
                             _stateMachine.ApplyLogToStateMachine(_nodeStorage.GetLogAtIndex(CommitIndex + 1));
                             CommitIndex++;
+                            Console.WriteLine("Commited commit " + CommitIndex);
                         }
                         else
                         {
-                            break;
+                            Console.WriteLine("Majority not written...");
                         }
+                        //Allow other threads to take ownership
                     }
-                    Thread.Sleep(10);
+                    Thread.Sleep(1000);
                 }
             });
         }
@@ -212,6 +222,34 @@ namespace ConsensusCore.Node
         }
 
         #region Timeout Handlers
+
+        Dictionary<string, DateTime> _monitoredShardTypes = new Dictionary<string, DateTime>();
+        object monitoredShardsLock = new object();
+
+        private void ShardCreationTimeoutHandler(object args)
+        {
+            lock (monitoredShardsLock)
+            {
+                foreach (var shard in _monitoredShardTypes)
+                {
+                    if (shard.Value > DateTime.Now)
+                    {
+                        _monitoredShardTypes.Remove(shard.Key);
+                    }
+                    else
+                    {
+                        ShardMetadata assignedShard;
+                        if (!_stateMachine.WritableShardExists(shard.Key, out assignedShard))
+                        {
+                            Logger.LogDebug("Shard created for type " + shard.Key + " due to " + (assignedShard == null ? "no shard exists for type." : "latest shard " + assignedShard.Id + " is full."));
+                            var shardNumber = assignedShard == null ? 0 : assignedShard.ShardNumber + 1;
+                            CreateShard(shard.Key, Guid.NewGuid(), shardNumber);
+                        }
+                    }
+                }
+            }
+        }
+
         public void ClusterInfoTimeoutHandler(object args)
         {
             Logger.LogDebug("Rediscovering nodes...");
@@ -397,7 +435,8 @@ namespace ConsensusCore.Node
                     Logger.LogWarning("Currently a candidate during routing, will sleep thread and try again.");
                     Thread.Sleep(1000);
                 }
-                else {
+                else
+                {
                     try
                     {
                         Logger.LogDebug("Detected routing of command " + request.GetType().Name + " to leader.");
@@ -689,6 +728,7 @@ namespace ConsensusCore.Node
 
                 return new AppendEntryResponse()
                 {
+                    ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
                     Successful = false,
                     ConflictingTerm = entry.PrevLogTerm,
                     FirstTermIndex = _nodeStorage.Logs.Where(l => l.Term == entry.PrevLogTerm).First().Index
@@ -724,9 +764,11 @@ namespace ConsensusCore.Node
             if (CommitIndex < entry.LeaderCommit)
             {
                 Logger.LogDebug("Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
-                var allLogsToBeCommited = _nodeStorage.Logs.Where(l => l.Index > CommitIndex && l.Index <= entry.LeaderCommit);
+                // Commit index will be +1 the actual index in the array
+                var allLogsToBeCommited = _nodeStorage.Logs.GetRange(CommitIndex, entry.LeaderCommit - CommitIndex);
                 _stateMachine.ApplyLogsToStateMachine(allLogsToBeCommited);
-                CommitIndex = entry.LeaderCommit;
+                CommitIndex = allLogsToBeCommited.Last().Index;
+                Console.WriteLine("COMMITED " + CommitIndex + " with last index of logs being " + allLogsToBeCommited.Last().Index);
             }
             return new AppendEntryResponse()
             {
@@ -828,11 +870,31 @@ namespace ConsensusCore.Node
                     {
                         if (entriesToSend.Count() > 0)
                         {
-                            NextIndex[connector.Key] = entriesToSend.Last().Index + 1;
+                            var lastIndexToSend = entriesToSend.Last().Index;
+                            NextIndex[connector.Key] = lastIndexToSend + 1;
 
                             int previousValue;
-                            MatchIndex.TryGetValue(connector.Key, out previousValue);
-                            MatchIndex.TryUpdate(connector.Key, entriesToSend.Last().Index, previousValue);
+                            bool SuccessfullyGotValue = MatchIndex.TryGetValue(connector.Key, out previousValue);
+                            if (!SuccessfullyGotValue)
+                            {
+                                Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
+                            }
+                            var updateWorked = MatchIndex.TryUpdate(connector.Key, lastIndexToSend, previousValue);
+                            //If the updated did not execute, there hs been a concurrency issue
+                            while (!updateWorked)
+                            {
+                                Console.WriteLine("The previous match index has been changed already, from " + previousValue);
+                                SuccessfullyGotValue = MatchIndex.TryGetValue(connector.Key, out previousValue);
+                                // If the match index has already exceeded the previous value, dont bother updating it
+                                if (previousValue > lastIndexToSend && SuccessfullyGotValue)
+                                {
+                                    updateWorked = true;
+                                }
+                                else
+                                {
+                                    updateWorked = MatchIndex.TryUpdate(connector.Key, lastIndexToSend, previousValue);
+                                }
+                            }
                         }
                     }
                     else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
@@ -874,11 +936,13 @@ namespace ConsensusCore.Node
                         ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
                         StopTimer(_heartbeatTimer);
                         StopTimer(_clusterInfoTimeoutTimer);
+                        StopTimer(_shardCreationTimer);
                         break;
                     case NodeState.Follower:
                         ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
                         StopTimer(_heartbeatTimer);
                         StopTimer(_clusterInfoTimeoutTimer);
+                        StopTimer(_shardCreationTimer);
                         break;
                     case NodeState.Leader:
                         CurrentLeader = new KeyValuePair<Guid?, string>(_nodeStorage.Id, MyUrl);
@@ -888,6 +952,7 @@ namespace ConsensusCore.Node
                         _commitThread = NewCommitThread();
                         _commitThread.Start();
                         ResetTimer(_clusterInfoTimeoutTimer, 0, 1000);
+                        ResetTimer(_shardCreationTimer, 0, 1000);
                         break;
                 }
             }
@@ -916,7 +981,19 @@ namespace ConsensusCore.Node
             return NodeConnectors[CurrentLeader.Value];
         }
 
-
+        /// <summary>
+        /// Whether there is a uncommited shard for that type of shard
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+       /* public bool UncommitedShardTypeCreation(string type)
+        {
+            if (_nodeStorage.Logs.GetRange(CommitIndex, _nodeStorage.GetLogCount() - CommitIndex - 1).Count(l => l.Commands.Count(bc => bc.CommandName == "CreateDataShardInformation" && ((CreateDataShardInformation)bc).Type == type) > 0) > 0)
+            {
+                return true;
+            }
+            return false;
+        }*/
 
         /// <summary>
         /// Decide who should be the nodes storing the data
@@ -965,6 +1042,7 @@ namespace ConsensusCore.Node
                 }
             }
         }
+
 
         /*public void UpdateShardVersion(string type, Guid shardId)
         {
