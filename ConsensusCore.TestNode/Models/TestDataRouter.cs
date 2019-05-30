@@ -11,9 +11,9 @@ namespace ConsensusCore.TestNode.Models
         Dictionary<Guid, int> _numberStore = new Dictionary<Guid, int>();
         object locker = new object();
 
-        public Guid WriteData(string type, object data)
+        public Guid WriteData(string type, object data, Guid objectId)
         {
-            Guid? assignedGuid =  Guid.NewGuid();
+            Guid? assignedGuid = objectId;
 
             switch (type)
             {

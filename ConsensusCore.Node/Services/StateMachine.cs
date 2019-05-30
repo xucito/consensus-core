@@ -113,6 +113,11 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Shards.Where(s => s.Value.Type == type).Count() > 0;
         }
 
+        public ShardMetadata GetShardMetaData(Guid shardId)
+        {
+            return CurrentState.Shards[shardId];
+        }
+
         public bool WritableShardExists(string type, out ShardMetadata lastShard)
         {
             var latestShard = CurrentState.Shards.Where(s => s.Value.Type == type).OrderByDescending(s => s.Value.ShardNumber);
