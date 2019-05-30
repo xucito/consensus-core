@@ -41,6 +41,8 @@ namespace ConsensusCore.Node
         public Dictionary<string, HttpNodeConnector> NodeConnectors { get; private set; } = new Dictionary<string, HttpNodeConnector>();
         public Dictionary<string, int> NextIndex { get; private set; } = new Dictionary<string, int>();
         public ConcurrentDictionary<string, int> MatchIndex { get; private set; } = new ConcurrentDictionary<string, int>();
+        //Used to track whether you are currently already sending logs to a particular node to not double send
+        public ConcurrentDictionary<string, bool> LogsSent = new ConcurrentDictionary<string, bool>();
         public object matchIndexLock = new object();
 
         public StateMachine<State> _stateMachine { get; private set; }
@@ -58,7 +60,7 @@ namespace ConsensusCore.Node
         public IDataRouter _dataRouter;
         public bool enableDataRouting = false;
 
-        ConcurrentDictionary<string, ConcurrentQueue<Guid>> DataAssignmentQueue { get; set; } = new ConcurrentDictionary<string, ConcurrentQueue<Guid>>();
+        ConcurrentQueue<KeyValuePair<string, Guid>> DataAssignmentQueue { get; set; } = new ConcurrentQueue<KeyValuePair<string, Guid>>();
 
         /// <summary>
         /// What logs have been commited to the state
@@ -228,86 +230,90 @@ namespace ConsensusCore.Node
 
         private Thread ShardCreationThread()
         {
-            return new Thread(() =>
+            return new Thread(async () =>
             {
                 Thread.CurrentThread.IsBackground = true;
 
                 while (CurrentState == NodeState.Leader)
                 {
-                    foreach (var val in DataAssignmentQueue)
+
+                    DateTime startTime = DateTime.Now;
+                    List<Guid> objectsToAssign = new List<Guid>();
+                    string typeToAdd = null;
+                    // try
+                    //{
+                    //Dequeue till we good
+                    bool stillObjectsToAdd = true;
+                    while (stillObjectsToAdd)
                     {
-                        //Console.WriteLine("Assignments in the queue " + val.Value.Count());
+                        KeyValuePair<string, Guid> objectToAssign;
+                        DataAssignmentQueue.TryPeek(out objectToAssign);
 
-                        DateTime startTime = DateTime.Now;
-                        List<Guid> objectsToAssign = new List<Guid>();
-                        // try
-                        //{
-                        //Dequeue till we good
-                        bool stillObjectsToAdd = true;
-                        while (stillObjectsToAdd)
+                        //If the type has changed, then dont proceed
+                        if (typeToAdd != null && objectToAssign.Key != typeToAdd)
                         {
-                            Guid objectToAssign;
-                            stillObjectsToAdd = val.Value.TryDequeue(out objectToAssign);
-                            if (!stillObjectsToAdd)
-                            {
-                                //Logger.LogDebug("Queue has been emptied for type " + val.Key);
-                                // Logger.LogError("Failed to remove item from queue.");
-                            }
-                            else
-                            {
-                                objectsToAssign.Add(objectToAssign);
-                            }
-                            //Stop adding if you have already exceeded max shard size
-                            if (objectsToAssign.Count >= _clusterOptions.MaxShardSize)
-                            {
-                                Console.WriteLine("Reached max shard size for assignments, objects remaining in queue " + val.Value.Count());
-                                stillObjectsToAdd = false;
-                            }
+                            stillObjectsToAdd = false;
+                        }
+                        else
+                        {
+                            stillObjectsToAdd = DataAssignmentQueue.TryDequeue(out objectToAssign);
                         }
 
-                        var assignedObjectPointer = 0;
-                        while (assignedObjectPointer < objectsToAssign.Count())
+                        if (!stillObjectsToAdd)
                         {
-                            ShardMetadata assignedShard;
-                            if (!_stateMachine.WritableShardExists(val.Key, out assignedShard))
-                            {
-                                Logger.LogDebug("Shard created for type " + val.Key + " due to " + (assignedShard == null ? "no shard exists for type." : "latest shard " + assignedShard.Id + " is full."));
-                                var shardNumber = assignedShard == null ? 0 : assignedShard.ShardNumber + 1;
-                                Guid newShardId = Guid.NewGuid();
-
-                                CreateShard(val.Key, newShardId, shardNumber);
-
-                                while (!_stateMachine.ShardExists(newShardId))
-                                {
-                                    Logger.LogWarning("Waiting for shard " + newShardId + " to be created...");
-                                }
-
-                                assignedShard = _stateMachine.GetShardMetaData(newShardId);
-                            }
-
-                            int currentSize = assignedShard.DataTable.Count();
-                            while (assignedObjectPointer + currentSize < assignedShard.MaxSize && assignedObjectPointer < objectsToAssign.Count())
-                            {
-                                Logger.LogDebug("Assigning object " + objectsToAssign[assignedObjectPointer] + " to shard " + assignedShard.Id);
-
-                                DateTime currentTime = DateTime.Now;
-                                Send(new RequestShardUpdate()
-                                {
-                                    Action = UpdateShardAction.Append,
-                                    ObjectId = objectsToAssign[assignedObjectPointer],
-                                    ShardId = assignedShard.Id
-                                });
-                                Console.WriteLine("Shard update took " + (DateTime.Now - currentTime).TotalMilliseconds);
-                                assignedObjectPointer++;
-                            }
+                            //Logger.LogDebug("Queue has been emptied for type " + val.Key);
+                            // Logger.LogError("Failed to remove item from queue.");
                         }
-                        if (assignedObjectPointer > 0)
-                            Console.WriteLine("Assignment time took " + (DateTime.Now - startTime).TotalMilliseconds + "ms to assign " + assignedObjectPointer + " objects. Remaining in queue " + val.Value.Count());
-
+                        else
+                        {
+                            objectsToAssign.Add(objectToAssign.Value);
+                            typeToAdd = objectToAssign.Key;
+                        }
                     }
 
-                    Thread.Sleep(100);
+                    var assignedObjectPointer = 0;
+                    while (assignedObjectPointer < objectsToAssign.Count())
+                    {
+                        ShardMetadata assignedShard;
+                        if (!_stateMachine.WritableShardExists(typeToAdd, out assignedShard))
+                        {
+                            Logger.LogDebug("Shard created for type " + typeToAdd + " due to " + (assignedShard == null ? "no shard exists for type." : "latest shard " + assignedShard.Id + " is full."));
+                            var shardNumber = assignedShard == null ? 0 : assignedShard.ShardNumber + 1;
+                            Guid newShardId = Guid.NewGuid();
+
+                            CreateShard(typeToAdd, newShardId, shardNumber);
+
+                            while (!_stateMachine.ShardExists(newShardId))
+                            {
+                                Logger.LogWarning("Waiting for shard " + newShardId + " to be created...");
+                            }
+
+                            assignedShard = _stateMachine.GetShardMetaData(newShardId);
+                        }
+
+                        int currentSize = assignedShard.DataTable.Count();
+                        //while (assignedObjectPointer + currentSize < assignedShard.MaxSize && assignedObjectPointer < objectsToAssign.Count())
+                        //{
+                        //    Logger.LogDebug("Assigning object " + objectsToAssign[assignedObjectPointer] + " to shard " + assignedShard.Id);
+                        int howManyObjectsToAppend = (assignedShard.MaxSize < objectsToAssign.Count() - assignedObjectPointer) ? assignedShard.MaxSize : objectsToAssign.Count() - assignedObjectPointer;
+                        DateTime currentTime = DateTime.Now;
+                        var objectIds = objectsToAssign.GetRange(assignedObjectPointer, howManyObjectsToAppend).ToArray();
+                        await Send(new RequestShardUpdate()
+                        {
+                            Action = UpdateShardAction.Append,
+                            ObjectId = objectIds,
+                            ShardId = assignedShard.Id
+                        });
+                        Console.WriteLine("Shard update took " + (DateTime.Now - currentTime).TotalMilliseconds + " for " + objectIds.Count() + " objects.");
+                        assignedObjectPointer += howManyObjectsToAppend;
+                        //}
+                    }
+                    if (assignedObjectPointer > 0)
+                        Console.WriteLine("Assignment time took " + (DateTime.Now - startTime).TotalMilliseconds + "ms to assign " + assignedObjectPointer + " objects. Remaining in queue " + DataAssignmentQueue.Count());
+
                 }
+                Thread.Sleep(100);
+                //}
             });
         }
 
@@ -316,7 +322,7 @@ namespace ConsensusCore.Node
         //  Dictionary<string, DateTime> _monitoredShardTypes = new Dictionary<string, DateTime>();
         //   object monitoredShardsLock = new object();
 
-        public void ClusterInfoTimeoutHandler(object args)
+        public async void ClusterInfoTimeoutHandler(object args)
         {
             Console.WriteLine("NumberOfWaitingThreads: " + NumberOfWaitingThreads);
             Logger.LogDebug("Rediscovering nodes...");
@@ -380,7 +386,7 @@ namespace ConsensusCore.Node
             if (CurrentState == NodeState.Leader)
                 if (nodeUpsertCommands.Count > 0)
                 {
-                    Send(new ExecuteCommands()
+                    await Send(new ExecuteCommands()
                     {
                         Commands = nodeUpsertCommands,
                         WaitForCommits = true
@@ -462,7 +468,7 @@ namespace ConsensusCore.Node
 
         #region RPC Handlers
 
-        public TResponse Send<TResponse>(IClusterRequest<TResponse> request)
+        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request)
         {
             Logger.LogDebug("Detected RPC " + request.GetType().Name + ".");
             if (!IsBootstrapped)
@@ -476,10 +482,10 @@ namespace ConsensusCore.Node
             switch (request)
             {
                 case ExecuteCommands t1:
-                    response = HandleIfLeaderOrReroute(request, () => (TResponse)(object)ExecuteCommandsRPCHandler(t1));
+                    response = await HandleIfLeaderOrReroute(request, () => (TResponse)(object)ExecuteCommandsRPCHandler(t1));
                     break;
                 case WriteData t1:
-                    response = (TResponse)(object)WriteDataRPCHandler(t1);
+                    response = (TResponse)(object) await WriteDataRPCHandler(t1);
                     break;
                 case RequestVote t1:
                     response = (TResponse)(object)RequestVoteRPCHandler(t1);
@@ -488,24 +494,24 @@ namespace ConsensusCore.Node
                     response = (TResponse)(object)AppendEntryRPCHandler(t1);
                     break;
                 case RequestShardUpdate t1:
-                    response = (TResponse)(object)RequestShardUpdateHandler(t1);
+                    response = (TResponse)(object)await RequestShardUpdateHandler(t1);
                     break;
                 case RequestDataShard t1:
                     response = (TResponse)(object)RequestDataShardHandler(t1);
                     break;
                 case AssignDataToShard t1:
-                    response = HandleIfLeaderOrReroute(request, () => (TResponse)(object)AssignDataToShardHandler(t1));
+                    response = await HandleIfLeaderOrReroute(request, () => (TResponse)(object)AssignDataToShardHandler(t1));
                     break;
                 default:
                     throw new Exception("Request is not implemented");
             }
 
-            if (request.RequestName == "AssignDataToShard")
+            if (request.RequestName == "AssignDataToShard" || request.RequestName == "WriteDataShard")
                 Console.WriteLine("Request " + request.RequestName + " took " + (DateTime.Now - startCommand).TotalMilliseconds + "ms");
             return response;
         }
 
-        public TResponse HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle)
+        public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle)
         {
             // if you change and become a leader, just handle this yourself.
             while (CurrentState != NodeState.Leader)
@@ -520,7 +526,7 @@ namespace ConsensusCore.Node
                     try
                     {
                         Logger.LogDebug("Detected routing of command " + request.GetType().Name + " to leader.");
-                        return (TResponse)(object)GetLeadersConnector().Send(request).GetAwaiter().GetResult();
+                        return (TResponse)(object)await GetLeadersConnector().Send(request);
                     }
                     catch (Exception e)
                     {
@@ -533,7 +539,7 @@ namespace ConsensusCore.Node
 
         public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
         {
-            int index = _nodeStorage.AddLog(request.Commands.ToList(), _nodeStorage.CurrentTerm);
+            int index = _nodeStorage.AddCommands(request.Commands.ToList(), _nodeStorage.CurrentTerm);
 
             while (request.WaitForCommits)
             {
@@ -556,9 +562,9 @@ namespace ConsensusCore.Node
             };
         }
 
-        public RequestShardUpdateResponse RequestShardUpdateHandler(RequestShardUpdate request)
+        public async Task<RequestShardUpdateResponse> RequestShardUpdateHandler(RequestShardUpdate request)
         {
-            var response = Send(new ExecuteCommands()
+            var response = await Send(new ExecuteCommands()
             {
                 Commands = new List<BaseCommand>(){new UpdateShard()
                 {
@@ -582,15 +588,15 @@ namespace ConsensusCore.Node
             DateTime timeNow = DateTime.Now;
             int checkpoint = 0;
             //If there is no queue for this type, refresh it
-            if (!DataAssignmentQueue.ContainsKey(shard.Type))
-            {
-                var success = DataAssignmentQueue.TryAdd(shard.Type, new ConcurrentQueue<Guid>());
-                if (!success)
-                {
-                    Logger.LogError("Unable to create a new queue...");
-                }
-            }
-            DataAssignmentQueue[shard.Type].Enqueue(shard.ObjectId);
+            // if (!DataAssignmentQueue.(shard.Type))
+            // {
+            //  var success = DataAssignmentQueue.TryAdd(shard.Type, new ConcurrentQueue<Guid>());
+            //  if (!success)
+            //  {
+            //      Logger.LogError("Unable to create a new queue...");
+            //  }
+            // }
+            DataAssignmentQueue.Enqueue(new KeyValuePair<string, Guid>(shard.Type, shard.ObjectId));
 
             //Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
             timeNow = DateTime.Now;
@@ -602,7 +608,7 @@ namespace ConsensusCore.Node
             {
                 //  Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
                 timeNow = DateTime.Now;
-                if ((DateTime.UtcNow - processStartTime).TotalMilliseconds > _clusterOptions.LatencyToleranceMs)
+                if ((DateTime.UtcNow - processStartTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
                 {
                     Logger.LogError("Encountered assignment timeout for data object " + shard.ObjectId);
                     Interlocked.Decrement(ref NumberOfWaitingThreads);
@@ -612,7 +618,7 @@ namespace ConsensusCore.Node
                     };
                 }
 
-                Thread.Sleep(100);
+                Thread.Sleep(1000);
                 Logger.LogDebug("Awaiting the assignment for object " + shard.ObjectId + " to become present in state.");
             }
 
@@ -630,13 +636,13 @@ namespace ConsensusCore.Node
         /// </summary>
         /// <param name="shard"></param>
         /// <returns></returns>
-        public WriteDataResponse WriteDataRPCHandler(WriteData shard)
+        public async Task<WriteDataResponse> WriteDataRPCHandler(WriteData shard)
         {
             var newObjectGuid = Guid.NewGuid();
             // If another node has not already got an assignment for this shard
             if (shard.AssignedShard == null)
             {
-                var result = Send(new AssignDataToShard()
+                var result = await Send(new AssignDataToShard()
                 {
                     ObjectId = newObjectGuid,
                     Type = shard.Type
@@ -655,16 +661,16 @@ namespace ConsensusCore.Node
                     shard.AssignedShard = result.AssignedShard;
                 }
             }
-
+            
             if (_stateMachine.ShardIsPrimaryOnNode(shard.AssignedShard.Value, _nodeStorage.Id))
             {
                 //Send all the data to the replicas
                 var saveResult = _dataRouter.WriteData(shard.Type, shard.Data, newObjectGuid);
 
                 // Mark the shard as initialized
-                Send(new RequestShardUpdate()
+                await Send(new RequestShardUpdate()
                 {
-                    ObjectId = saveResult,
+                    ObjectId = new Guid[] { saveResult },
                     Action = UpdateShardAction.Initialize,
                     ShardId = shard.AssignedShard.Value
                 });
@@ -781,11 +787,14 @@ namespace ConsensusCore.Node
 
             SetNodeRole(NodeState.Follower);
 
+            DateTime time = DateTime.Now;
+
             foreach (var log in entry.Entries)
             {
-                _nodeStorage.AddLog(log.Commands, log.Term);
+                _nodeStorage.AddLog(log);
             }
 
+            Console.WriteLine("Writing logs took " + (DateTime.Now - time).TotalMilliseconds);
 
             if (CommitIndex < entry.LeaderCommit)
             {
@@ -797,6 +806,11 @@ namespace ConsensusCore.Node
                 Console.WriteLine("Uncommited logs " + (_nodeStorage.GetLogCount() - CommitIndex));
                 //Console.WriteLine("COMMITED " + CommitIndex + " with last index of logs being " + allLogsToBeCommited.Last().Index);
             }
+            if(entry.Entries.Count() > 0)
+            {
+                Console.WriteLine("Added upto entry " + entry.Entries.Last().Index + " number of logs in storage " + _nodeStorage.Logs.Count());
+            }
+
             return new AppendEntryResponse()
             {
                 Successful = true
@@ -859,14 +873,13 @@ namespace ConsensusCore.Node
 
             return data;
         }
-
         #endregion
 
         #region Internal Parallel Calls
-        public void SendHeartbeats()
+        public async void SendHeartbeats()
         {
             Logger.LogDebug("Sending heartbeats");
-            Parallel.ForEach(NodeConnectors, connector =>
+            var tasks = NodeConnectors.Select(async connector =>
             {
                 try
                 {
@@ -875,16 +888,22 @@ namespace ConsensusCore.Node
                     var prevLogIndex = Math.Max(0, NextIndex[connector.Key] - 1);
                     int prevLogTerm = (_nodeStorage.GetLogCount() > 0 && prevLogIndex > 0) ? prevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
 
-                    if (NextIndex[connector.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0)
+                    if (NextIndex[connector.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(connector.Key, true))
                     {
-                        var quantityToSend = (_nodeStorage.GetLogCount() - NextIndex[connector.Key] + 1);
+                        var unsentLogs = (_nodeStorage.GetLogCount() - NextIndex[connector.Key] + 1);
+                        var quantityToSend = unsentLogs;
                         entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[connector.Key] - 1, quantityToSend < maxSendEntries ? quantityToSend : maxSendEntries).ToList();
                         // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
                         Logger.LogDebug("Detected node " + connector.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+                        Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + entriesToSend.Count + "logs.");
+                        LogsSent.AddOrUpdate(connector.Key, true, (key, oldvalue) =>
+                        {
+                            return true;
+                        });
                     }
 
                     DateTime timeNow = DateTime.Now;
-                    var result = connector.Value.Send(new AppendEntry()
+                    var result = await connector.Value.Send(new AppendEntry()
                     {
                         Term = _nodeStorage.CurrentTerm,
                         Entries = entriesToSend,
@@ -892,7 +911,10 @@ namespace ConsensusCore.Node
                         LeaderId = _nodeStorage.Id,
                         PrevLogIndex = prevLogIndex,
                         PrevLogTerm = prevLogTerm
-                    }).GetAwaiter().GetResult();
+                    });
+
+                    LogsSent.TryUpdate(connector.Key, false, true);
+
                     Console.WriteLine("append entry took " + (DateTime.Now - timeNow).TotalMilliseconds + "ms");
 
                     if (result.Successful)
@@ -950,6 +972,8 @@ namespace ConsensusCore.Node
                     Logger.LogWarning("Encountered error while sending heartbeat to node " + connector.Key + ", request failed with error \"" + e.Message + "\"" + e.StackTrace);
                 }
             });
+
+            await Task.WhenAll(tasks);
         }
 
         public void SetNodeRole(NodeState newState)
@@ -1028,7 +1052,7 @@ namespace ConsensusCore.Node
         /// </summary>
         /// <param name="type"></param>
         /// <param name="shardId"></param>
-        public void CreateShard(string type, Guid shardId, int shardNumber)
+        public async void CreateShard(string type, Guid shardId, int shardNumber)
         {
             bool successfulAllocation = false;
             while (!successfulAllocation)
@@ -1047,7 +1071,7 @@ namespace ConsensusCore.Node
                     var selectedNode = eligbleNodes.ElementAt(rand.Next(0, eligbleNodes.Count()));
                     Logger.LogDebug("Allocating data shart to node at " + selectedNode.Key);
 
-                    Send(new ExecuteCommands()
+                    await Send(new ExecuteCommands()
                     {
                         Commands = new List<CreateDataShardInformation>() {
                                 new CreateDataShardInformation() {

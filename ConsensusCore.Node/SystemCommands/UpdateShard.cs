@@ -8,7 +8,7 @@ namespace ConsensusCore.Node.SystemCommands
     public class UpdateShard : BaseCommand
     {
         public Guid ShardId { get; set; }
-        public Guid ObjectId { get; set; }
+        public Guid[] ObjectId { get; set; }
         public UpdateShardAction Action { get; set; }
         /// <summary>
         /// Used for 

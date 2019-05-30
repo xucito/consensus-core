@@ -70,21 +70,24 @@ namespace ConsensusCore.Node.BaseClasses
                     }
                     break;
                 case UpdateShard t1:
-                    switch (t1.Action)
+                    foreach (var id in t1.ObjectId)
                     {
-                        case UpdateShardAction.Append:
-                            // If this returns false it is because the object already exists
-                            var wasItAdded = Shards[t1.ShardId].DataTable.TryAdd(t1.ObjectId, DataStates.Assigned);
-                            break;
-                        case UpdateShardAction.Delete:
-                            //If this return false it is because the object is already gone
-                            var wasItRemoved = Shards[t1.ShardId].DataTable.TryRemove(t1.ObjectId, out _);
-                            break;
-                        case UpdateShardAction.Update:
-                            throw new Exception("TO DO NOT IMPLEMENTED");
-                        case UpdateShardAction.Initialize:
-                            Shards[t1.ShardId].DataTable[t1.ObjectId] = DataStates.Initialized;
-                            break;
+                        switch (t1.Action)
+                        {
+                            case UpdateShardAction.Append:
+                                // If this returns false it is because the object already exists
+                                var wasItAdded = Shards[t1.ShardId].DataTable.TryAdd(id, DataStates.Assigned);
+                                break;
+                            case UpdateShardAction.Delete:
+                                //If this return false it is because the object is already gone
+                                var wasItRemoved = Shards[t1.ShardId].DataTable.TryRemove(id, out _);
+                                break;
+                            case UpdateShardAction.Update:
+                                throw new Exception("TO DO NOT IMPLEMENTED");
+                            case UpdateShardAction.Initialize:
+                                Shards[t1.ShardId].DataTable[id] = DataStates.Initialized;
+                                break;
+                        }
                     }
                     //Only the primary can update version so it's assumed the primary has written this
 

@@ -23,9 +23,9 @@ namespace ConsensusCore.TestNode.Controllers
         }
         // POST api/values
         [HttpPost]
-        public IActionResult Post([FromBody] int value)
+        public async Task<IActionResult> Post([FromBody] int value)
         {
-            var result = (_node.Send(new WriteData()
+            var result = await (_node.Send(new WriteData()
             {
                 Data = value,
                 Type = "number",
@@ -43,9 +43,9 @@ namespace ConsensusCore.TestNode.Controllers
         }
 
         [HttpGet("{id}")]
-        public IActionResult GetNumber(Guid id)
+        public async Task<IActionResult> GetNumber(Guid id)
         {
-            return Ok(_node.Send(new RequestDataShard()
+            return Ok(await _node.Send(new RequestDataShard()
             {
                 ObjectId = id,
                 Type = "number"

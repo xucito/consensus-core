@@ -41,6 +41,6 @@ namespace ConsensusCore.Node
          object GetData(Guid id, string type);*/
         NodeInfo NodeInfo { get; }
         State GetState();
-        TResponse Send<TResponse>(IClusterRequest<TResponse> request);
+        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request);
     }
 }

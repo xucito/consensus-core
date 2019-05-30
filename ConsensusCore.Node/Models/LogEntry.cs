@@ -9,6 +9,7 @@ namespace ConsensusCore.Node.Models
     public class LogEntry
     {
         public int Term { get; set; }
+        //This will be null if it is the leader as the leader is responsible for ensuring the index positions match
         public int Index { get; set; }
         public List<BaseCommand> Commands { get; set; }
     }

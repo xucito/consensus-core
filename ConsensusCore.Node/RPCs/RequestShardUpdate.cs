@@ -9,7 +9,7 @@ namespace ConsensusCore.Node.RPCs
     public class RequestShardUpdate : BaseRequest<RequestShardUpdateResponse>
     {
         public Guid ShardId { get; set; }
-        public Guid ObjectId { get; set; }
+        public Guid[] ObjectId { get; set; }
         public UpdateShardAction Action { get; set; }
         public override string RequestName => "RequestShardUpdate";
     }

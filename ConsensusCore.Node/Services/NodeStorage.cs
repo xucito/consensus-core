@@ -75,7 +75,7 @@ namespace ConsensusCore.Node.Services
             }
         }
 
-        public int AddLog(List<BaseCommand> commands, int term)
+        public int AddCommands(List<BaseCommand> commands, int term)
         {
             int index;
             lock (_locker)
@@ -95,6 +95,26 @@ namespace ConsensusCore.Node.Services
             return index;
         }
 
+        public void AddLog(LogEntry entry)
+        {
+            int index;
+            lock (_locker)
+            {
+                //The entry should be the next log required
+                if (entry.Index == Logs.Count() + 1)
+                {
+                    Logs.Add(entry);
+                }
+                else if(entry.Index > Logs.Count() + 1)
+                {
+                    throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
+                }
+            }
+
+            if (_repository != null)
+                _repository.SaveNodeData();
+        }
+
         public void UpdateCurrentTerm(int newterm)
         {
             CurrentTerm = newterm;
@@ -104,7 +124,7 @@ namespace ConsensusCore.Node.Services
         }
 
         public void SetVotedFor(Guid candidateId)
-        { 
+        {
             VotedFor = candidateId;
             if (_repository != null)
                 _repository.SaveNodeData();
@@ -114,7 +134,7 @@ namespace ConsensusCore.Node.Services
         {
             lock (_locker)
             {
-                Logs.RemoveRange(index + 1, Logs.Count() - index - 1);
+                Logs.RemoveRange(index - 1, Logs.Count() - index + 1);
                 if (_repository != null)
                     _repository.SaveNodeData();
             }

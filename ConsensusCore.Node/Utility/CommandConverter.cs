@@ -10,7 +10,6 @@ namespace ConsensusCore.Node.Utility
     {
         protected override BaseCommand Create(Type objectType, Newtonsoft.Json.Linq.JObject jObject)
         {
-            DateTime test = DateTime.Now;
             foreach (Type t in Assembly.GetExecutingAssembly().GetTypes())
             {
                 if (t.IsSubclassOf(typeof(BaseCommand)))
@@ -18,8 +17,6 @@ namespace ConsensusCore.Node.Utility
                     if (jObject.Value<string>("CommandName") == ((BaseCommand)Activator.CreateInstance(t)).CommandName)
                     {
                         var instance = (BaseCommand)Activator.CreateInstance(t);
-
-                        Console.WriteLine("Time to deserialize " + (DateTime.Now - test).TotalMilliseconds);
                         return instance;
                     }
                 }
