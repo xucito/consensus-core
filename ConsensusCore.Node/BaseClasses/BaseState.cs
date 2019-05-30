@@ -54,7 +54,7 @@ namespace ConsensusCore.Node.BaseClasses
                         Version = updateShardCommand.Version,
                         Initalized = updateShardCommand.Initalized,
                         Allocations = updateShardCommand.Allocations,
-                        DataTable = new Dictionary<Guid, DataStates>(),
+                        DataTable = new ConcurrentDictionary<Guid, DataStates>(),
                         ShardNumber = t1.ShardNumber,
                         MaxSize = t1.MaxSize,
                         Id = t1.ShardId
@@ -73,10 +73,12 @@ namespace ConsensusCore.Node.BaseClasses
                     switch (t1.Action)
                     {
                         case UpdateShardAction.Append:
-                            Shards[t1.ShardId].DataTable.Add(t1.ObjectId, DataStates.Assigned);
+                            // If this returns false it is because the object already exists
+                            var wasItAdded = Shards[t1.ShardId].DataTable.TryAdd(t1.ObjectId, DataStates.Assigned);
                             break;
                         case UpdateShardAction.Delete:
-                            Shards[t1.ShardId].DataTable.Remove(t1.ObjectId);
+                            //If this return false it is because the object is already gone
+                            var wasItRemoved = Shards[t1.ShardId].DataTable.TryRemove(t1.ObjectId, out _);
                             break;
                         case UpdateShardAction.Update:
                             throw new Exception("TO DO NOT IMPLEMENTED");

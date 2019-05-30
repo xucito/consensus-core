@@ -32,7 +32,7 @@ namespace ConsensusCore.TestNode.Controllers
                 WaitForSafeWrite = true
             }));
 
-            if(result.IsSuccessful)
+            if (result.IsSuccessful)
             {
                 return Ok(result);
             }
@@ -52,18 +52,18 @@ namespace ConsensusCore.TestNode.Controllers
             }));
         }
 
-       /* [HttpPut("{id}")]
-        public void UpdateValue(Guid id, [FromBody] int value)
-        {
-            var result = _node.Send(new WriteDataShard()
-            {
-                Data = value,
-                ShardId = id,
-                Type = "number",
-                WaitForSafeWrite = true
-                //Need to pull the previous version
-            });
-            // _node.UpdateShardCommand(id, "number", value);
-        }*/
+        /* [HttpPut("{id}")]
+         public void UpdateValue(Guid id, [FromBody] int value)
+         {
+             var result = _node.Send(new WriteDataShard()
+             {
+                 Data = value,
+                 ShardId = id,
+                 Type = "number",
+                 WaitForSafeWrite = true
+                 //Need to pull the previous version
+             });
+             // _node.UpdateShardCommand(id, "number", value);
+         }*/
     }
 }

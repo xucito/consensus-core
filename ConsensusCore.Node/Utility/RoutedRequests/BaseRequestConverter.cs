@@ -10,6 +10,7 @@ namespace ConsensusCore.Node.Utility
     {
         protected override BaseRequest Create(Type objectType, Newtonsoft.Json.Linq.JObject jObject)
         {
+            DateTime test = DateTime.Now;
             foreach (Type t in Assembly.GetExecutingAssembly().GetTypes())
             {
                 if (t.IsSubclassOf(typeof(BaseRequest)))

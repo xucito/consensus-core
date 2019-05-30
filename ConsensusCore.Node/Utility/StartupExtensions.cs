@@ -2,6 +2,7 @@
 using ConsensusCore.Node.Controllers;
 using ConsensusCore.Node.Interfaces;
 using ConsensusCore.Node.Services;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -28,6 +29,7 @@ namespace ConsensusCore.Node.Utility
                         typeof(State),
                         typeof(Repository)
                     })));
+
         }
     }
 }

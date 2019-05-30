@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 
@@ -16,7 +17,7 @@ namespace ConsensusCore.Node.BaseClasses
         /// <summary>
         /// Ids of what record is being stored here in this data shard and whether it has been confirmed to be written for the first time to a primary
         /// </summary>
-        public Dictionary<Guid, DataStates> DataTable { get; set; } 
+        public ConcurrentDictionary<Guid, DataStates> DataTable { get; set; } 
         public int MaxSize { get; set; }
         public int ShardNumber { get; set; }
         public Guid Id { get; set; }

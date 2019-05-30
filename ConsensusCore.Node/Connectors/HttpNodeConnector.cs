@@ -14,7 +14,7 @@ using ConsensusCore.Node.RPCs;
 
 namespace ConsensusCore.Node.Connectors
 {
-    public class HttpNodeConnector
+    public class HttpNodeConnector: IConnector
     {
         private HttpClient _httpClient;
         private HttpClient _dataClient;
