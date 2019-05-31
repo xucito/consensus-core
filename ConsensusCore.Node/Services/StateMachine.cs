@@ -73,17 +73,22 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Shards[shardId].Allocations[nodeId] < newVersion;
         }
 
+        public bool ObjectIsNewlyAssigned(Guid objectId, out Guid assignedShard)
+        {
+            return CurrentState.UninitializedObjects.TryGetValue(objectId, out assignedShard);
+        }
+
         public Guid? GetShardContainingObject(Guid objectId, string type)
         {
-            var shards = CurrentState.Shards.Where(s => s.Value.DataTable.ContainsKey(objectId)).Select(s => s.Key);
+            var shards = CurrentState.Shards.Where(s => s.Value.Type == type).FirstOrDefault(s => s.Value.DataTable.ContainsKey(objectId));
 
-            if (shards.Count() == 0)
+            if (shards.Key == default(Guid))
             {
                 return null;
             }
             else
             {
-                return shards.First();
+                return shards.Key;
             }
         }
 

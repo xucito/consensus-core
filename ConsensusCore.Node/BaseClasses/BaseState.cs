@@ -14,6 +14,8 @@ namespace ConsensusCore.Node.BaseClasses
         public BaseState() { }
         public Dictionary<Guid, NodeInformation> Nodes { get; set; } = new Dictionary<Guid, NodeInformation>();
         public ConcurrentDictionary<Guid, ShardMetadata> Shards { get; set; } = new ConcurrentDictionary<Guid, ShardMetadata>();
+        public Dictionary<Guid, Guid> UninitializedObjects { get; set; } = new Dictionary<Guid, Guid>();
+        public object uninitalizedObjectsLock = new object();
 
         public void ApplyCommand(BaseCommand command)
         {
@@ -75,8 +77,12 @@ namespace ConsensusCore.Node.BaseClasses
                         switch (t1.Action)
                         {
                             case UpdateShardAction.Append:
-                                // If this returns false it is because the object already exists
-                                var wasItAdded = Shards[t1.ShardId].DataTable.TryAdd(id, DataStates.Assigned);
+                                // If this returns false it is because the object already exists                                
+                                lock (uninitalizedObjectsLock)
+                                {
+                                    var wasItAdded = Shards[t1.ShardId].DataTable.TryAdd(id, DataStates.Assigned);
+                                    UninitializedObjects.Add(id, t1.ShardId);
+                                }
                                 break;
                             case UpdateShardAction.Delete:
                                 //If this return false it is because the object is already gone
@@ -85,7 +91,11 @@ namespace ConsensusCore.Node.BaseClasses
                             case UpdateShardAction.Update:
                                 throw new Exception("TO DO NOT IMPLEMENTED");
                             case UpdateShardAction.Initialize:
-                                Shards[t1.ShardId].DataTable[id] = DataStates.Initialized;
+                                lock (uninitalizedObjectsLock)
+                                {
+                                    Shards[t1.ShardId].DataTable[id] = DataStates.Initialized;
+                                    UninitializedObjects.Remove(id);
+                                }
                                 break;
                         }
                     }

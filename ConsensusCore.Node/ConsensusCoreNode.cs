@@ -143,7 +143,6 @@ namespace ConsensusCore.Node
                             //Console.WriteLine("Detected majority writes to logs.");
                             _stateMachine.ApplyLogToStateMachine(_nodeStorage.GetLogAtIndex(CommitIndex + 1));
                             CommitIndex++;
-                            Console.WriteLine("Uncommited logs " + (_nodeStorage.GetLogCount() - CommitIndex));
                         }
                         else
                         {
@@ -236,7 +235,6 @@ namespace ConsensusCore.Node
 
                 while (CurrentState == NodeState.Leader)
                 {
-
                     DateTime startTime = DateTime.Now;
                     List<Guid> objectsToAssign = new List<Guid>();
                     string typeToAdd = null;
@@ -304,15 +302,15 @@ namespace ConsensusCore.Node
                             ObjectId = objectIds,
                             ShardId = assignedShard.Id
                         });
-                        Console.WriteLine("Shard update took " + (DateTime.Now - currentTime).TotalMilliseconds + " for " + objectIds.Count() + " objects.");
+                       // Console.WriteLine("Shard update took " + (DateTime.Now - currentTime).TotalMilliseconds + " for " + objectIds.Count() + " objects.");
                         assignedObjectPointer += howManyObjectsToAppend;
                         //}
                     }
                     if (assignedObjectPointer > 0)
-                        Console.WriteLine("Assignment time took " + (DateTime.Now - startTime).TotalMilliseconds + "ms to assign " + assignedObjectPointer + " objects. Remaining in queue " + DataAssignmentQueue.Count());
+                        Logger.LogDebug("Assignment time took " + (DateTime.Now - startTime).TotalMilliseconds + "ms to assign " + assignedObjectPointer + " objects. Remaining in queue " + DataAssignmentQueue.Count());
 
+                    Thread.Sleep(10);
                 }
-                Thread.Sleep(100);
                 //}
             });
         }
@@ -324,7 +322,6 @@ namespace ConsensusCore.Node
 
         public async void ClusterInfoTimeoutHandler(object args)
         {
-            Console.WriteLine("NumberOfWaitingThreads: " + NumberOfWaitingThreads);
             Logger.LogDebug("Rediscovering nodes...");
             var nodeUpsertCommands = new List<BaseCommand>();
             var nodesAreMissing = false;
@@ -506,7 +503,7 @@ namespace ConsensusCore.Node
                     throw new Exception("Request is not implemented");
             }
 
-            if (request.RequestName == "AssignDataToShard" || request.RequestName == "WriteDataShard")
+            if (request.RequestName == "WriteDataShard")
                 Console.WriteLine("Request " + request.RequestName + " took " + (DateTime.Now - startCommand).TotalMilliseconds + "ms");
             return response;
         }
@@ -586,7 +583,7 @@ namespace ConsensusCore.Node
         public AssignDataToShardResponse AssignDataToShardHandler(AssignDataToShard shard)
         {
             DateTime timeNow = DateTime.Now;
-            int checkpoint = 0;
+            var backOffMultiplier = 1;
             //If there is no queue for this type, refresh it
             // if (!DataAssignmentQueue.(shard.Type))
             // {
@@ -598,16 +595,16 @@ namespace ConsensusCore.Node
             // }
             DataAssignmentQueue.Enqueue(new KeyValuePair<string, Guid>(shard.Type, shard.ObjectId));
 
-            //Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
-            timeNow = DateTime.Now;
-            Guid? assignedShard;
+           // Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
+           // timeNow = DateTime.Now;
+            Guid assignedShard;
 
             var processStartTime = DateTime.UtcNow;
-            Interlocked.Increment(ref NumberOfWaitingThreads);
-            while ((assignedShard = _stateMachine.GetShardContainingObject(shard.ObjectId, shard.Type)) == null)
+            while (!_stateMachine.ObjectIsNewlyAssigned(shard.ObjectId, out assignedShard))
             {
-                //  Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
-                timeNow = DateTime.Now;
+                //Console.WriteLine("WAITING!!!!!");
+                //Console.WriteLine("Time since start " + (DateTime.Now - timeNow).TotalMilliseconds + "for checkpoint " + checkpoint++);
+                //timeNow = DateTime.Now;
                 if ((DateTime.UtcNow - processStartTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
                 {
                     Logger.LogError("Encountered assignment timeout for data object " + shard.ObjectId);
@@ -618,16 +615,18 @@ namespace ConsensusCore.Node
                     };
                 }
 
-                Thread.Sleep(1000);
+                Thread.Sleep(10 * backOffMultiplier);
+                backOffMultiplier *= 2;
                 Logger.LogDebug("Awaiting the assignment for object " + shard.ObjectId + " to become present in state.");
             }
 
-            Interlocked.Decrement(ref NumberOfWaitingThreads);
+            //Console.WriteLine("Completed assignment in " + (DateTime.Now - timeNow).TotalMilliseconds + "ms.");
+            timeNow = DateTime.Now;
 
             return new AssignDataToShardResponse()
             {
                 IsSuccessful = true,
-                AssignedShard = assignedShard.Value
+                AssignedShard = assignedShard
             };
         }
 
@@ -794,7 +793,7 @@ namespace ConsensusCore.Node
                 _nodeStorage.AddLog(log);
             }
 
-            Console.WriteLine("Writing logs took " + (DateTime.Now - time).TotalMilliseconds);
+            //Console.WriteLine("Writing logs took " + (DateTime.Now - time).TotalMilliseconds);
 
             if (CommitIndex < entry.LeaderCommit)
             {
@@ -803,13 +802,12 @@ namespace ConsensusCore.Node
                 var allLogsToBeCommited = _nodeStorage.Logs.GetRange(CommitIndex, entry.LeaderCommit - CommitIndex);
                 _stateMachine.ApplyLogsToStateMachine(allLogsToBeCommited);
                 CommitIndex = allLogsToBeCommited.Last().Index;
-                Console.WriteLine("Uncommited logs " + (_nodeStorage.GetLogCount() - CommitIndex));
                 //Console.WriteLine("COMMITED " + CommitIndex + " with last index of logs being " + allLogsToBeCommited.Last().Index);
             }
-            if(entry.Entries.Count() > 0)
+            /*if(entry.Entries.Count() > 0)
             {
                 Console.WriteLine("Added upto entry " + entry.Entries.Last().Index + " number of logs in storage " + _nodeStorage.Logs.Count());
-            }
+            }*/
 
             return new AppendEntryResponse()
             {
@@ -895,7 +893,7 @@ namespace ConsensusCore.Node
                         entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[connector.Key] - 1, quantityToSend < maxSendEntries ? quantityToSend : maxSendEntries).ToList();
                         // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
                         Logger.LogDebug("Detected node " + connector.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
-                        Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + entriesToSend.Count + "logs.");
+                        Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
                         LogsSent.AddOrUpdate(connector.Key, true, (key, oldvalue) =>
                         {
                             return true;
@@ -914,8 +912,6 @@ namespace ConsensusCore.Node
                     });
 
                     LogsSent.TryUpdate(connector.Key, false, true);
-
-                    Console.WriteLine("append entry took " + (DateTime.Now - timeNow).TotalMilliseconds + "ms");
 
                     if (result.Successful)
                     {
