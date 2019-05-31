@@ -1,15 +1,14 @@
 ﻿using ConsensusCore.Node.BaseClasses;
+using ConsensusCore.Node.ValueObjects;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ConsensusCore.Node.SystemCommands
 {
-    public class UpdateShard : BaseCommand
+    public class UpdateShards : BaseCommand
     {
-        public Guid ShardId { get; set; }
-        public Guid[] ObjectId { get; set; }
-        public UpdateShardAction Action { get; set; }
+        public Dictionary<Guid, ShardDataUpdate> Updates { get; set; }
         /// <summary>
         /// Used for 
         /// </summary>
