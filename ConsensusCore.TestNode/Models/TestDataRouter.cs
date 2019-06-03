@@ -1,4 +1,5 @@
-﻿using ConsensusCore.Node.Services;
+﻿using ConsensusCore.Node.BaseClasses;
+using ConsensusCore.Node.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,19 +9,31 @@ namespace ConsensusCore.TestNode.Models
 {
     public class TestDataRouter : IDataRouter
     {
-        Dictionary<Guid, int> _numberStore = new Dictionary<Guid, int>();
+        public List<TestData> _numberStore = new List<TestData>();
         object locker = new object();
 
-        public Guid WriteData(string type, object data, Guid objectId)
+        public object GetData(string type, Guid objectId)
         {
-            Guid? assignedGuid = objectId;
+            return null;
+            //   return _numberStore[objectId];
+        }
 
-            switch (type)
+        public void WriteData(ShardData data)
+        {
+            switch (data)
+            {
+                case TestData t1:
+                    _numberStore.Add(t1);
+                    break;
+            }
+
+            /*
+            switch (data.Type)
             {
                 case "number":
                     lock (locker)
                     {
-                        if (_numberStore.ContainsKey(assignedGuid.Value))
+                        if (_numberStore.ContainsKey(data.Value))
                         {
                             _numberStore[assignedGuid.Value] = Convert.ToInt32(data);
                         }
@@ -31,12 +44,7 @@ namespace ConsensusCore.TestNode.Models
                     }
                     return assignedGuid.Value;
             }
-            return assignedGuid.Value;
-        }
-
-        public object GetData(string type, Guid objectId)
-        {
-            return _numberStore[objectId];
+            return assignedGuid.Value;*/
         }
     }
 }

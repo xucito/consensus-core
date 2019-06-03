@@ -7,17 +7,9 @@ namespace ConsensusCore.Node.RPCs
 {
     public class WriteData : BaseRequest<WriteDataResponse>
     {
-        public string Type { get; set; }
-        public object Data { get; set; }
-        public int? Version { get; set; }
-        // Wait for at least two copies of the data to be present
+        public ShardData Data { get; set; }
         public bool WaitForSafeWrite { get; set; }
-        public override string RequestName => "WriteDataShard";
-        /// <summary>
-        /// Only used to optimize after rerouting requests
-        /// </summary>
-        internal Guid? AssignedShard { get; set; }
-        internal Guid? AssignedGuid { get; set; }
+        public override string RequestName => "WriteData";
     }
 
     public class WriteDataResponse

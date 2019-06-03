@@ -36,6 +36,12 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_node.NodeInfo);
         }
 
+        [HttpGet("localShards")]
+        public IActionResult GetLocalShards()
+        {
+            return Ok(_node.LocalShards);
+        }
+
         [HttpPost("RPC")]
         public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<object> request)
         {

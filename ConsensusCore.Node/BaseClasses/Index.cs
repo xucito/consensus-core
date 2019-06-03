@@ -4,7 +4,9 @@ using System.Text;
 
 namespace ConsensusCore.Node.BaseClasses
 {
-    class Index
+    public class Index
     {
+        public string Type { get; set; }
+        public List<SharedShardMetadata> Shards { get; set; }
     }
 }

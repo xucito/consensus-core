@@ -1,37 +1,25 @@
 ﻿using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.ValueObjects;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ConsensusCore.Node.SystemCommands
 {
-    public class UpdateShards : BaseCommand
+    /*public class UpdateShard : BaseCommand
     {
-        public Dictionary<Guid, ShardDataUpdate> Updates { get; set; }
-        /// <summary>
-        /// Used for 
-        /// </summary>
         public override string CommandName => "UpdateShard";
-    }
+        /// <summary>
+        /// The data that you are operating on
+        /// </summary>
+        public Guid ShardDataId { get; set; }
+    }*/
 
-    public enum UpdateShardAction
+    public enum ShardOperationOptions
     {
-        /// <summary>
-        /// Append will add the object to the list of stored objects as uninitialized
-        /// </summary>
-        Append,
-        /// <summary>
-        /// Update will delete the object from the point in the dictionary and readd it below
-        /// </summary>
-        Update,
+        Create,
         /// <summary>
         /// Delete will delete the object from the index
         /// </summary>
-        Delete,
-        /// <summary>
-        /// Initalize will mark the shard as initialized
-        /// </summary>
-        Initialize
+        Delete
     }
 }

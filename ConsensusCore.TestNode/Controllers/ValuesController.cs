@@ -16,25 +16,32 @@ namespace ConsensusCore.TestNode.Controllers
     public class ValuesController : ControllerBase
     {
         IConsensusCoreNode<TestState, NodeInMemoryRepository> _node;
+        TestDataRouter _router;
 
-        public ValuesController(IConsensusCoreNode<TestState, NodeInMemoryRepository> node)
+        public ValuesController(IConsensusCoreNode<TestState, NodeInMemoryRepository> node, IDataRouter router)
         {
             _node = node;
+            _router = (TestDataRouter)router;
         }
         // POST api/values
         [HttpPost]
         public async Task<IActionResult> Post([FromBody] int value)
         {
+            var newId = Guid.NewGuid();
             var result = await (_node.Send(new WriteData()
             {
-                Data = value,
-                Type = "number",
+                Data = new TestData()
+                {
+                    Data = value,
+                    Type = "number",
+                    Id = newId
+                },
                 WaitForSafeWrite = true
             }));
 
             if (result.IsSuccessful)
             {
-                return Ok(result);
+                return Ok(newId);
             }
             else
             {
@@ -45,11 +52,7 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetNumber(Guid id)
         {
-            return Ok(await _node.Send(new RequestDataShard()
-            {
-                ObjectId = id,
-                Type = "number"
-            }));
+            return Ok(_router._numberStore.Where(n => n.Id == id));
         }
 
         /* [HttpPut("{id}")]

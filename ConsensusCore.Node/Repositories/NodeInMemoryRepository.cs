@@ -13,7 +13,6 @@ namespace ConsensusCore.Node.Repositories
     {
         public NodeInMemoryRepository()
         {
-
         }
 
         public override NodeStorage LoadNodeData()

@@ -18,12 +18,29 @@ namespace ConsensusCore.Node.Services
         public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
         public readonly object _locker = new object();
         private BaseRepository _repository;
+        public Dictionary<Guid, LocalShardMetaData> ShardMetaData { get; } = new Dictionary<Guid, LocalShardMetaData>();
 
         public NodeStorage()
         {
-
         }
 
+        public void AddNewShardMetaData(LocalShardMetaData metadata)
+        {
+            ShardMetaData.Add(metadata.ShardId, metadata);
+        }
+
+        /// <summary>
+        /// When you are adding a new shard, the index is created
+        /// </summary>
+        public int AddNewShardOperation(Guid shardId, ShardOperation operation)
+        {
+            return ShardMetaData[shardId].AddShardOperation(operation);
+        }
+
+        public void ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
+        {
+            ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
+        }
 
         public NodeStorage(BaseRepository repository)
         {
@@ -105,7 +122,7 @@ namespace ConsensusCore.Node.Services
                 {
                     Logs.Add(entry);
                 }
-                else if(entry.Index > Logs.Count() + 1)
+                else if (entry.Index > Logs.Count() + 1)
                 {
                     throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
                 }
