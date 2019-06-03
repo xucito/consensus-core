@@ -41,7 +41,6 @@ namespace ConsensusCore.Node.Interfaces
                 {
                     foreach (var command in entry.Commands)
                     {
-                        Console.WriteLine("Applying command " + entry.Index + " commannd " + command.CommandName);
                         CurrentState.ApplyCommand(command);
                     }
                 }

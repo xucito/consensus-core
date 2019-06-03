@@ -17,6 +17,7 @@ namespace ConsensusCore.Node.RPCs
         /// Only used to optimize after rerouting requests
         /// </summary>
         internal Guid? AssignedShard { get; set; }
+        internal Guid? AssignedGuid { get; set; }
     }
 
     public class WriteDataResponse

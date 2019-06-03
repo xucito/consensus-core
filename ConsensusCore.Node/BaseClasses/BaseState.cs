@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Node.BaseClasses;
 using ConsensusCore.Node.Models;
 using ConsensusCore.Node.SystemCommands;
+using ConsensusCore.Node.ValueObjects;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -16,35 +17,34 @@ namespace ConsensusCore.Node.BaseClasses
         public ConcurrentDictionary<Guid, ShardMetadata> Shards { get; set; } = new ConcurrentDictionary<Guid, ShardMetadata>();
         public Dictionary<Guid, Guid> UninitializedObjects { get; set; } = new Dictionary<Guid, Guid>();
         public object uninitalizedObjectsLock = new object();
+        public List<BaseTask> ClusterTasks { get; set; } = new List<BaseTask>();
 
         public void ApplyCommand(BaseCommand command)
         {
             switch (command)
             {
                 case UpsertNodeInformation t1:
-                    UpsertNodeInformation convertedCommand = (UpsertNodeInformation)(object)command;
-                    if (Nodes.ContainsKey(convertedCommand.Id))
+                    if (Nodes.ContainsKey(t1.Id))
                     {
-                        Nodes[convertedCommand.Id] = new NodeInformation()
+                        Nodes[t1.Id] = new NodeInformation()
                         {
-                            Name = convertedCommand.Name,
-                            TransportAddress = convertedCommand.TransportAddress
+                            Name = t1.Name,
+                            TransportAddress = t1.TransportAddress
                         };
                     }
                     else
                     {
-                        Nodes.Add(convertedCommand.Id, new NodeInformation()
+                        Nodes.Add(t1.Id, new NodeInformation()
                         {
-                            Name = convertedCommand.Name,
-                            TransportAddress = convertedCommand.TransportAddress
+                            Name = t1.Name,
+                            TransportAddress = t1.TransportAddress
                         });
                     }
                     break;
                 case DeleteNodeInformation t1:
-                    DeleteNodeInformation deleteCommand = (DeleteNodeInformation)(object)command;
-                    if (Nodes.ContainsKey(deleteCommand.Id))
+                    if (Nodes.ContainsKey(t1.Id))
                     {
-                        Nodes.Remove(deleteCommand.Id);
+                        Nodes.Remove(t1.Id);
                     }
                     break;
                 case CreateDataShardInformation t1:
@@ -56,7 +56,7 @@ namespace ConsensusCore.Node.BaseClasses
                         Version = updateShardCommand.Version,
                         Initalized = updateShardCommand.Initalized,
                         Allocations = updateShardCommand.Allocations,
-                        DataTable = new ConcurrentDictionary<Guid, DataStates>(),
+                        DataTable = new ConcurrentDictionary<Guid, ShardData>(),
                         ShardNumber = t1.ShardNumber,
                         MaxSize = t1.MaxSize,
                         Id = t1.ShardId
@@ -76,32 +76,6 @@ namespace ConsensusCore.Node.BaseClasses
                     List<Guid> UpdatedShards = new List<Guid>();
                     foreach (var update in t1.Updates)
                     {
-                        switch (update.Value.Action)
-                        {
-                            case UpdateShardAction.Append:
-                                // If this returns false it is because the object already exists                                
-                                lock (uninitalizedObjectsLock)
-                                {
-                                    var wasItAdded = Shards[update.Value.ShardId].DataTable.TryAdd(update.Value.DataId, DataStates.Assigned);
-                                    UninitializedObjects.Add(update.Value.DataId, update.Value.ShardId);
-                                }
-                                break;
-                            case UpdateShardAction.Delete:
-                                //If this return false it is because the object is already gone
-                                var wasItRemoved = Shards[update.Value.ShardId].DataTable.TryRemove(update.Value.DataId, out _);
-                                break;
-                            case UpdateShardAction.Update:
-                                throw new Exception("TO DO NOT IMPLEMENTED");
-                            case UpdateShardAction.Initialize:
-                                lock (uninitalizedObjectsLock)
-                                {
-                                    Shards[update.Value.ShardId].DataTable[update.Value.DataId] = DataStates.Initialized;
-                                    UninitializedObjects.Remove(update.Value.DataId);
-                                }
-                                break;
-                        }
-
-
                         if (Shards.ContainsKey(update.Value.ShardId) && !UpdatedShards.Contains(update.Value.ShardId))
                         {
                             if (Shards[update.Value.ShardId].Allocations.ContainsKey(Shards[update.Value.ShardId].PrimaryAllocation))
@@ -117,41 +91,57 @@ namespace ConsensusCore.Node.BaseClasses
                             Shards[update.Value.ShardId].Version++;
                             UpdatedShards.Add(update.Value.ShardId);
                         }
+
+                        switch (update.Value.Action)
+                        {
+                            case UpdateShardAction.Append:
+                                // If this returns false it is because the object already exists                                
+                                lock (uninitalizedObjectsLock)
+                                {
+                                    var wasItAdded = Shards[update.Value.ShardId].DataTable.TryAdd(update.Value.DataId,
+                                        new ShardData()
+                                        {
+                                            State = DataStates.Assigned,
+                                            Version = Shards[update.Value.ShardId].Version
+                                        });
+                                    if (wasItAdded)
+                                    {
+                                        UninitializedObjects.Add(update.Value.DataId, update.Value.ShardId);
+                                    }
+                                }
+                                break;
+                            case UpdateShardAction.Delete:
+                                //If this return false it is because the object is already gone
+                                var wasItRemoved = Shards[update.Value.ShardId].DataTable.TryRemove(update.Value.DataId, out _);
+                                break;
+                            case UpdateShardAction.Update:
+                                throw new Exception("TO DO NOT IMPLEMENTED");
+                            case UpdateShardAction.Initialize:
+                                lock (uninitalizedObjectsLock)
+                                {
+                                    //Change the state of the data and also the version that this document was updated
+                                    Shards[update.Value.ShardId].DataTable[update.Value.DataId].State = DataStates.Initialized;
+                                    Shards[update.Value.ShardId].DataTable[update.Value.DataId].Version = Shards[update.Value.ShardId].Version;
+                                    UninitializedObjects.Remove(update.Value.DataId);
+                                }
+                                break;
+                        }
+
+
+
                     }
                     break;
-                //Only the primary can update version so it's assumed the primary has written this
-
-                /*
-                if (updateShardAllocation.Version == -1)
-                {
-                    if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
+                case UpsertClusterTasks t1:
+                    foreach (var task in t1.ClusterTasks)
                     {
-                        Shards[updateShardAllocation.ShardId].Allocations.Remove(updateShardAllocation.NodeId);
-                    }
-                }
-                //Update the version or add the allocation
-                else
-                {
-                    if (Shards.ContainsKey(updateShardAllocation.ShardId))
-                    {
-                        if (Shards[updateShardAllocation.ShardId].Allocations.ContainsKey(updateShardAllocation.NodeId))
+                        switch (task.Status)
                         {
-                            Shards[updateShardAllocation.ShardId].Allocations[updateShardAllocation.NodeId] = updateShardAllocation.Version;
-                        }
-                        else
-                        {
-                            Shards[updateShardAllocation.ShardId].Allocations.Add(updateShardAllocation.NodeId, updateShardAllocation.Version);
-                        }
-
-                        //There is a split second where the update may not happen
-
-                        if (updateShardAllocation.Version > Shards[updateShardAllocation.ShardId].Version)
-                        {
-                            Shards[updateShardAllocation.ShardId].Version = updateShardAllocation.Version;
+                            case Enums.ClusterTaskStatuses.Created:
+                                ClusterTasks.Add(task);
+                                break;
                         }
                     }
-                }
-                break;*/
+                    break;
                 default:
                     ApplyCommandToState(command);
                     break;
