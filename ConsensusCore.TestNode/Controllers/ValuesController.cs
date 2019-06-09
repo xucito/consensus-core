@@ -52,7 +52,12 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetNumber(Guid id)
         {
-            return Ok(_router._numberStore.Where(n => n.Id == id));
+            return Ok((await _node.Send(new RequestDataShard()
+            {
+                ObjectId = id,
+                Type = "number"
+            })));
+            //return Ok(_router._numberStore.Where(n => n.Id == id));
         }
 
         /* [HttpPut("{id}")]

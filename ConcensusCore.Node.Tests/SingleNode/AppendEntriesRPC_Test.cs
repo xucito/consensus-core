@@ -1,20 +1,24 @@
 using ConsensusCore.Node;
+using ConsensusCore.Node.Models;
 using ConsensusCore.Node.Repositories;
+using ConsensusCore.Node.RPCs;
 using ConsensusCore.Node.Services;
+using ConsensusCore.TestNode.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 
 namespace ConcensusCore.Node.Tests.SingleNode
 {
     public class AppendEntriesRPC_Test
-    {/*
-        public ConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>> Node;
-        public NodeStorage<TestCommand, NodeInMemoryRepository<TestCommand>> NodeStorage;
+    {
+        public ConsensusCoreNode<TestState, NodeInMemoryRepository> Node;
+        public NodeStorage NodeStorage;
 
         public AppendEntriesRPC_Test()
         {
@@ -30,31 +34,32 @@ namespace ConcensusCore.Node.Tests.SingleNode
 
             var factory = serviceProvider.GetService<ILoggerFactory>();
 
-            var logger = factory.CreateLogger<ConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>>>();
+            var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
 
-            NodeStorage = new ConsensusCore.Node.Services.NodeStorage<TestCommand, NodeInMemoryRepository<TestCommand>>(new NodeInMemoryRepository<TestCommand>())
+            NodeStorage = new NodeStorage(new NodeInMemoryRepository())
             {
                 CurrentTerm = 5,
-                Logs = new System.Collections.Generic.List<LogEntry<TestCommand>>()
+                Logs = new System.Collections.Generic.List<LogEntry>()
                 {
-                    new LogEntry<TestCommand>(){
-                        Commands = new System.Collections.Generic.List<TestCommand>(){ },
+                    new LogEntry(){
+                        Commands = new List<ConsensusCore.Node.BaseClasses.BaseCommand>(),
                         Index = 1,
                         Term = 5
                     },
-                    new LogEntry<TestCommand>(){
-                        Commands = new System.Collections.Generic.List<TestCommand>(){ },
+                    new LogEntry(){
+                        Commands =new List<ConsensusCore.Node.BaseClasses.BaseCommand>(),
                         Index = 2,
                         Term = 5
                     }
                 }
             };
 
-            var inMemoryRepository = new NodeInMemoryRepository<TestCommand>();
-            Node = new ConsensusCoreNode<TestCommand, TestState, NodeInMemoryRepository<TestCommand>>(moqClusterOptions.Object,
+            var inMemoryRepository = new NodeInMemoryRepository();
+            Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
             moqNodeOptions.Object,
             NodeStorage,
-            logger, new ConsensusCore.Node.Interfaces.StateMachine<TestCommand, TestState>())
+            logger,
+            new ConsensusCore.Node.Interfaces.StateMachine<TestState>())
             {
                 IsBootstrapped = true
             };
@@ -64,30 +69,28 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void FalseIfTermIsLessThenCurrentTerm()
         {
-            Assert.False(Node.AppendEntry(new AppendEntry<TestCommand>()
+            Assert.False((Node.Send(new AppendEntry()
             {
                 Term = 2
-            }));
+            }).GetAwaiter().GetResult()).Successful);
         }
 
         [Fact]
         public void FalseIfPrevLogIndexTermIsDifferent()
         {
-            //Less then current term
-            Assert.False(Node.AppendEntry(new AppendEntry<TestCommand>()
+            Assert.False((Node.Send(new AppendEntry()
             {
                 Term = 5,
                 PrevLogIndex = 2,
                 PrevLogTerm = 3
-            }));
+            }).GetAwaiter().GetResult()).Successful);
 
-            //Greater then current term
-            Assert.False(Node.AppendEntry(new AppendEntry<TestCommand>()
+            Assert.False((Node.Send(new AppendEntry()
             {
                 Term = 5,
                 PrevLogIndex = 2,
                 PrevLogTerm = 7
-            }));
+            }).GetAwaiter().GetResult()).Successful);
         }
 
         /// <summary>
@@ -96,11 +99,10 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void NewEntryConflictsWithExistingOne()
         {
-            //Less then current term
-            Assert.True(Node.AppendEntry(new AppendEntry<TestCommand>()
+            Assert.True((Node.Send(new AppendEntry()
             {
-                Entries = new System.Collections.Generic.List<LogEntry<TestCommand>>() {
-                    new LogEntry<TestCommand>()
+                Entries = new System.Collections.Generic.List<LogEntry>() {
+                    new LogEntry()
                     {
                         Index = 2,
                         Term = 9
@@ -109,7 +111,8 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Term = 5,
                 PrevLogIndex = 1,
                 PrevLogTerm = 5
-            }));
+            }).GetAwaiter().GetResult()).Successful);
+
 
             Assert.Equal(2, NodeStorage.Logs.Count());
             Assert.Equal(2, NodeStorage.Logs.Last().Index);
@@ -122,11 +125,10 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void DontAppendExistingLog()
         {
-            //Less then current term
-            Assert.True(Node.AppendEntry(new AppendEntry<TestCommand>()
+            Assert.True((Node.Send(new AppendEntry()
             {
-                Entries = new System.Collections.Generic.List<LogEntry<TestCommand>>() {
-                    new LogEntry<TestCommand>()
+                Entries = new System.Collections.Generic.List<LogEntry>() {
+                    new LogEntry()
                     {
                         Index = 2,
                         Term = 9
@@ -135,11 +137,11 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Term = 5,
                 PrevLogIndex = 1,
                 PrevLogTerm = 5
-            }));
+            }).GetAwaiter().GetResult()).Successful);
 
             Assert.Equal(2, NodeStorage.Logs.Count());
             Assert.Equal(2, NodeStorage.Logs.Last().Index);
             Assert.Equal(9, NodeStorage.Logs.Last().Term);
-        }*/
+        }
     }
 }

@@ -62,9 +62,32 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Indexes[type].Shards.ToArray();
         }
 
-        public SharedShardMetadata GetShard(string type,Guid shardId)
+        public SharedShardMetadata GetShard(string type, Guid shardId)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();
+        }
+
+        public NodeInformation GetNode(Guid nodeId)
+        {
+            var nodes = CurrentState.Nodes.Where(n => n.Key == nodeId);
+            if (nodes.Count() == 0)
+            {
+                return null;
+            }
+            else
+            {
+                return nodes.First().Value;
+            }
+        }
+
+        /// <summary>
+        /// Get all the primary shards for a given type
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public Dictionary<Guid, Guid> GetAllPrimaryShards(string type)
+        {
+            return CurrentState.Indexes[type].Shards.ToDictionary(k => k.Id, v => v.PrimaryAllocation);
         }
     }
 }

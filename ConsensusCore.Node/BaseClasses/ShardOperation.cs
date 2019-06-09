@@ -1,4 +1,5 @@
-﻿using ConsensusCore.Node.SystemCommands;
+﻿using ConsensusCore.Node.Enums;
+using ConsensusCore.Node.SystemCommands;
 using System;
 using System.Collections.Generic;
 using System.Text;

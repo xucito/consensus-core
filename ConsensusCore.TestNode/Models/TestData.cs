@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.TestNode.Models
 {
-    public class TestData: ShardData
+    public class TestData : ShardData
     {
     }
 }

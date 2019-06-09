@@ -9,12 +9,17 @@ namespace ConsensusCore.Node.RPCs
     {
         public Guid ObjectId { get; set; }
         public string Type { get; set; }
+        /// <summary>
+        /// Only specified if you know what shard to look into, otherwise it will do cascading primary node search
+        /// </summary>
+        public Guid? ShardId { get; set; }
 
         public override string RequestName => "GetDataShard";
     }
 
     public class RequestDataShardResponse
     {
+        public bool IsSuccessful { get; set; }
         public object Data { get; set; }
     }
 }

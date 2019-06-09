@@ -1,10 +1,14 @@
-﻿using System;
+﻿using ConsensusCore.Node.Utility.RoutedRequests;
+using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ConsensusCore.Node.BaseClasses
 {
-    public class ShardData
+
+    [JsonConverter(typeof(ShardDataConverter))]
+    public abstract class ShardData
     {
         public Guid Id { get; set; }
         public Guid? ShardId { get; set; }
@@ -14,5 +18,6 @@ namespace ConsensusCore.Node.BaseClasses
         /// Used to track what number of the record this is
         /// </summary>
         public int Position { get; set; }
+        public string ClassName { get { return this.GetType().FullName; } }
     }
 }

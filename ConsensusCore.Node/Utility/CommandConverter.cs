@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Node.BaseClasses;
+using ConsensusCore.Node.SystemCommands;
 using System;
 using System.Collections.Generic;
 using System.Reflection;

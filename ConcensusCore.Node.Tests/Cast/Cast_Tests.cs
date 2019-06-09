@@ -12,7 +12,7 @@ namespace ConcensusCore.Node.Tests.Cast
         [Fact]
         public void TestCast()
         {
-            IClusterRequest<object> test = (IClusterRequest<object>)new AssignNewShard();
+         //   IClusterRequest<object> test = (IClusterRequest<object>)new AssignNewShard();
         }
 
         [Fact]

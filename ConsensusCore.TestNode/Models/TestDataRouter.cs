@@ -9,13 +9,14 @@ namespace ConsensusCore.TestNode.Models
 {
     public class TestDataRouter : IDataRouter
     {
-        public List<TestData> _numberStore = new List<TestData>();
+        public Dictionary<Guid, TestData> _numberStore = new Dictionary<Guid, TestData>();
         object locker = new object();
 
         public object GetData(string type, Guid objectId)
         {
+            if (_numberStore.ContainsKey(objectId))
+                return _numberStore[objectId];
             return null;
-            //   return _numberStore[objectId];
         }
 
         public void WriteData(ShardData data)
@@ -23,7 +24,7 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-                    _numberStore.Add(t1);
+                    _numberStore.Add(t1.Id, t1);
                     break;
             }
 
