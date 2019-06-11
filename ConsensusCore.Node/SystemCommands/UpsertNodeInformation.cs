@@ -10,6 +10,7 @@ namespace ConsensusCore.Node.SystemCommands
         public Guid Id { get; set; }
         public string Name { get; set; }
         public string TransportAddress { get; set; }
+        public bool IsContactable { get; set; }
 
         public override string CommandName => "UpsertNodeInformation";
     }

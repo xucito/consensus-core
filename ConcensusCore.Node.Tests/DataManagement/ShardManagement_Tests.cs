@@ -43,6 +43,16 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
         }
 
+        [Fact]
+        public void MarkIndexAsStaleAfterFailureToWrite()
+        {
 
+        }
+
+        [Fact]
+        public void LeaderReassignPrimaryOnNodeFailure()
+        {
+
+        }
     }
 }

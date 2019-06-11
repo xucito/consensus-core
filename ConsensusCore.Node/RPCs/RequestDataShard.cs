@@ -15,6 +15,7 @@ namespace ConsensusCore.Node.RPCs
         public Guid? ShardId { get; set; }
 
         public override string RequestName => "GetDataShard";
+        public int TimeoutMs = 3000;
     }
 
     public class RequestDataShardResponse

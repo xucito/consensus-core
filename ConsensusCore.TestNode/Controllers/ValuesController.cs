@@ -60,6 +60,12 @@ namespace ConsensusCore.TestNode.Controllers
             //return Ok(_router._numberStore.Where(n => n.Id == id));
         }
 
+        [HttpGet("Test")]
+        public async Task<IActionResult> Number()
+        {
+            return Ok(200);
+        }
+
         /* [HttpPut("{id}")]
          public void UpdateValue(Guid id, [FromBody] int value)
          {

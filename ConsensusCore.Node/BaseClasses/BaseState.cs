@@ -14,8 +14,6 @@ namespace ConsensusCore.Node.BaseClasses
         public BaseState() { }
         public Dictionary<Guid, NodeInformation> Nodes { get; set; } = new Dictionary<Guid, NodeInformation>();
         public Dictionary<string, Index> Indexes { get; set; } = new Dictionary<string, Index>();
-        public Dictionary<Guid, Guid> UninitializedObjects { get; set; } = new Dictionary<Guid, Guid>();
-        public object uninitalizedObjectsLock = new object();
         public List<BaseTask> ClusterTasks { get; set; } = new List<BaseTask>();
 
         public void ApplyCommand(BaseCommand command)
@@ -28,7 +26,9 @@ namespace ConsensusCore.Node.BaseClasses
                         Nodes[t1.Id] = new NodeInformation()
                         {
                             Name = t1.Name,
-                            TransportAddress = t1.TransportAddress
+                            TransportAddress = t1.TransportAddress,
+                            Id = t1.Id,
+                            IsContactable = t1.IsContactable
                         };
                     }
                     else
@@ -36,7 +36,8 @@ namespace ConsensusCore.Node.BaseClasses
                         Nodes.Add(t1.Id, new NodeInformation()
                         {
                             Name = t1.Name,
-                            TransportAddress = t1.TransportAddress
+                            TransportAddress = t1.TransportAddress,
+                            Id = t1.Id
                         });
                     }
                     break;
@@ -63,6 +64,14 @@ namespace ConsensusCore.Node.BaseClasses
                                 break;
                         }
                     }
+                    break;
+                case UpdateShardMetadata t1:
+                    if (t1.PrimaryAllocation != null)
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().PrimaryAllocation = t1.PrimaryAllocation;
+                    if (t1.InsyncAllocations != null)
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = t1.InsyncAllocations;
+                    if (t1.StaleAllocations != null)
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = t1.StaleAllocations;
                     break;
                 default:
                     ApplyCommandToState(command);

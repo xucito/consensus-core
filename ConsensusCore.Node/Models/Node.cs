@@ -8,6 +8,8 @@ namespace ConsensusCore.Node.Models
     {
         public string Name { get; set; }
         public string TransportAddress { get; set; }
+        public Guid Id { get; set; }
+        public bool IsContactable { get; set; }
 
         public override bool Equals(object obj)
         {

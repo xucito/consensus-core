@@ -156,5 +156,10 @@ namespace ConsensusCore.Node.Services
                     _repository.SaveNodeData();
             }
         }
+
+        public int GetCurrentShardPos(Guid shardId)
+        {
+            return ShardMetaData[shardId].SyncPos;
+        }
     }
 }

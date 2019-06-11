@@ -8,8 +8,10 @@ namespace ConsensusCore.Node.BaseClasses
     public class SharedShardMetadata
     {
         public Guid Id { get; set; }
+        public string Type { get; set; }
         public Guid PrimaryAllocation { get; set; }
-        public List<Guid> InsyncAllocations { get; set; }
+        public List<Guid> InsyncAllocations { get; set; } = new List<Guid>();
+        public List<Guid> StaleAllocations { get; set; } = new List<Guid>();
     }
 
     public enum DataStates
