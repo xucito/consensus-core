@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Node.BaseClasses;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -10,12 +11,13 @@ namespace ConsensusCore.Node.Utility.RoutedRequests
     {
         protected override ShardData Create(Type objectType, Newtonsoft.Json.Linq.JObject jObject)
         {
-            DateTime test = DateTime.Now;
             foreach (Type t in Assembly.GetEntryAssembly().GetTypes())
             {
                 if (t.IsSubclassOf(typeof(ShardData)))
                 {
-                    if (!t.IsGenericTypeDefinition && jObject.Value<string>("ClassName") == ((ShardData)Activator.CreateInstance(t)).ClassName)
+                    //Class insensitive
+                    string className = jObject.GetValue("className", StringComparison.OrdinalIgnoreCase).Value<string>();
+                    if (!t.IsGenericTypeDefinition && className == ((ShardData)Activator.CreateInstance(t)).ClassName)
                     {
                         return (ShardData)Activator.CreateInstance(t);
                     }

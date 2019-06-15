@@ -37,9 +37,9 @@ namespace ConsensusCore.Node.Services
             return ShardMetaData[shardId].AddShardOperation(operation);
         }
 
-        public void ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
+        public bool ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
         {
-            ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
+            return ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
         }
 
         public NodeStorage(BaseRepository repository)
@@ -166,6 +166,13 @@ namespace ConsensusCore.Node.Services
         {
             if (ShardMetaData.ContainsKey(shardId))
                 return ShardMetaData[shardId];
+            return null;
+        }
+
+        public ShardOperation GetOperation(Guid shardId, int pos)
+        {
+            if (ShardMetaData.ContainsKey(shardId) && ShardMetaData[shardId].ShardOperations.ContainsKey(pos))
+                return ShardMetaData[shardId].ShardOperations[pos];
             return null;
         }
     }

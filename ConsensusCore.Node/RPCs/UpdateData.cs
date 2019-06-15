@@ -5,7 +5,7 @@ using System.Text;
 
 namespace ConsensusCore.Node.RPCs
 {
-    public class UpdateData : BaseRequest<UpdateDataResponse>
+  /*  public class UpdateData : BaseRequest<UpdateDataResponse>
     {
         public Guid Id { get; set; }
         public string Type { get; set; }
@@ -20,5 +20,5 @@ namespace ConsensusCore.Node.RPCs
     public class UpdateDataResponse
     {
         public bool IsSuccessful { get; set; }
-    }
+    }*/
 }

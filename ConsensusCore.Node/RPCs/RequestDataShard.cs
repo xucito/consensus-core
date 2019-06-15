@@ -25,7 +25,7 @@ namespace ConsensusCore.Node.RPCs
         public bool IsSuccessful { get; set; }
         public Guid? ShardId { get; set; }
         public Guid? NodeId { get; set; }
-        public object Data { get; set; }
+        public ShardData Data { get; set; }
         public string Type { get; set; }
         public bool IsLocked { get; set; }
         public string SearchMessage { get; set; }

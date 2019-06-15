@@ -9,6 +9,6 @@ namespace ConsensusCore.Node.Services
     {
         void InsertData(ShardData data);
         void UpdateData(ShardData data);
-        object GetData(string type, Guid objectId);
+        ShardData GetData(string type, Guid objectId);
     }
 }

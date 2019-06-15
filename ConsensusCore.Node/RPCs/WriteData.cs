@@ -17,5 +17,6 @@ namespace ConsensusCore.Node.RPCs
     public class WriteDataResponse
     {
         public bool IsSuccessful { get; set; }
+        public Guid ShardId { get; set; }
     }
 }

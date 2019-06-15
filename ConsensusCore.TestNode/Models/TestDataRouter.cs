@@ -12,7 +12,7 @@ namespace ConsensusCore.TestNode.Models
         public Dictionary<Guid, TestData> _numberStore = new Dictionary<Guid, TestData>();
         object locker = new object();
 
-        public object GetData(string type, Guid objectId)
+        public ShardData GetData(string type, Guid objectId)
         {
             if (_numberStore.ContainsKey(objectId))
                 return _numberStore[objectId];

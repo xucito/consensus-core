@@ -64,7 +64,7 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpGet("Test")]
         public async Task<IActionResult> Number()
         {
-            return Ok(200);
+            return Ok(((TestDataRouter)_router)._numberStore);
         }
 
         [HttpPut("{id}")]

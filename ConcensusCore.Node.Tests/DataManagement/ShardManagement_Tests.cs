@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Node;
+using ConsensusCore.Node.BaseClasses;
 using ConsensusCore.Node.Exceptions;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.RPCs;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,6 +23,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
     public class ShardManagement_Tests
     {
         public ConsensusCoreNode<TestState, NodeInMemoryRepository> Node;
+        public IDataRouter _dataRouter;
         public NodeStorage NodeStorage;
 
         public ShardManagement_Tests()
@@ -50,12 +53,12 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             var inMemoryRepository = new NodeInMemoryRepository();
             NodeStorage = new NodeStorage(inMemoryRepository);
-
+            _dataRouter = new TestDataRouter();
             Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
             moqNodeOptions.Object,
             NodeStorage,
             logger,
-            new ConsensusCore.Node.Interfaces.StateMachine<TestState>(), new TestDataRouter())
+            new ConsensusCore.Node.Interfaces.StateMachine<TestState>(), _dataRouter)
             {
                 IsBootstrapped = true
             };
@@ -206,20 +209,20 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             int foundResults = 0;
 
-           var runningTests = tests.Select(async t =>
-            {
-                var sendRequest = await Node.Send(new RequestDataShard()
-                {
-                    Type = "number",
-                    ObjectId = objectId,
-                    CreateLock = true
-                });
+            var runningTests = tests.Select(async t =>
+             {
+                 var sendRequest = await Node.Send(new RequestDataShard()
+                 {
+                     Type = "number",
+                     ObjectId = objectId,
+                     CreateLock = true
+                 });
 
-                if (sendRequest.IsSuccessful && sendRequest.Data != null)
-                {
-                    Interlocked.Increment(ref foundResults);
-                }
-            });
+                 if (sendRequest.IsSuccessful && sendRequest.Data != null)
+                 {
+                     Interlocked.Increment(ref foundResults);
+                 }
+             });
 
             await Task.WhenAll(runningTests);
 
@@ -248,6 +251,67 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public void LeaderReassignPrimaryOnNodeFailure()
         {
 
+        }
+
+        [Fact]
+        public async void RequestShardOperationsHandler()
+        {
+            var objectId = Guid.NewGuid();
+            var result = await Node.Send(new WriteData()
+            {
+                Data = new TestData
+                {
+                    Id = objectId,
+                    Data = 1,
+                    Type = "number"
+                }
+            });
+
+            var requestShardResult = await Node.Send(new RequestShardOperations()
+            {
+                From = 0,
+                To = 1,
+                ShardId = result.ShardId,
+                Type = "number"
+            });
+
+            Assert.Single(requestShardResult.Operations);
+        }
+
+        [Fact]
+        public async void UpdateData()
+        {
+            var objectId = Guid.NewGuid();
+            var result = await Node.Send(new WriteData()
+            {
+                Data = new TestData
+                {
+                    Id = objectId,
+                    Data = 1,
+                    Type = "number"
+                }
+            });
+
+            var updateResult = await Node.Send(new WriteData()
+            {
+                Data = new TestData() {
+                    Id = objectId,
+                    Data = 2,
+                    Type = "number"
+                },
+                Operation = ConsensusCore.Node.Enums.ShardOperationOptions.Update,
+            });
+
+            var dataResult = await Node.Send(new RequestDataShard()
+            {
+                Type = "number",
+                ObjectId = objectId
+            });
+
+
+            Assert.True(dataResult.IsSuccessful);
+            Assert.NotNull(dataResult.Data);
+            Assert.Equal(2, ((TestData)dataResult.Data).Data);
         }
     }
 }
