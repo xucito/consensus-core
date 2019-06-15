@@ -100,6 +100,7 @@ namespace ConsensusCore.Node.Interfaces
 
         /// <summary>
         /// Get all the primary shards for a given type
+        /// Id, allocation
         /// </summary>
         /// <param name="type"></param>
         /// <returns></returns>
@@ -130,6 +131,19 @@ namespace ConsensusCore.Node.Interfaces
                 return foundNodes.First().Value.IsContactable;
             }
             return false;
+        }
+
+        public bool IsObjectLocked(Guid objectId)
+        {
+            return CurrentState.ObjectLocks.ContainsKey(objectId);
+        }
+
+        /// <summary>
+        /// List of shard ids and types that are out of sync for the given node
+        /// </summary>
+        public IEnumerable<SharedShardMetadata> GetAllOutOfSyncShards(Guid nodeId)
+        {
+            return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.StaleAllocations.Contains(nodeId)));
         }
     }
 }

@@ -36,6 +36,7 @@ namespace ConsensusCore.TestNode.Controllers
                     Type = "number",
                     Id = newId
                 },
+                Operation = Node.Enums.ShardOperationOptions.Create,
                 WaitForSafeWrite = true
             }));
 
@@ -66,18 +67,29 @@ namespace ConsensusCore.TestNode.Controllers
             return Ok(200);
         }
 
-        /* [HttpPut("{id}")]
-         public void UpdateValue(Guid id, [FromBody] int value)
-         {
-             var result = _node.Send(new WriteDataShard()
-             {
-                 Data = value,
-                 ShardId = id,
-                 Type = "number",
-                 WaitForSafeWrite = true
-                 //Need to pull the previous version
-             });
-             // _node.UpdateShardCommand(id, "number", value);
-         }*/
+        [HttpPut("{id}")]
+        public async void UpdateValue(Guid id, [FromBody] int value)
+        {
+            var number = (await _node.Send(new RequestDataShard()
+            {
+                ObjectId = id,
+                Type = "number"
+            }));
+
+            var updatedObject = (TestData)number.Data;
+            updatedObject.Data = value;
+
+            var result = _node.Send(new WriteData()
+            {
+                Data = new TestData()
+                {
+                    Data = value,
+                    Type = "number",
+                    Id = id
+                },
+                Operation = Node.Enums.ShardOperationOptions.Update,
+                WaitForSafeWrite = true
+            });
+        }
     }
 }

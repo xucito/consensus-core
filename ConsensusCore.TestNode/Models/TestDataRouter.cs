@@ -19,7 +19,7 @@ namespace ConsensusCore.TestNode.Models
             return null;
         }
 
-        public void WriteData(ShardData data)
+        public void InsertData(ShardData data)
         {
             switch (data)
             {
@@ -46,6 +46,19 @@ namespace ConsensusCore.TestNode.Models
                     return assignedGuid.Value;
             }
             return assignedGuid.Value;*/
+        }
+
+        public void UpdateData(ShardData data)
+        {
+            switch (data)
+            {
+                case TestData t1:
+                    if (_numberStore.ContainsKey(data.Id))
+                    {
+                        _numberStore[data.Id] = t1;
+                    }
+                    break;
+            }
         }
     }
 }

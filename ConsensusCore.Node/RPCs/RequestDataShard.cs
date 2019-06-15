@@ -16,11 +16,18 @@ namespace ConsensusCore.Node.RPCs
 
         public override string RequestName => "GetDataShard";
         public int TimeoutMs = 3000;
+        public bool CreateLock { get; set; }
+        public int LockTimeoutMs { get; set; } = 3000;
     }
 
     public class RequestDataShardResponse
     {
         public bool IsSuccessful { get; set; }
+        public Guid? ShardId { get; set; }
+        public Guid? NodeId { get; set; }
         public object Data { get; set; }
+        public string Type { get; set; }
+        public bool IsLocked { get; set; }
+        public string SearchMessage { get; set; }
     }
 }

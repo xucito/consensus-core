@@ -161,5 +161,12 @@ namespace ConsensusCore.Node.Services
         {
             return ShardMetaData[shardId].SyncPos;
         }
+
+        public LocalShardMetaData GetShardMetadata(Guid shardId)
+        {
+            if (ShardMetaData.ContainsKey(shardId))
+                return ShardMetaData[shardId];
+            return null;
+        }
     }
 }

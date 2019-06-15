@@ -14,5 +14,6 @@ namespace ConsensusCore.Node
         public int DataTransferTimeoutMs { get; set; }
         public int NumberOfShards { get; set; }
         public int ConcurrentTasks { get; set; }
+        public bool TestMode { get; set; }
     }
 }
