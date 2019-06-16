@@ -53,13 +53,20 @@ namespace TestConsole
             {
                 Console.WriteLine("Successfully added the object");
             }
-
+            else
+            {
+                Console.WriteLine("Critical Concurrency Issue detected during creation!");
+            }
             var updatedValue = rand.Next(0, 99999);
 
             TrySend(async () => await Client.UpdateValue(result, updatedValue)).GetAwaiter().GetResult();
             if ((TrySend(async () => await Client.GetValue(result))).GetAwaiter().GetResult() == updatedValue)
             {
                 Console.WriteLine("Successfully updated the object");
+            }
+            else
+            {
+                Console.WriteLine("Critical Concurrency Issue detected during update!");
             }
             return true;
         }

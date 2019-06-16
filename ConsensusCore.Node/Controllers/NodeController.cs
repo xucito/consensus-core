@@ -45,6 +45,10 @@ namespace ConsensusCore.Node.Controllers
         [HttpPost("RPC")]
         public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<object> request)
         {
+            if(request == null)
+            {
+                Logger.LogError("FOR SOME REASON THE REQUEST IS NULL");
+            }
             return Ok(await _node.Send(request));
         }
         /*

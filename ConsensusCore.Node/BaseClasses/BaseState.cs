@@ -13,7 +13,7 @@ namespace ConsensusCore.Node.BaseClasses
     public abstract class BaseState
     {
         public BaseState() { }
-        public Dictionary<Guid, NodeInformation> Nodes { get; set; } = new Dictionary<Guid, NodeInformation>();
+        public ConcurrentDictionary<Guid, NodeInformation> Nodes { get; set; } = new ConcurrentDictionary<Guid, NodeInformation>();
         public ConcurrentDictionary<string, Index> Indexes { get; set; } = new ConcurrentDictionary<string, Index>();
         public List<BaseTask> ClusterTasks { get; set; } = new List<BaseTask>();
         //object id and Shard id
@@ -36,7 +36,7 @@ namespace ConsensusCore.Node.BaseClasses
                     }
                     else
                     {
-                        Nodes.Add(t1.Id, new NodeInformation()
+                        Nodes.TryAdd(t1.Id, new NodeInformation()
                         {
                             Name = t1.Name,
                             TransportAddress = t1.TransportAddress,
@@ -48,7 +48,7 @@ namespace ConsensusCore.Node.BaseClasses
                 case DeleteNodeInformation t1:
                     if (Nodes.ContainsKey(t1.Id))
                     {
-                        Nodes.Remove(t1.Id);
+                        Nodes.TryRemove(t1.Id, out _);
                     }
                     break;
                 case CreateIndex t1:

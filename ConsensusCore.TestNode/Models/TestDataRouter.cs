@@ -12,6 +12,11 @@ namespace ConsensusCore.TestNode.Models
         public Dictionary<Guid, TestData> _numberStore = new Dictionary<Guid, TestData>();
         object locker = new object();
 
+        public void DeleteData(ShardData data)
+        {
+            _numberStore.Remove(data.Id);
+        }
+
         public ShardData GetData(string type, Guid objectId)
         {
             if (_numberStore.ContainsKey(objectId))

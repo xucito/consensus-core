@@ -10,6 +10,7 @@ namespace ConsensusCore.Node.BaseClasses
         public Guid ShardId { get; set; }
         public string Type { get; set; }
         public ConcurrentDictionary<int, ShardOperation> ShardOperations { get; set; }
+        public ConcurrentDictionary<Guid, DateTime> ObjectsMarkedForDeletion { get; set; } = new ConcurrentDictionary<Guid, DateTime>();
         /// <summary>
         /// Upto what point is this shard synced
         /// </summary>
@@ -48,6 +49,17 @@ namespace ConsensusCore.Node.BaseClasses
                     }
             }
             return successfullyAddedOperation;
+        }
+
+        public bool MarkObjectForDeletion(Guid objectId)
+        {
+            return ObjectsMarkedForDeletion.TryAdd(objectId, DateTime.Now);
+        }
+
+
+        public bool ObjectIsMarkedForDeletion(Guid objectId)
+        {
+            return ObjectsMarkedForDeletion.TryGetValue(objectId, out _);
         }
     }
 }

@@ -27,7 +27,7 @@ namespace ConsensusCore.Node
         where Repository : BaseRepository
     {
         private Timer _heartbeatTimer;
-        //private Timer _electionTimeoutTimer;
+        private Timer _electionTimeoutTimer;
         private Timer _clusterInfoTimeoutTimer;
         private Thread _taskWatchThread;
         private Thread _indexCreationThread;
@@ -35,7 +35,6 @@ namespace ConsensusCore.Node
         private Thread _bootstrapThread;
         private Thread _nodeSelfHealingThread;
         private Thread _shardReassignmentThread;
-        private Thread _electionThread;
 
         private List<Thread> _taskThreads { get; set; } = new List<Thread>();
 
@@ -240,6 +239,10 @@ namespace ConsensusCore.Node
 
                             Logger.LogInformation("Resynced all shards successfully.");
                         }
+                    }
+                    else
+                    {
+                        Logger.LogDebug("Skipping self healing thread as node is not reporting in cluster.");
                     }
                     Thread.Sleep(1000);
                 }
@@ -566,46 +569,7 @@ namespace ConsensusCore.Node
         {
             if (IsBootstrapped)
             {
-                var random = new Random();
                 SetNodeRole(NodeState.Candidate);
-                //Wait a random amount of time
-                Thread.Sleep(random.Next(0, _clusterOptions.ElectionTimeoutMs / 2));
-                //Reset the timer to prevent overlap
-                ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
-                Logger.LogDebug("Detected election timeout event.");
-
-                var totalVotes = 1;
-
-                var tasks = NodeConnectors.Select(async connector =>
-                {
-                    try
-                    {
-                        var result = await connector.Value.Send(new RequestVote()
-                        {
-                            Term = _nodeStorage.CurrentTerm,
-                            CandidateId = _nodeStorage.Id,
-                            LastLogIndex = _nodeStorage.GetLastLogIndex(),
-                            LastLogTerm = _nodeStorage.GetLastLogTerm()
-                        });
-
-                        if (result.Success)
-                        {
-                            Interlocked.Increment(ref totalVotes);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.LogWarning("Encountered error while getting vote from node " + connector.Key + ", request failed with error \"" + e.Message + "\"");
-                    }
-                });
-
-                await Task.WhenAll(tasks);
-
-                if (totalVotes >= _clusterOptions.MinimumNodes)
-                {
-                    Logger.LogInformation("Recieved enough votes to be promoted, promoting to leader.");
-                    SetNodeRole(NodeState.Leader);
-                }
             }
         }
 
@@ -807,10 +771,18 @@ namespace ConsensusCore.Node
             {
                 if (request.Operation.Operation == ShardOperationOptions.Update || request.Operation.Operation == ShardOperationOptions.Delete)
                 {
+                    var startTime = DateTime.Now;
                     while ((request.Pos - 1) > LocalShards[request.ShardId].SyncPos)
                     {
                         Logger.LogDebug("Waiting for log to sync up with position " + (request.Pos - 1));
                         Thread.Sleep(30);
+                        if ((DateTime.Now - startTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
+                        {
+                            return new ReplicateShardOperationResponse()
+                            {
+                                IsSuccessful = false
+                            };
+                        }
                     }
                 }
 
@@ -818,14 +790,13 @@ namespace ConsensusCore.Node
 
                 if (applyOperation)
                 {
-                    switch (request.Operation.Operation)
+                    if (!RunDataOperation(request.Operation.Operation, request.Payload))
                     {
-                        case ShardOperationOptions.Create:
-                            _dataRouter.InsertData(request.Payload);
-                            break;
-                        case ShardOperationOptions.Update:
-                            _dataRouter.UpdateData(request.Payload);
-                            break;
+                        Logger.LogError("Ran into error while running operation " + request.Operation.ToString() + " on " + request.ShardId);
+                        return new ReplicateShardOperationResponse()
+                        {
+                            IsSuccessful = false
+                        };
                     }
                 }
                 return new ReplicateShardOperationResponse()
@@ -874,6 +845,34 @@ namespace ConsensusCore.Node
             {
                 IsSuccessful = true
             };
+        }
+
+        public bool RunDataOperation(ShardOperationOptions operation, ShardData shard)
+        {
+            switch (operation)
+            {
+                case ShardOperationOptions.Create:
+                    _dataRouter.InsertData(shard);
+                    break;
+                case ShardOperationOptions.Update:
+                    if (!_nodeStorage.IsObjectMarkedForDeletion(shard.ShardId.Value, shard.Id))
+                    {
+                        _dataRouter.UpdateData(shard);
+                    }
+                    break;
+                case ShardOperationOptions.Delete:
+                    if (_nodeStorage.MarkShardForDeletion(shard.ShardId.Value, shard.Id))
+                    {
+                        _dataRouter.DeleteData(shard);
+                    }
+                    else
+                    {
+                        Logger.LogError("Ran into error while deleting " + shard.Id);
+                        return false;
+                    }
+                    break;
+            }
+            return true;
         }
 
         public RequestInitializeNewShardResponse RequestInitializeNewShardHandler(RequestInitializeNewShard request)
@@ -955,8 +954,15 @@ namespace ConsensusCore.Node
                     Operation = shard.Operation
                 });
 
-
-                switch (shard.Operation)
+                if (!RunDataOperation(shard.Operation, shard.Data))
+                {
+                    Logger.LogError("Ran into error while running operation " + shard.Operation.ToString() + " on " + shard.Data.Id);
+                    return new WriteDataResponse()
+                    {
+                        IsSuccessful = false
+                    };
+                }
+                /*switch (shard.Operation)
                 {
                     case ShardOperationOptions.Create:
                         _dataRouter.InsertData(shard.Data);
@@ -964,7 +970,21 @@ namespace ConsensusCore.Node
                     case ShardOperationOptions.Update:
                         _dataRouter.UpdateData(shard.Data);
                         break;
-                }
+                    case ShardOperationOptions.Delete:
+                        if (_nodeStorage.MarkShardForDeletion(shardMetadata.Id, shard.Data.Id))
+                        {
+                            _dataRouter.DeleteData(shard.Data);
+                        }
+                        else
+                        {
+                            Logger.LogError("Ran into error while deleting " + shard.Data.Id);
+                            return new WriteDataResponse()
+                            {
+                                IsSuccessful = false
+                            };
+                        }
+                        break;
+                }*/
 
                 List<Guid> InvalidNodes = new List<Guid>();
                 //All allocations except for your own
@@ -1059,7 +1079,8 @@ namespace ConsensusCore.Node
                 {
                     _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
                     Logger.LogInformation("Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
-                    SetNodeRole(NodeState.Follower);
+                    ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
+                    SetCurrentTerm(requestVoteRPC.Term);
                     successful = true;
                 }
                 else if (_nodeStorage.CurrentTerm > requestVoteRPC.Term)
@@ -1074,6 +1095,14 @@ namespace ConsensusCore.Node
                 {
                     Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as last log term is less then local term (" + requestVoteRPC.LastLogTerm + "<" + _nodeStorage.GetLastLogTerm() + ")");
                 }
+                else if ((_nodeStorage.VotedFor != null && _nodeStorage.VotedFor != requestVoteRPC.CandidateId))
+                {
+                    Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as I have already voted for " + _nodeStorage.VotedFor);
+                }
+                else if (!successful)
+                {
+                    Logger.LogError("Rejected vote from " + requestVoteRPC.CandidateId + " due to unknown reason.");
+                }
             }
             return new RequestVoteResponse()
             {
@@ -1084,7 +1113,7 @@ namespace ConsensusCore.Node
         public AppendEntryResponse AppendEntryRPCHandler(AppendEntry entry)
         {
             //Check the log check to prevent a intermittent term increase with no back tracking, TODO check whether this causes potentially concurrency issues
-            if (entry.Term < _nodeStorage.CurrentTerm && entry.LeaderCommit < CommitIndex)
+            if (entry.Term < _nodeStorage.CurrentTerm)// && entry.LeaderCommit < CommitIndex)
             {
                 Logger.LogInformation("Rejected RPC from " + entry.LeaderId + " due to lower term");
                 return new AppendEntryResponse()
@@ -1126,6 +1155,8 @@ namespace ConsensusCore.Node
                 };
             }
 
+            SetCurrentTerm(entry.Term);
+
             foreach (var log in entry.Entries.OrderBy(e => e.Index))
             {
                 var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
@@ -1144,8 +1175,6 @@ namespace ConsensusCore.Node
                 _findLeaderThread = FindLeaderThread(entry.LeaderId);
                 _findLeaderThread.Start();
             }
-
-            SetNodeRole(NodeState.Follower);
 
             if (!InCluster)
             {
@@ -1426,6 +1455,43 @@ namespace ConsensusCore.Node
             }*/
         }
 
+        public async void StartElection()
+        {
+            SetCurrentTerm(_nodeStorage.CurrentTerm + 1);
+            var totalVotes = 1;
+
+            var tasks = NodeConnectors.Select(async connector =>
+            {
+                try
+                {
+                    var result = await connector.Value.Send(new RequestVote()
+                    {
+                        Term = _nodeStorage.CurrentTerm,
+                        CandidateId = _nodeStorage.Id,
+                        LastLogIndex = _nodeStorage.GetLastLogIndex(),
+                        LastLogTerm = _nodeStorage.GetLastLogTerm()
+                    });
+
+                    if (result.Success)
+                    {
+                        Interlocked.Increment(ref totalVotes);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Logger.LogWarning("Encountered error while getting vote from node " + connector.Key + ", request failed with error \"" + e.Message + "\"");
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            if (totalVotes >= _clusterOptions.MinimumNodes)
+            {
+                Logger.LogInformation("Recieved enough votes to be promoted, promoting to leader.");
+                SetNodeRole(NodeState.Leader);
+            }
+        }
+
         public void SetNodeRole(NodeState newState)
         {
             if (newState == NodeState.Candidate && !_nodeOptions.EnableLeader)
@@ -1442,11 +1508,11 @@ namespace ConsensusCore.Node
                 switch (newState)
                 {
                     case NodeState.Candidate:
-                        _nodeStorage.UpdateCurrentTerm(_nodeStorage.CurrentTerm + 1);
                         ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
                         StopTimer(_heartbeatTimer);
                         StopTimer(_clusterInfoTimeoutTimer);
                         InCluster = false;
+                        StartElection();
                         break;
                     case NodeState.Follower:
                         //On becoming a follower, wait 5 seconds to allow any other nodes to send out election time outs
@@ -1692,6 +1758,17 @@ namespace ConsensusCore.Node
                 syncs++;
             }
             return true;
+        }
+
+        public void SetCurrentTerm(int newTerm)
+        {
+            if (newTerm > _nodeStorage.CurrentTerm)
+            {
+                SetNodeRole(NodeState.Follower);
+                _nodeStorage.VotedFor = null;
+                //CurrentLeader = new KeyValuePair<Guid?, string>();
+                _nodeStorage.CurrentTerm = newTerm;
+            }
         }
     }
 }

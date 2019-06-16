@@ -175,5 +175,23 @@ namespace ConsensusCore.Node.Services
                 return ShardMetaData[shardId].ShardOperations[pos];
             return null;
         }
+
+        public bool MarkShardForDeletion(Guid shardId, Guid objectId)
+        {
+            if(ShardMetaData.ContainsKey(shardId))
+            {
+                return ShardMetaData[shardId].MarkObjectForDeletion(objectId);
+            }
+            return false;
+        }
+
+        public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)
+        {
+            if (ShardMetaData.ContainsKey(shardId))
+            {
+                return ShardMetaData[shardId].ObjectIsMarkedForDeletion(objectId);
+            }
+            return false;
+        }
     }
 }
