@@ -57,8 +57,12 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Indexes.ContainsKey(type);
         }
 
-        public SharedShardMetadata[] GetShards(string type)
+        public SharedShardMetadata[] GetShards(string type = null)
         {
+            if (type == null)
+            {
+                return CurrentState.Indexes.SelectMany(i => i.Value.Shards).ToArray();
+            }
             return CurrentState.Indexes[type].Shards.ToArray();
         }
 
@@ -83,6 +87,11 @@ namespace ConsensusCore.Node.Interfaces
             {
                 return nodes.First().Value;
             }
+        }
+
+        public NodeInformation[] GetNodes()
+        {
+            return CurrentState.Nodes.Values.ToArray();
         }
 
         public NodeInformation GetNode(string transportAddresss)

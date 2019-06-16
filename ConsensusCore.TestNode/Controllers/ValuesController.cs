@@ -27,69 +27,101 @@ namespace ConsensusCore.TestNode.Controllers
         [HttpPost]
         public async Task<IActionResult> Post([FromBody] int value)
         {
-            var newId = Guid.NewGuid();
-            var result = await (_node.Send(new WriteData()
+            if (_node.InCluster)
             {
-                Data = new TestData()
+                var newId = Guid.NewGuid();
+                var result = await (_node.Send(new WriteData()
                 {
-                    Data = value,
-                    Type = "number",
-                    Id = newId
-                },
-                Operation = Node.Enums.ShardOperationOptions.Create,
-                WaitForSafeWrite = true
-            }));
+                    Data = new TestData()
+                    {
+                        Data = value,
+                        Type = "number",
+                        Id = newId
+                    },
+                    Operation = Node.Enums.ShardOperationOptions.Create,
+                    WaitForSafeWrite = true
+                }));
 
-            if (result.IsSuccessful)
-            {
-                return Ok(newId);
+                if (result.IsSuccessful)
+                {
+                    return Ok(newId);
+                }
+                else
+                {
+                    return StatusCode(500);
+                }
             }
             else
             {
-                return StatusCode(500);
+                return StatusCode(503);
+
             }
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetNumber(Guid id)
         {
-            return Ok((await _node.Send(new RequestDataShard()
+            if (_node.InCluster)
             {
-                ObjectId = id,
-                Type = "number"
-            })));
+                return Ok((await _node.Send(new RequestDataShard()
+                {
+                    ObjectId = id,
+                    Type = "number"
+                })));
+            }
+            else
+            {
+                return StatusCode(503);
+
+            }
             //return Ok(_router._numberStore.Where(n => n.Id == id));
         }
 
         [HttpGet("Test")]
         public async Task<IActionResult> Number()
         {
-            return Ok(((TestDataRouter)_router)._numberStore);
+            if (_node.InCluster)
+            {
+                return Ok(((TestDataRouter)_router)._numberStore);
+            }
+            else
+            {
+
+                return StatusCode(503);
+            }
         }
 
         [HttpPut("{id}")]
-        public async void UpdateValue(Guid id, [FromBody] int value)
+        public async Task<IActionResult> UpdateValue(Guid id, [FromBody] int value)
         {
-            var number = (await _node.Send(new RequestDataShard()
+            if (_node.InCluster)
             {
-                ObjectId = id,
-                Type = "number"
-            }));
-
-            var updatedObject = (TestData)number.Data;
-            updatedObject.Data = value;
-
-            var result = _node.Send(new WriteData()
-            {
-                Data = new TestData()
+                var number = (await _node.Send(new RequestDataShard()
                 {
-                    Data = value,
-                    Type = "number",
-                    Id = id
-                },
-                Operation = Node.Enums.ShardOperationOptions.Update,
-                WaitForSafeWrite = true
-            });
+                    ObjectId = id,
+                    Type = "number"
+                }));
+
+                var updatedObject = (TestData)number.Data;
+                updatedObject.Data = value;
+
+                var result = _node.Send(new WriteData()
+                {
+                    Data = new TestData()
+                    {
+                        Data = value,
+                        Type = "number",
+                        Id = id
+                    },
+                    Operation = Node.Enums.ShardOperationOptions.Update,
+                    WaitForSafeWrite = true
+                });
+                return Ok();
+            }
+            else
+            {
+                return StatusCode(503);
+            }
         }
     }
 }

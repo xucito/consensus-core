@@ -43,5 +43,6 @@ namespace ConsensusCore.Node
         NodeInfo NodeInfo { get; }
         State GetState();
         Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request);
+        bool InCluster { get; }
     }
 }

@@ -13,7 +13,7 @@ namespace ConsensusCore.Node.BaseClasses
         /// <summary>
         /// Upto what point is this shard synced
         /// </summary>
-        public int SyncPos { get; set; }
+        public int SyncPos { get; set; } = 0;
 
         private object shardOperationsLock = new object();
         public int AddShardOperation(ShardOperation operation)
@@ -21,7 +21,7 @@ namespace ConsensusCore.Node.BaseClasses
             int noOfShardOperations;
             lock (shardOperationsLock)
             {
-                noOfShardOperations = ShardOperations.Count;
+                noOfShardOperations = ShardOperations.Count + 1;
                 ShardOperations.TryAdd(noOfShardOperations, operation);
                 // Try get the next value
                 while (ShardOperations.TryGetValue(SyncPos + 1, out _))
