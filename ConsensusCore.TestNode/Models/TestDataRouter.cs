@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Node.BaseClasses;
 using ConsensusCore.Node.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,12 +10,12 @@ namespace ConsensusCore.TestNode.Models
 {
     public class TestDataRouter : IDataRouter
     {
-        public Dictionary<Guid, TestData> _numberStore = new Dictionary<Guid, TestData>();
+        public ConcurrentDictionary<Guid, TestData> _numberStore = new ConcurrentDictionary<Guid, TestData>();
         object locker = new object();
 
         public void DeleteData(ShardData data)
         {
-            _numberStore.Remove(data.Id);
+            _numberStore.TryRemove(data.Id, out _);
         }
 
         public ShardData GetData(string type, Guid objectId)
@@ -29,7 +30,7 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-                    _numberStore.Add(t1.Id, t1);
+                    _numberStore.TryAdd(t1.Id, t1);
                     break;
             }
 

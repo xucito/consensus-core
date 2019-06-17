@@ -15,5 +15,6 @@ namespace ConsensusCore.Node
         public int NumberOfShards { get; set; }
         public int ConcurrentTasks { get; set; }
         public bool TestMode { get; set; }
+        public int CommitsTimeout { get; set; } = 10000;
     }
 }

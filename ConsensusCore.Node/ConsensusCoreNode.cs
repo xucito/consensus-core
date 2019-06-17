@@ -210,7 +210,8 @@ namespace ConsensusCore.Node
                 Thread.CurrentThread.IsBackground = true;
                 while (CurrentState == NodeState.Follower || CurrentState == NodeState.Leader)
                 {
-                    if (InCluster)
+                    //Only apply self healing if your state is upto date
+                    if (InCluster && LatestLeaderCommit == CommitIndex)
                     {
                         Logger.LogDebug("Starting self healing thread.");
                         //This will get you all the out of sync shards
@@ -567,9 +568,21 @@ namespace ConsensusCore.Node
 
         public async void ElectionTimeoutEventHandler(object args)
         {
-            if (IsBootstrapped)
+            var acquiredLock = false;
+            try
             {
-                SetNodeRole(NodeState.Candidate);
+                acquiredLock = Monitor.TryEnter(VoteLock);
+                if (IsBootstrapped && acquiredLock)
+                {
+                    SetNodeRole(NodeState.Candidate);
+                }
+            }
+            finally
+            {
+                if (acquiredLock)
+                {
+                    Monitor.Exit(VoteLock);
+                }
             }
         }
 
@@ -774,10 +787,11 @@ namespace ConsensusCore.Node
                     var startTime = DateTime.Now;
                     while ((request.Pos - 1) > LocalShards[request.ShardId].SyncPos)
                     {
-                        Logger.LogDebug("Waiting for log to sync up with position " + (request.Pos - 1));
-                        Thread.Sleep(30);
+                        Logger.LogDebug("Waiting for log to sync up with position " + (request.Pos - 1) + " current posituion " + LocalShards[request.ShardId].SyncPos);
+                        Thread.Sleep(100);
                         if ((DateTime.Now - startTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
                         {
+                            Logger.LogError("Update function timed out " + (request.Pos - 1));
                             return new ReplicateShardOperationResponse()
                             {
                                 IsSuccessful = false
@@ -825,9 +839,19 @@ namespace ConsensusCore.Node
 
         public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
         {
+            //Add
             int index = _nodeStorage.AddCommands(request.Commands.ToList(), _nodeStorage.CurrentTerm);
+            var startDate = DateTime.Now;
             while (request.WaitForCommits)
             {
+                if ((DateTime.Now - startDate).TotalMilliseconds > _clusterOptions.CommitsTimeout)
+                {
+                    return new ExecuteCommandsResponse()
+                    {
+                        IsSuccessful = false
+                    };
+                }
+
                 Logger.LogDebug("Waiting for " + request.RequestName + " to complete.");
                 if (CommitIndex >= index)
                 {
@@ -1068,40 +1092,46 @@ namespace ConsensusCore.Node
             }
         }
 
+        object VoteLock = new object();
+
         public RequestVoteResponse RequestVoteRPCHandler(RequestVote requestVoteRPC)
         {
             var successful = false;
             if (IsBootstrapped)
             {
-                //Ref1 $5.2, $5.4
-                if (_nodeStorage.CurrentTerm <= requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
-                (requestVoteRPC.LastLogIndex >= _nodeStorage.GetLogCount() && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+                //To requests might come in at the same time causing the VotedFor to not match
+                lock (VoteLock)
                 {
-                    _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
-                    Logger.LogInformation("Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
-                    ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
-                    SetCurrentTerm(requestVoteRPC.Term);
-                    successful = true;
-                }
-                else if (_nodeStorage.CurrentTerm > requestVoteRPC.Term)
-                {
-                    Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as current term is greater (" + requestVoteRPC.Term + "<" + _nodeStorage.CurrentTerm + ")");
-                }
-                else if (requestVoteRPC.LastLogIndex < _nodeStorage.GetLogCount() - 1)
-                {
-                    Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetLogCount() - 1) + ")");
-                }
-                else if (requestVoteRPC.LastLogTerm < _nodeStorage.GetLastLogTerm())
-                {
-                    Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as last log term is less then local term (" + requestVoteRPC.LastLogTerm + "<" + _nodeStorage.GetLastLogTerm() + ")");
-                }
-                else if ((_nodeStorage.VotedFor != null && _nodeStorage.VotedFor != requestVoteRPC.CandidateId))
-                {
-                    Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as I have already voted for " + _nodeStorage.VotedFor);
-                }
-                else if (!successful)
-                {
-                    Logger.LogError("Rejected vote from " + requestVoteRPC.CandidateId + " due to unknown reason.");
+                    //Ref1 $5.2, $5.4
+                    if (_nodeStorage.CurrentTerm <= requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
+                    (requestVoteRPC.LastLogIndex >= _nodeStorage.GetLogCount() && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+                    {
+                        _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
+                        Logger.LogInformation("Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
+                        ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs * 4, _clusterOptions.ElectionTimeoutMs);
+                        SetCurrentTerm(requestVoteRPC.Term);
+                        successful = true;
+                    }
+                    else if (_nodeStorage.CurrentTerm > requestVoteRPC.Term)
+                    {
+                        Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as current term is greater (" + requestVoteRPC.Term + "<" + _nodeStorage.CurrentTerm + ")");
+                    }
+                    else if (requestVoteRPC.LastLogIndex < _nodeStorage.GetLogCount() - 1)
+                    {
+                        Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetLogCount() - 1) + ")");
+                    }
+                    else if (requestVoteRPC.LastLogTerm < _nodeStorage.GetLastLogTerm())
+                    {
+                        Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as last log term is less then local term (" + requestVoteRPC.LastLogTerm + "<" + _nodeStorage.GetLastLogTerm() + ")");
+                    }
+                    else if ((_nodeStorage.VotedFor != null && _nodeStorage.VotedFor != requestVoteRPC.CandidateId))
+                    {
+                        Logger.LogDebug("Rejected vote from " + requestVoteRPC.CandidateId + " as I have already voted for " + _nodeStorage.VotedFor);
+                    }
+                    else if (!successful)
+                    {
+                        Logger.LogError("Rejected vote from " + requestVoteRPC.CandidateId + " due to unknown reason.");
+                    }
                 }
             }
             return new RequestVoteResponse()
@@ -1113,9 +1143,9 @@ namespace ConsensusCore.Node
         public AppendEntryResponse AppendEntryRPCHandler(AppendEntry entry)
         {
             //Check the log check to prevent a intermittent term increase with no back tracking, TODO check whether this causes potentially concurrency issues
-            if (entry.Term < _nodeStorage.CurrentTerm)// && entry.LeaderCommit < CommitIndex)
+            if (entry.Term < _nodeStorage.CurrentTerm && entry.LeaderCommit <= CommitIndex)
             {
-                Logger.LogInformation("Rejected RPC from " + entry.LeaderId + " due to lower term");
+                Logger.LogInformation("Rejected RPC from " + entry.LeaderId + " due to lower term " + entry.Term + "<" + _nodeStorage.CurrentTerm);
                 return new AppendEntryResponse()
                 {
                     ConflictName = "Old Term Name",
@@ -1124,7 +1154,7 @@ namespace ConsensusCore.Node
             }
 
             //Reset the timer if the append is from a valid term
-            ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs, _clusterOptions.ElectionTimeoutMs + _clusterOptions.LatencyToleranceMs);
+            ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
 
             var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
 
@@ -1424,6 +1454,23 @@ namespace ConsensusCore.Node
                     }
                     else
                     {
+                        var node = _stateMachine.CurrentState.Nodes.Where(n => n.Value.TransportAddress == connector.Key);
+                        if (node.Count() == 1)
+                        {
+                            //Mark the node as uncontactable
+                            await Send(new ExecuteCommands()
+                            {
+                                Commands = new List<BaseCommand>()
+                            {
+                                new UpsertNodeInformation()
+                                {
+                                    IsContactable = false,
+                                    Id = node.First().Value.Id,
+                                    TransportAddress = connector.Key
+                                }
+                            }
+                            });
+                        }
                         throw new Exception("Append entry returned with undefined conflict name");
                     }
                 }
@@ -1457,38 +1504,53 @@ namespace ConsensusCore.Node
 
         public async void StartElection()
         {
-            SetCurrentTerm(_nodeStorage.CurrentTerm + 1);
-            var totalVotes = 1;
-
-            var tasks = NodeConnectors.Select(async connector =>
+            if (MyUrl != null && CurrentState == NodeState.Candidate)
             {
-                try
-                {
-                    var result = await connector.Value.Send(new RequestVote()
-                    {
-                        Term = _nodeStorage.CurrentTerm,
-                        CandidateId = _nodeStorage.Id,
-                        LastLogIndex = _nodeStorage.GetLastLogIndex(),
-                        LastLogTerm = _nodeStorage.GetLastLogTerm()
-                    });
+                Logger.LogInformation("Starting election for term " + (_nodeStorage.CurrentTerm + 1) + ".");
+                SetCurrentTerm(_nodeStorage.CurrentTerm + 1);
+                var totalVotes = 1;
+                //Vote for yourself
+                _nodeStorage.SetVotedFor(_nodeStorage.Id);
 
-                    if (result.Success)
+                var tasks = NodeConnectors.Select(async connector =>
+                {
+                    try
                     {
-                        Interlocked.Increment(ref totalVotes);
+                        var result = await connector.Value.Send(new RequestVote()
+                        {
+                            Term = _nodeStorage.CurrentTerm,
+                            CandidateId = _nodeStorage.Id,
+                            LastLogIndex = _nodeStorage.GetLastLogIndex(),
+                            LastLogTerm = _nodeStorage.GetLastLogTerm()
+                        });
+
+                        if (result.Success)
+                        {
+                            Interlocked.Increment(ref totalVotes);
+                        }
                     }
-                }
-                catch (Exception e)
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning("Encountered error while getting vote from node " + connector.Key + ", request failed with error \"" + e.Message + "\"");
+                    }
+                });
+
+                await Task.WhenAll(tasks);
+
+                if (totalVotes >= _clusterOptions.MinimumNodes)
                 {
-                    Logger.LogWarning("Encountered error while getting vote from node " + connector.Key + ", request failed with error \"" + e.Message + "\"");
+                    Logger.LogInformation("Recieved enough votes to be promoted, promoting to leader.");
+                    SetNodeRole(NodeState.Leader);
                 }
-            });
-
-            await Task.WhenAll(tasks);
-
-            if (totalVotes >= _clusterOptions.MinimumNodes)
+                else
+                {
+                    CurrentLeader = new KeyValuePair<Guid?, string>();
+                    _nodeStorage.VotedFor = null;
+                }
+            }
+            else
             {
-                Logger.LogInformation("Recieved enough votes to be promoted, promoting to leader.");
-                SetNodeRole(NodeState.Leader);
+                Logger.LogWarning("Cannot identify own URL to manage elections...");
             }
         }
 
@@ -1527,7 +1589,7 @@ namespace ConsensusCore.Node
                         CompletedFirstLeaderDiscovery = false;
                         CurrentLeader = new KeyValuePair<Guid?, string>(_nodeStorage.Id, MyUrl);
                         ResetLeaderState();
-                        ResetTimer(_heartbeatTimer, 0, _clusterOptions.ElectionTimeoutMs / 2);
+                        ResetTimer(_heartbeatTimer, 0, _clusterOptions.ElectionTimeoutMs / 4);
                         ResetTimer(_clusterInfoTimeoutTimer, 0, 1000);
                         StopTimer(_electionTimeoutTimer);
                         RestartThread(ref _commitThread, () => GetCommitThread());
@@ -1679,7 +1741,22 @@ namespace ConsensusCore.Node
             while (syncs < 2)
             {
                 var shardMetadata = _stateMachine.GetShardMetadata(shard.ShardId, shard.Type);
-                var latestPrimary = await NodeConnectors[_stateMachine.CurrentState.Nodes[shardMetadata.InsyncAllocations[rand.Next(0, shardMetadata.InsyncAllocations.Where(i => i != _nodeStorage.Id).Count())]].TransportAddress].Send(new RequestShardOperations()
+                HttpNodeConnector selectedConnector = null;
+                while (selectedConnector == null)
+                {
+                    var randomlySelectedNode = shardMetadata.InsyncAllocations[rand.Next(0, shardMetadata.InsyncAllocations.Where(i => i != _nodeStorage.Id).Count())];
+
+                    if (_stateMachine.CurrentState.Nodes.ContainsKey(randomlySelectedNode) && NodeConnectors.ContainsKey(_stateMachine.CurrentState.Nodes[randomlySelectedNode].TransportAddress))
+                    {
+                        selectedConnector = NodeConnectors[_stateMachine.CurrentState.Nodes[randomlySelectedNode].TransportAddress];
+                    }
+                    else
+                    {
+                        Logger.LogWarning("Node was not found for healing in state, sleeping and waiting again...");
+                        Thread.Sleep(1000);
+                    }
+                }
+                var latestPrimary = await selectedConnector.Send(new RequestShardOperations()
                 {
                     From = shard.SyncPos + 1,
                     To = shard.SyncPos + 1,
@@ -1691,7 +1768,7 @@ namespace ConsensusCore.Node
                 var lastPrimaryPosition = latestPrimary.LatestPosition;
                 while (currentPos < lastPrimaryPosition)
                 {
-                    var nextOperations = await NodeConnectors[_stateMachine.CurrentState.Nodes[shardMetadata.InsyncAllocations[rand.Next(0, shardMetadata.InsyncAllocations.Count())]].TransportAddress].Send(new RequestShardOperations()
+                    var nextOperations = await selectedConnector.Send(new RequestShardOperations()
                     {
                         From = shard.SyncPos + 1,
                         // do 100 records at a time
@@ -1734,22 +1811,23 @@ namespace ConsensusCore.Node
                         await Send(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>()
-                        {
-                            new UpdateShardMetadata(){
-                                InsyncAllocations = newListOfInsync,
-                                PrimaryAllocation = shardMetadata.PrimaryAllocation,
-                                ShardId = shardMetadata.Id,
-                                //Remove this node from stale operations
-                                StaleAllocations = shardMetadata.StaleAllocations.Where(id => id != _nodeStorage.Id).ToList(),
-                                Type = shardMetadata.Type
-                            }
-                        },
+                            {
+                                new UpdateShardMetadata(){
+                                    InsyncAllocations = newListOfInsync,
+                                    PrimaryAllocation = shardMetadata.PrimaryAllocation,
+                                    ShardId = shardMetadata.Id,
+                                    //Remove this node from stale operations
+                                    StaleAllocations = shardMetadata.StaleAllocations.Where(id => id != _nodeStorage.Id).ToList(),
+                                    Type = shardMetadata.Type
+                                }
+                            },
                             WaitForCommits = true
                         });
 
                         //Sleep for 5 seconds to allow for any uncommunicated transactions to catch up
-                        Thread.Sleep(5000);
+                        Thread.Sleep(10000);
                     }
+
                     while (!_stateMachine.GetShardMetadata(shard.ShardId, shard.Type).InsyncAllocations.Contains(_nodeStorage.Id))
                     {
                         Thread.Sleep(1000);
@@ -1762,13 +1840,13 @@ namespace ConsensusCore.Node
 
         public void SetCurrentTerm(int newTerm)
         {
-            if (newTerm > _nodeStorage.CurrentTerm)
-            {
-                SetNodeRole(NodeState.Follower);
-                _nodeStorage.VotedFor = null;
-                //CurrentLeader = new KeyValuePair<Guid?, string>();
-                _nodeStorage.CurrentTerm = newTerm;
-            }
+            //if (newTerm > _nodeStorage.CurrentTerm)
+            //{
+            SetNodeRole(NodeState.Follower);
+            //_nodeStorage.VotedFor = null;
+            //CurrentLeader = new KeyValuePair<Guid?, string>();
+            _nodeStorage.CurrentTerm = newTerm;
+            //}
         }
     }
 }
