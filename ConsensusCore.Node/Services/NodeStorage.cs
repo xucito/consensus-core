@@ -45,7 +45,7 @@ namespace ConsensusCore.Node.Services
         public void MarkOperationAsCommited(Guid shardId, int pos)
         {
             ShardMetaData[shardId].MarkShardAsApplied(pos);
-            ShardMetaData[shardId].UpdateSyncPosition(pos);
+           // ShardMetaData[shardId].UpdateSyncPosition(pos);
         }
 
         public bool RemoveOperation(Guid shardId, int pos)

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 
@@ -10,7 +11,7 @@ namespace ConsensusCore.Node.BaseClasses
     {
         public Guid ShardId { get; set; }
         public string Type { get; set; }
-        public ConcurrentDictionary<int, ShardOperation> ShardOperations { get; set; }
+        public ConcurrentDictionary<int, ShardOperation> ShardOperations { get; set; } = new ConcurrentDictionary<int, ShardOperation>();
         public ConcurrentDictionary<Guid, DateTime> ObjectsMarkedForDeletion { get; set; } = new ConcurrentDictionary<Guid, DateTime>();
         public object UpdatePositionLock = new object();
         public int LatestShardOperation { get { return ShardOperations.Count; } }
@@ -19,7 +20,7 @@ namespace ConsensusCore.Node.BaseClasses
         /// <summary>
         /// Upto what point is this shard synced
         /// </summary>
-        public int SyncPos { get; set; } = 0;
+        public int SyncPos { get { return ShardOperations.Where(so => so.Value.Applied).Last().Key; } }
 
         private object shardOperationsLock = new object();
         public int AddShardOperation(ShardOperation operation)
@@ -41,7 +42,7 @@ namespace ConsensusCore.Node.BaseClasses
             ShardOperations[pos].Applied = true;
         }
 
-        public void UpdateSyncPosition(int uptoPosition)
+        /*public void UpdateSyncPosition(int uptoPosition)
         {
             while (SyncPos < uptoPosition - 1)
             {
@@ -79,27 +80,31 @@ namespace ConsensusCore.Node.BaseClasses
                         Thread.Sleep(100);
                     }
                 }
-            }*/
+            }
+        }*/
+
+        public bool CanApplyOperation(int pos)
+        {
+            if (pos == 1)
+            {
+                return true;
+            }
+
+            if (!ShardOperations.ContainsKey(pos - 1) || !ShardOperations[pos - 1].Applied)
+            {
+                return false;
+            }
+            return true;
         }
 
         public bool ReplicateShardOperation(int pos, ShardOperation operation)
         {
             bool successfullyAddedOperation = false;
 
-            //Dont apply the replication till both the log before this one is present and it has been applied
-            if (pos != 1)
+            lock (shardOperationsLock)
             {
-                while (!ShardOperations.ContainsKey(pos - 1) || !ShardOperations[pos - 1].Applied)
-                {
-                    Console.WriteLine("Waiting for complete replication tasks before completing replication job");
-                    Thread.Sleep(100);
-                }
+                successfullyAddedOperation = ShardOperations.TryAdd(pos, operation);
             }
-
-            //lock (shardOperationsLock)
-            //{
-            successfullyAddedOperation = ShardOperations.TryAdd(pos, operation);
-            // }
             return successfullyAddedOperation;
         }
 

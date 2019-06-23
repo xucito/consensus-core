@@ -37,7 +37,7 @@ namespace TestConsole
          };*/
 
         static List<string> Urls { get { return ports.Select(p => "https://localhost:" + p).ToList(); } }
-        static bool EnableChaosMonkey = false;
+        static bool EnableChaosMonkey = true;
         static Dictionary<int, Process> Processes = new Dictionary<int, Process>();
 
         static void Main(string[] args)
