@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ConsensusCore.Node.BaseClasses
 {
@@ -11,6 +12,10 @@ namespace ConsensusCore.Node.BaseClasses
         public string Type { get; set; }
         public ConcurrentDictionary<int, ShardOperation> ShardOperations { get; set; }
         public ConcurrentDictionary<Guid, DateTime> ObjectsMarkedForDeletion { get; set; } = new ConcurrentDictionary<Guid, DateTime>();
+        public object UpdatePositionLock = new object();
+        public int LatestShardOperation { get { return ShardOperations.Count; } }
+        public int IsUpdating = 0;
+
         /// <summary>
         /// Upto what point is this shard synced
         /// </summary>
@@ -23,32 +28,93 @@ namespace ConsensusCore.Node.BaseClasses
             lock (shardOperationsLock)
             {
                 noOfShardOperations = ShardOperations.Count + 1;
-                ShardOperations.TryAdd(noOfShardOperations, operation);
-                // Try get the next value
-                while (ShardOperations.TryGetValue(SyncPos + 1, out _))
-                {
-                    SyncPos++;
-                }
+                bool addResult = ShardOperations.TryAdd(noOfShardOperations, operation);
+                if (!addResult)
+                    Console.WriteLine("ERROR:Failed to add operation!!!");
             }
 
             return noOfShardOperations;
         }
 
-        public bool ReplicateShardOperation(int pos, ShardOperation operation)
+        public void MarkShardAsApplied(int pos)
         {
-            bool successfullyAddedOperation = false;
-            lock (shardOperationsLock)
+            ShardOperations[pos].Applied = true;
+        }
+
+        public void UpdateSyncPosition(int uptoPosition)
+        {
+            while (SyncPos < uptoPosition - 1)
             {
-                successfullyAddedOperation = ShardOperations.TryAdd(pos, operation);
-                //If the value was updated, then try to increment syncPos
-                if (successfullyAddedOperation)
-                    // Try get the next value
-                    while (ShardOperations.TryGetValue(SyncPos + 1, out _))
+                Console.WriteLine("Waiting for data to sync to " + uptoPosition);
+                Thread.Sleep(100);
+            }
+
+            bool LogExists = ShardOperations.TryGetValue(SyncPos + 1, out _);
+            bool LogApplied = LogExists ? ShardOperations[SyncPos + 1].Applied : false;
+
+            if (LogExists && LogApplied)
+            {
+                SyncPos++;
+            }
+            else
+            {
+                Console.WriteLine("CRITICAL ERROR UPDATING POSITION");
+            }
+            /*
+            lock (UpdatePositionLock)
+            {
+                //Update only based on applied operations
+                while (SyncPos < uptoPosition)
+                {
+                    bool LogExists = ShardOperations.TryGetValue(SyncPos + 1, out _);
+                    bool LogApplied = LogExists ? ShardOperations[SyncPos + 1].Applied : false;
+
+                    if (LogExists && LogApplied)
                     {
                         SyncPos++;
                     }
+                    else
+                    {
+                        Console.WriteLine("Waiting for sync for shard " + ShardId + " upto " + uptoPosition + " current sync position is " + SyncPos + (!LogExists ? "Log does not exists" : "Log is not applied"));
+                        Thread.Sleep(100);
+                    }
+                }
+            }*/
+        }
+
+        public bool ReplicateShardOperation(int pos, ShardOperation operation)
+        {
+            bool successfullyAddedOperation = false;
+
+            //Dont apply the replication till both the log before this one is present and it has been applied
+            if (pos != 1)
+            {
+                while (!ShardOperations.ContainsKey(pos - 1) || !ShardOperations[pos - 1].Applied)
+                {
+                    Console.WriteLine("Waiting for complete replication tasks before completing replication job");
+                    Thread.Sleep(100);
+                }
             }
+
+            //lock (shardOperationsLock)
+            //{
+            successfullyAddedOperation = ShardOperations.TryAdd(pos, operation);
+            // }
             return successfullyAddedOperation;
+        }
+
+
+        /// <summary>
+        /// Only used when the operation was recorded but not applied to datastore
+        /// </summary>
+        /// <returns></returns>
+        public bool RemoveOperation(int pos)
+        {
+            if (SyncPos < pos)
+            {
+                return ShardOperations.TryRemove(pos, out _);
+            }
+            throw new Exception("CONCURRENCY ERROR while trying to reverse operation.");
         }
 
         public bool MarkObjectForDeletion(Guid objectId)

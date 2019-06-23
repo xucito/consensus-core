@@ -33,7 +33,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             {
                 NodeUrls = new List<string>() { "localhost:5022" },
                 TestMode = true,
-                NumberOfShards = 3,
+                NumberOfShards = 1,
                 DataTransferTimeoutMs = 1000,
                 ElectionTimeoutMs = 1000,
                 LatencyToleranceMs = 1000,
@@ -84,6 +84,39 @@ namespace ConcensusCore.Node.Tests.DataManagement
             });
 
             Assert.True(result.IsSuccessful);
+        }
+
+        [Fact]
+        public async void ConcurrentNewDataWrites()
+        {
+            var objectId = Guid.NewGuid();
+            var tasks = new List<Task>();
+            tasks.Add(
+                Node.Send(new WriteData()
+                {
+                    Data = new TestData
+                    {
+                        Id = objectId,
+                        Data = 1,
+                        Type = "number"
+                    }
+                })
+            );
+
+            tasks.Add(
+                Node.Send(new WriteData()
+                {
+                    Data = new TestData
+                    {
+                        Data = 1,
+                        Type = "number"
+                    }
+                })
+            );
+
+            await Task.WhenAll(tasks);
+            //Check there is only one shard created
+            Assert.Single(Node.LocalShards);
         }
 
         [Fact]
@@ -294,7 +327,8 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             var updateResult = await Node.Send(new WriteData()
             {
-                Data = new TestData() {
+                Data = new TestData()
+                {
                     Id = objectId,
                     Data = 2,
                     Type = "number"

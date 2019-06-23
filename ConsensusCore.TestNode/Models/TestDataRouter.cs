@@ -30,7 +30,9 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-                    _numberStore.TryAdd(t1.Id, t1);
+                    var addResult = _numberStore.TryAdd(t1.Id, t1);
+                    if (!addResult)
+                        throw new Exception("Failed to insert data, there seems to be a concurrency issue!");
                     break;
             }
 
@@ -62,6 +64,10 @@ namespace ConsensusCore.TestNode.Models
                     if (_numberStore.ContainsKey(data.Id))
                     {
                         _numberStore[data.Id] = t1;
+                    }
+                    else
+                    {
+                        Console.WriteLine("DATASTORE DOES NOT CONTAIN KEY  " + data.Id + " YET");
                     }
                     break;
             }

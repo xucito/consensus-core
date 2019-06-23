@@ -42,6 +42,17 @@ namespace ConsensusCore.Node.Services
             return ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
         }
 
+        public void MarkOperationAsCommited(Guid shardId, int pos)
+        {
+            ShardMetaData[shardId].MarkShardAsApplied(pos);
+            ShardMetaData[shardId].UpdateSyncPosition(pos);
+        }
+
+        public bool RemoveOperation(Guid shardId, int pos)
+        {
+            return ShardMetaData[shardId].RemoveOperation(pos);
+        }
+
         public NodeStorage(BaseRepository repository)
         {
             _repository = repository;
@@ -162,6 +173,11 @@ namespace ConsensusCore.Node.Services
             return ShardMetaData[shardId].SyncPos;
         }
 
+        public int GetCurrentShardLatestCount(Guid shardId)
+        {
+            return ShardMetaData[shardId].ShardOperations.Count();
+        }
+
         public LocalShardMetaData GetShardMetadata(Guid shardId)
         {
             if (ShardMetaData.ContainsKey(shardId))
@@ -178,7 +194,7 @@ namespace ConsensusCore.Node.Services
 
         public bool MarkShardForDeletion(Guid shardId, Guid objectId)
         {
-            if(ShardMetaData.ContainsKey(shardId))
+            if (ShardMetaData.ContainsKey(shardId))
             {
                 return ShardMetaData[shardId].MarkObjectForDeletion(objectId);
             }
@@ -192,6 +208,15 @@ namespace ConsensusCore.Node.Services
                 return ShardMetaData[shardId].ObjectIsMarkedForDeletion(objectId);
             }
             return false;
+        }
+
+        public Dictionary<Guid, int> GetShardSyncPositions()
+        {
+            return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
+        }
+        public Dictionary<Guid, int> GetShardOperationCounts()
+        {
+            return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
         }
     }
 }

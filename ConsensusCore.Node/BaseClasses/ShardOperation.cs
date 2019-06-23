@@ -10,5 +10,6 @@ namespace ConsensusCore.Node.BaseClasses
     {
         public ShardOperationOptions Operation { get; set; }
         public Guid ObjectId { get; set; }
+        public bool Applied { get; set; } = false;
     }
 }

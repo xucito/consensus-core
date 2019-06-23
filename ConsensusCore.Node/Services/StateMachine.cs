@@ -66,6 +66,11 @@ namespace ConsensusCore.Node.Interfaces
             return CurrentState.Indexes[type].Shards.ToArray();
         }
 
+        public SharedShardMetadata[] GetShards(Guid nodeId)
+        {
+            return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(n => n.InsyncAllocations.Contains(nodeId) || n.StaleAllocations.Contains(nodeId))).ToArray();
+        }
+
         public SharedShardMetadata GetShard(string type, Guid shardId)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();

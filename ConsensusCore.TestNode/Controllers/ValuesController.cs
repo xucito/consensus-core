@@ -82,7 +82,7 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                return Ok(((TestDataRouter)_router)._numberStore);
+                return Ok(((TestDataRouter)_router)._numberStore.OrderBy(numberStore => numberStore.Key));
             }
             else
             {
@@ -102,21 +102,26 @@ namespace ConsensusCore.TestNode.Controllers
                     Type = "number"
                 }));
 
-                var updatedObject = (TestData)number.Data;
-                updatedObject.Data = value;
-
-                var result = _node.Send(new WriteData()
+                if (number != null)
                 {
-                    Data = new TestData()
+
+                    var updatedObject = (TestData)number.Data;
+                    updatedObject.Data = value;
+
+                    var result = _node.Send(new WriteData()
                     {
-                        Data = value,
-                        Type = "number",
-                        Id = id
-                    },
-                    Operation = Node.Enums.ShardOperationOptions.Update,
-                    WaitForSafeWrite = true
-                });
-                return Ok();
+                        Data = new TestData()
+                        {
+                            Data = value,
+                            Type = "number",
+                            Id = id
+                        },
+                        Operation = Node.Enums.ShardOperationOptions.Update,
+                        WaitForSafeWrite = true
+                    });
+                    return Ok();
+                }
+                return BadRequest("Object " + id + " does not exist.");
             }
             else
             {

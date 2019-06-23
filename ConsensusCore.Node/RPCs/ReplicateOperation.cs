@@ -12,12 +12,14 @@ namespace ConsensusCore.Node.RPCs
         public ShardOperation Operation { get; set; }
         public ShardData Payload { get; set; }
         public int Pos { get; set; }
+        public string Type { get; set; }
 
         public override string RequestName => "ReplicateShardOperation";
     }
 
     public class ReplicateShardOperationResponse
     {
+        public int LatestPosition { get; set; }
         public bool IsSuccessful { get; set; }
     }
 }
