@@ -61,13 +61,11 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-                    if (_numberStore.ContainsKey(data.Id))
+
+                    var updateResult = _numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]);
+                    if (!updateResult)
                     {
-                        _numberStore[data.Id] = t1;
-                    }
-                    else
-                    {
-                        Console.WriteLine("DATASTORE DOES NOT CONTAIN KEY  " + data.Id + " YET");
+                        throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId);
                     }
                     break;
             }

@@ -20,7 +20,23 @@ namespace ConsensusCore.Node.BaseClasses
         /// <summary>
         /// Upto what point is this shard synced
         /// </summary>
-        public int SyncPos { get { return ShardOperations.Where(so => so.Value.Applied).Last().Key; } }
+        public int SyncPos = 0;
+        public object SysPosLock = new object();
+        /*
+        {
+            get
+            {
+                var operations = ShardOperations.Where(so => so.Value.Applied);
+                if (operations.Count() == 0)
+                {
+                    return 0;
+                }
+                else
+                {
+                    return ShardOperations.Where(so => so.Value.Applied).Last().Key;
+                }
+            }
+        }*/
 
         private object shardOperationsLock = new object();
         public int AddShardOperation(ShardOperation operation)
@@ -40,6 +56,13 @@ namespace ConsensusCore.Node.BaseClasses
         public void MarkShardAsApplied(int pos)
         {
             ShardOperations[pos].Applied = true;
+            lock (SysPosLock)
+            {
+                if (pos > SyncPos)
+                {
+                    SyncPos = pos;
+                }
+            }
         }
 
         /*public void UpdateSyncPosition(int uptoPosition)

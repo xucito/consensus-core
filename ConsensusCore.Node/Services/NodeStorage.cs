@@ -42,6 +42,11 @@ namespace ConsensusCore.Node.Services
             return ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
         }
 
+        public bool CanApplyOperation(Guid shardId, int pos)
+        {
+            return ShardMetaData[shardId].CanApplyOperation(pos);
+        }
+
         public void MarkOperationAsCommited(Guid shardId, int pos)
         {
             ShardMetaData[shardId].MarkShardAsApplied(pos);
@@ -212,7 +217,8 @@ namespace ConsensusCore.Node.Services
 
         public Dictionary<Guid, int> GetShardSyncPositions()
         {
-            return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
+            var shardMetadata = ShardMetaData;
+            return shardMetadata.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
         }
         public Dictionary<Guid, int> GetShardOperationCounts()
         {
