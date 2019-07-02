@@ -9,7 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCore.Node", "Conse
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCore.TestNode", "ConsensusCore.TestNode\ConsensusCore.TestNode.csproj", "{5F3CCA75-C128-471D-9C52-B5E14D3F6794}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestConsole", "TestConsole\TestConsole.csproj", "{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestConsole", "TestConsole\TestConsole.csproj", "{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsensusCore.Domain", "ConsensusCore.Domain\ConsensusCore.Domain.csproj", "{C4067099-A45F-4434-A04C-D2DCC17936D8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,6 +35,10 @@ Global
 		{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4067099-A45F-4434-A04C-D2DCC17936D8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4067099-A45F-4434-A04C-D2DCC17936D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4067099-A45F-4434-A04C-D2DCC17936D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4067099-A45F-4434-A04C-D2DCC17936D8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

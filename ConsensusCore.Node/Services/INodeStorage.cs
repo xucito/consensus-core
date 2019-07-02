@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.Interfaces;
-using ConsensusCore.Node.Models;
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Models;
 
 namespace ConsensusCore.Node.Services
 {

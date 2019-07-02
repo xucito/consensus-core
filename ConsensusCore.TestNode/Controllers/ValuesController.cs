@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
-using ConsensusCore.Node.RPCs;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -15,10 +17,10 @@ namespace ConsensusCore.TestNode.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        IConsensusCoreNode<TestState, NodeInMemoryRepository> _node;
+        IConsensusCoreNode<TestState, IBaseRepository> _node;
         TestDataRouter _router;
 
-        public ValuesController(IConsensusCoreNode<TestState, NodeInMemoryRepository> node, IDataRouter router)
+        public ValuesController(IConsensusCoreNode<TestState, IBaseRepository> node, IDataRouter router)
         {
             _node = node;
             _router = (TestDataRouter)router;
@@ -38,7 +40,7 @@ namespace ConsensusCore.TestNode.Controllers
                         Type = "number",
                         Id = newId
                     },
-                    Operation = Node.Enums.ShardOperationOptions.Create,
+                    Operation = ShardOperationOptions.Create,
                     WaitForSafeWrite = true
                 }));
 
@@ -116,7 +118,7 @@ namespace ConsensusCore.TestNode.Controllers
                             Type = "number",
                             Id = id
                         },
-                        Operation = Node.Enums.ShardOperationOptions.Update,
+                        Operation = ShardOperationOptions.Update,
                         WaitForSafeWrite = true
                     });
                     return Ok();

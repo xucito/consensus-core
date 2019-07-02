@@ -1,8 +1,8 @@
-﻿using ConsensusCore.Node;
-using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.Exceptions;
+﻿using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.Services;
+using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
-using ConsensusCore.Node.RPCs;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,7 +52,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
 
             var inMemoryRepository = new NodeInMemoryRepository();
-            NodeStorage = new NodeStorage(inMemoryRepository);
+            NodeStorage = new NodeStorage();
             _dataRouter = new TestDataRouter();
             Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
             moqNodeOptions.Object,
@@ -63,7 +63,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 IsBootstrapped = true
             };
 
-            while (!Node.InCluster || Node.CurrentState != ConsensusCore.Node.Enums.NodeState.Leader)
+            while (!Node.InCluster || Node.CurrentState != NodeState.Leader)
             {
                 Thread.Sleep(1000);
             }
@@ -333,7 +333,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                     Data = 2,
                     Type = "number"
                 },
-                Operation = ConsensusCore.Node.Enums.ShardOperationOptions.Update,
+                Operation = ShardOperationOptions.Update,
             });
 
             var dataResult = await Node.Send(new RequestDataShard()

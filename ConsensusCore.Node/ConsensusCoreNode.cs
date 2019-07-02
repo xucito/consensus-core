@@ -1,12 +1,13 @@
-﻿using ConsensusCore.Node.BaseClasses;
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.Exceptions;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node.Connectors;
-using ConsensusCore.Node.Enums;
-using ConsensusCore.Node.Exceptions;
-using ConsensusCore.Node.Interfaces;
-using ConsensusCore.Node.Models;
-using ConsensusCore.Node.RPCs;
 using ConsensusCore.Node.Services;
-using ConsensusCore.Node.SystemCommands;
 using ConsensusCore.Node.SystemTasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -24,7 +25,7 @@ namespace ConsensusCore.Node
 {
     public class ConsensusCoreNode<State, Repository> : IConsensusCoreNode<State, Repository>
         where State : BaseState, new()
-        where Repository : BaseRepository
+        where Repository : IBaseRepository
     {
         private Timer _heartbeatTimer;
         private Timer _electionTimeoutTimer;
@@ -50,12 +51,11 @@ namespace ConsensusCore.Node
 
         //Used to track whether you are currently already sending logs to a particular node to not double send
         public ConcurrentDictionary<string, bool> LogsSent = new ConcurrentDictionary<string, bool>();
-        public StateMachine<State> _stateMachine { get; private set; }
+        public IStateMachine<State> _stateMachine { get; private set; }
         public string MyUrl { get; private set; }
         public bool IsBootstrapped = false;
         public KeyValuePair<Guid?, string> CurrentLeader;
         private Thread _findLeaderThread;
-        private int maxSendEntries = 10000;
         public IDataRouter _dataRouter;
         public bool enableDataRouting = false;
         public bool InCluster { get; private set; } = false;
@@ -73,7 +73,7 @@ namespace ConsensusCore.Node
         /// </summary>
         public int CommitIndex { get; private set; }
         public int LatestLeaderCommit { get; private set; }
-
+        public Repository _repository { get; private set; }
         public NodeInfo NodeInfo
         {
             get
@@ -120,20 +120,42 @@ namespace ConsensusCore.Node
 
         public Dictionary<Guid, LocalShardMetaData> LocalShards { get { return _nodeStorage.ShardMetaData; } }
 
+        public bool IsLeader => CurrentLeader.Key.HasValue && CurrentLeader.Key.Value == _nodeStorage.Id;
+
         public ConsensusCoreNode(
             IOptions<ClusterOptions> clusterOptions,
             IOptions<NodeOptions> nodeOptions,
-            NodeStorage nodeStorage,
             ILogger<ConsensusCoreNode<
             State,
             Repository>> logger,
-            StateMachine<State> stateMachine,
-            IDataRouter dataRouter = null)
+            IStateMachine<State> stateMachine,
+            Repository repository,
+            IDataRouter dataRouter = null
+            )
         {
+            Logger = logger;
+            _repository = repository;
+            var storage = _repository.LoadNodeData();
+            if (storage != null)
+            {
+                Logger.LogInformation("Loaded Consensus Local Node storage from store");
+                _nodeStorage = storage;
+                if (_nodeStorage.ShardMetaData == null)
+                {
+                    _nodeStorage.ShardMetaData = new Dictionary<Guid, LocalShardMetaData>();
+                }
+                _nodeStorage.SetRepository(repository);
+            }
+            else
+            {
+                Logger.LogInformation("Failed to load local node storage from store, creating new node storage");
+                _nodeStorage = new NodeStorage(repository);
+                _nodeStorage.Id = Guid.NewGuid();
+                _nodeStorage.Save();
+            }
             _nodeOptions = nodeOptions.Value;
             _clusterOptions = clusterOptions.Value;
-            _nodeStorage = nodeStorage;
-            Logger = logger;
+            //_nodeStorage = nodeStorage;
             _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
             _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
             _clusterInfoTimeoutTimer = new Timer(ClusterInfoTimeoutHandler);
@@ -336,35 +358,42 @@ namespace ConsensusCore.Node
             //while (NodeConnectors.Count() < _clusterOptions.MinimumNodes - 1)
             //{
             NodeConnectors.Clear();
-            foreach (var url in _clusterOptions.NodeUrls)
+            while (MyUrl == null)
             {
-                var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(_clusterOptions.DataTransferTimeoutMs));
-                //Always add the connector
-                NodeConnectors.Add(url, testConnector);
-                Guid? nodeId = null;
-                try
+                foreach (var url in _clusterOptions.NodeUrls)
                 {
-                    nodeId = (await testConnector.GetNodeInfoAsync()).Id;
-                    if (nodeId == _nodeStorage.Id)
+                    var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(_clusterOptions.DataTransferTimeoutMs));
+                    //Always add the connector
+                    if (!NodeConnectors.ContainsKey(url))
                     {
-                        MyUrl = url;
-                        NodeConnectors.Remove(url);
+                        NodeConnectors.Add(url, testConnector);
+                    }
+
+                    Guid? nodeId = null;
+                    try
+                    {
+                        nodeId = (await testConnector.GetNodeInfoAsync()).Id;
+                        if (nodeId == _nodeStorage.Id)
+                        {
+                            MyUrl = url;
+                            NodeConnectors.Remove(url);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning(GetNodeId() + "Node at url " + url + " was unreachable...");
                     }
                 }
-                catch (Exception e)
+
+                if (MyUrl == null)
                 {
-                    Logger.LogWarning(GetNodeId() + "Node at url " + url + " was unreachable...");
+                    Logger.LogWarning(GetNodeId() + "Node is not discoverable from the given node urls!");
                 }
-            }
 
-            if (MyUrl == null)
-            {
-                Logger.LogWarning(GetNodeId() + "Node is not discoverable from the given node urls!");
-            }
-
-            if (NodeConnectors.Count() < _clusterOptions.MinimumNodes - 1)
-            {
-                Logger.LogWarning(GetNodeId() + "Not enough of the nodes in the cluster are contactable, awaiting bootstrap");
+                if (NodeConnectors.Count() < _clusterOptions.MinimumNodes - 1)
+                {
+                    Logger.LogWarning(GetNodeId() + "Not enough of the nodes in the cluster are contactable, awaiting bootstrap");
+                }
             }
             //}
             IsBootstrapped = true;
@@ -381,15 +410,17 @@ namespace ConsensusCore.Node
                     {
                         //Add the node to stale shards to start syncing
                         List<Guid> newStaleAllocations = new List<Guid>();
+                        int newStaleNodeCount = 0;
                         foreach (var node in _stateMachine.GetNodes())
                         {
                             //It is not stale or insync
                             if (!shard.InsyncAllocations.Contains(node.Id) && !shard.StaleAllocations.Contains(node.Id))
                             {
+                                newStaleNodeCount++;
                                 newStaleAllocations.Add(node.Id);
                             }
                         }
-                        if (newStaleAllocations.Count() > 0)
+                        if (newStaleNodeCount > 0)
                         {
                             var shardInfo = _stateMachine.GetShard(shard.Type, shard.Id);
                             HashSet<Guid> staleNodes = shardInfo.StaleAllocations.ToHashSet<Guid>();
@@ -481,11 +512,11 @@ namespace ConsensusCore.Node
                         };
 
                         //If the node does not exist
-                        if (nodeId.Value != null && (!_stateMachine.CurrentState.Nodes.ContainsKey(nodeId.Value) ||
+                        if ((nodeId.Value != null && (!_stateMachine.CurrentState.Nodes.ContainsKey(nodeId.Value) ||
                             // Check whether the node with the same id has different information
                             !_stateMachine.CurrentState.Nodes[nodeId.Value].Equals(possibleNodeUpdate)
                             //Node was uncontactable now its contactable
-                            || !_stateMachine.IsNodeContactable(nodeId.Value)
+                            || !_stateMachine.IsNodeContactable(nodeId.Value))
                             ))
                         {
                             Logger.LogDebug(GetNodeId() + "Detected updated for node " + nodeId);
@@ -763,10 +794,10 @@ namespace ConsensusCore.Node
                         response = (TResponse)(object)RequestInitializeNewShardHandler(t1);
                         break;
                     case ReplicateShardOperation t1:
-                        response = (TResponse)(object)ReplicateShardOperationHandler(t1);
+                        response = (TResponse)(object)await ReplicateShardOperationHandler(t1);
                         break;
                     case RequestShardOperations t1:
-                        response = (TResponse)(object)RequestShardOperationsHandler(t1);
+                        response = (TResponse)(object)await RequestShardOperationsHandler(t1);
                         break;
                     default:
                         throw new Exception("Request is not implemented");
@@ -801,7 +832,7 @@ namespace ConsensusCore.Node
             }
         }
 
-        public RequestShardOperationsResponse RequestShardOperationsHandler(RequestShardOperations request)
+        public async Task<RequestShardOperationsResponse> RequestShardOperationsHandler(RequestShardOperations request)
         {
             //Check that the shard is insync here
             var localShard = _nodeStorage.GetShardMetadata(request.ShardId);
@@ -824,7 +855,7 @@ namespace ConsensusCore.Node
                 if (operation != null)
                 {
                     //This data could be in a future state
-                    var currentData = (ShardData)_dataRouter.GetData(request.Type, operation.ObjectId);
+                    var currentData = (ShardData)await _dataRouter.GetDataAsync(request.Type, operation.ObjectId);
                     FinalList.Add(i, new ShardOperationMessage()
                     {
                         ObjectId = operation.ObjectId,
@@ -877,7 +908,7 @@ namespace ConsensusCore.Node
             return Handle();
         }
 
-        public ReplicateShardOperationResponse ReplicateShardOperationHandler(ReplicateShardOperation request)
+        public async Task<ReplicateShardOperationResponse> ReplicateShardOperationHandler(ReplicateShardOperation request)
         {
             try
             {
@@ -917,7 +948,7 @@ namespace ConsensusCore.Node
 
                 if (_nodeStorage.ReplicateShardOperation(request.ShardId, request.Pos, request.Operation))
                 {
-                    if (!RunDataOperation(request.Operation.Operation, request.Payload))
+                    if (!await RunDataOperation(request.Operation.Operation, request.Payload))
                     {
                         Logger.LogError("Ran into error while running operation " + request.Operation.ToString() + " on " + request.ShardId);
                         if (!_nodeStorage.RemoveOperation(request.ShardId, request.Pos))
@@ -1000,19 +1031,19 @@ namespace ConsensusCore.Node
             };
         }
 
-        public bool RunDataOperation(ShardOperationOptions operation, ShardData shard)
+        public async Task<bool> RunDataOperation(ShardOperationOptions operation, ShardData shard)
         {
             try
             {
                 switch (operation)
                 {
                     case ShardOperationOptions.Create:
-                        _dataRouter.InsertData(shard);
+                        await _dataRouter.InsertDataAsync(shard);
                         break;
                     case ShardOperationOptions.Update:
                         if (!_nodeStorage.IsObjectMarkedForDeletion(shard.ShardId.Value, shard.Id))
                         {
-                            _dataRouter.UpdateData(shard);
+                            await _dataRouter.UpdateDataAsync(shard);
                         }
                         else
                         {
@@ -1022,7 +1053,7 @@ namespace ConsensusCore.Node
                     case ShardOperationOptions.Delete:
                         if (_nodeStorage.MarkShardForDeletion(shard.ShardId.Value, shard.Id))
                         {
-                            _dataRouter.DeleteData(shard);
+                            await _dataRouter.DeleteDataAsync(shard);
                         }
                         else
                         {
@@ -1134,7 +1165,7 @@ namespace ConsensusCore.Node
 
 
 
-                if (!RunDataOperation(shard.Operation, shard.Data))
+                if (!await RunDataOperation(shard.Operation, shard.Data))
                 {
 
                     Logger.LogError("Ran into error while running operation " + shard.Operation.ToString() + " on " + shard.Data.Id);
@@ -1306,11 +1337,11 @@ namespace ConsensusCore.Node
                     {
                         Logger.LogDebug(GetNodeId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetLogCount() - 1) + ")" + CurrentState.ToString());
                         //If you determine that your log index is greater but your term is lower, increment your term to one level higher
-                        if (requestVoteRPC.Term > _nodeStorage.CurrentTerm)
+                        /*if (requestVoteRPC.Term > _nodeStorage.CurrentTerm)
                         {
                             Logger.LogWarning(GetNodeId() + "Fast forwarding term.");
                             SetCurrentTerm(requestVoteRPC.Term);
-                        }
+                        }*/
                     }
                     else if (requestVoteRPC.LastLogTerm < _nodeStorage.GetLastLogTerm())
                     {
@@ -1347,6 +1378,13 @@ namespace ConsensusCore.Node
 
             //Reset the timer if the append is from a valid term
             ResetTimer(_electionTimeoutTimer, _clusterOptions.ElectionTimeoutMs, _clusterOptions.ElectionTimeoutMs);
+
+
+            if (entry.LeaderCommit > LatestLeaderCommit)
+            {
+                Logger.LogDebug(GetNodeId() + "Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
+                LatestLeaderCommit = entry.LeaderCommit;
+            }
 
             var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
 
@@ -1408,12 +1446,6 @@ namespace ConsensusCore.Node
             foreach (var log in entry.Entries)
             {
                 _nodeStorage.AddLog(log);
-            }
-
-            if (entry.LeaderCommit > LatestLeaderCommit)
-            {
-                Logger.LogDebug(GetNodeId() + "Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
-                LatestLeaderCommit = entry.LeaderCommit;
             }
 
             return new AppendEntryResponse()
@@ -1512,7 +1544,7 @@ namespace ConsensusCore.Node
                     }
                     else
                     {
-                        finalObject = _dataRouter.GetData(request.Type, request.ObjectId);
+                        finalObject = await _dataRouter.GetDataAsync(request.Type, request.ObjectId);
                         foundResult = finalObject != null ? true : false;
                         FoundShard = shard.Key;
                         FoundShard = shard.Value;
@@ -1544,7 +1576,7 @@ namespace ConsensusCore.Node
             }
             else
             {
-                var finalObject = _dataRouter.GetData(request.Type, request.ObjectId);
+                var finalObject = await _dataRouter.GetDataAsync(request.Type, request.ObjectId);
                 return new RequestDataShardResponse()
                 {
                     IsSuccessful = finalObject != null,
@@ -1562,6 +1594,9 @@ namespace ConsensusCore.Node
         {
             Logger.LogDebug(GetNodeId() + "Sending heartbeats");
             var startTime = DateTime.Now;
+
+            var recognizedhosts = 1;
+
             var tasks = NodeConnectors.Select(async connector =>
             {
                 try
@@ -1576,7 +1611,7 @@ namespace ConsensusCore.Node
                     {
                         var unsentLogs = (_nodeStorage.GetLogCount() - NextIndex[connector.Key] + 1);
                         var quantityToSend = unsentLogs;
-                        entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[connector.Key] - 1, quantityToSend < maxSendEntries ? quantityToSend : maxSendEntries).ToList();
+                        entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[connector.Key] - 1, quantityToSend < _clusterOptions.MaxLogsToSend ? quantityToSend : _clusterOptions.MaxLogsToSend).ToList();
                         // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
                         Logger.LogDebug(GetNodeId() + "Detected node " + connector.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
                         // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
@@ -1601,6 +1636,7 @@ namespace ConsensusCore.Node
 
                     if (result.Successful)
                     {
+                        Logger.LogInformation(GetNodeId() + "Successfully updated logs on " + connector.Key);
                         if (entriesToSend.Count() > 0)
                         {
                             var lastIndexToSend = entriesToSend.Last().Index;
@@ -1628,6 +1664,7 @@ namespace ConsensusCore.Node
                                     updateWorked = MatchIndex.TryUpdate(connector.Key, lastIndexToSend, previousValue);
                                 }
                             }
+                            Logger.LogInformation(GetNodeId() + "Updated match index to " + MatchIndex);
                         }
                     }
                     else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
@@ -1646,6 +1683,7 @@ namespace ConsensusCore.Node
                     }
                     else
                     {
+                        Logger.LogError(GetNodeId() + "Append entry returned with undefined conflict name");
                         var node = _stateMachine.CurrentState.Nodes.Where(n => n.Value.TransportAddress == connector.Key);
                         if (node.Count() == 1)
                         {
@@ -1665,6 +1703,8 @@ namespace ConsensusCore.Node
                         }
                         throw new Exception("Append entry returned with undefined conflict name");
                     }
+
+                    Interlocked.Increment(ref recognizedhosts);
                 }
                 catch (Exception e)
                 {
@@ -1673,6 +1713,12 @@ namespace ConsensusCore.Node
             });
 
             await Task.WhenAll(tasks);
+
+            //If less then the required number recognize the request, go back to being a candidate
+            if (recognizedhosts < _clusterOptions.MinimumNodes)
+            {
+                SetNodeRole(NodeState.Candidate);
+            }
 
             /*bool pendingTasks = true;
 

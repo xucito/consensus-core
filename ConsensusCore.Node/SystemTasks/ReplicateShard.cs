@@ -1,4 +1,4 @@
-﻿using ConsensusCore.Node.BaseClasses;
+﻿using ConsensusCore.Domain.BaseClasses;
 using System;
 using System.Collections.Generic;
 using System.Text;

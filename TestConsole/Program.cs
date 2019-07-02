@@ -1,4 +1,4 @@
-﻿using ConsensusCore.Node.Models;
+﻿using ConsensusCore.Domain.Models;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using System;

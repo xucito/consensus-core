@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ConsensusCore.Domain\ConsensusCore.Domain.csproj" />
     <ProjectReference Include="..\ConsensusCore.Node\ConsensusCore.Node.csproj" />
   </ItemGroup>
 

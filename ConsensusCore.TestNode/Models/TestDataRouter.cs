@@ -1,4 +1,4 @@
-﻿using ConsensusCore.Node.BaseClasses;
+﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Node.Services;
 using System;
 using System.Collections.Concurrent;
@@ -13,19 +13,20 @@ namespace ConsensusCore.TestNode.Models
         public ConcurrentDictionary<Guid, TestData> _numberStore = new ConcurrentDictionary<Guid, TestData>();
         object locker = new object();
 
-        public void DeleteData(ShardData data)
+        public async Task<bool> DeleteDataAsync(ShardData data)
         {
             _numberStore.TryRemove(data.Id, out _);
+            return true;
         }
 
-        public ShardData GetData(string type, Guid objectId)
+        public async Task<ShardData> GetDataAsync(string type, Guid objectId)
         {
             if (_numberStore.ContainsKey(objectId))
                 return _numberStore[objectId];
             return null;
         }
 
-        public void InsertData(ShardData data)
+        public async Task<ShardData> InsertDataAsync(ShardData data)
         {
             switch (data)
             {
@@ -35,6 +36,7 @@ namespace ConsensusCore.TestNode.Models
                         throw new Exception("Failed to insert data, there seems to be a concurrency issue!");
                     break;
             }
+            return data;
 
             /*
             switch (data.Type)
@@ -56,7 +58,7 @@ namespace ConsensusCore.TestNode.Models
             return assignedGuid.Value;*/
         }
 
-        public void UpdateData(ShardData data)
+        public async Task<ShardData> UpdateDataAsync(ShardData data)
         {
             switch (data)
             {
@@ -69,6 +71,7 @@ namespace ConsensusCore.TestNode.Models
                     }
                     break;
             }
+            return data;
         }
     }
 }

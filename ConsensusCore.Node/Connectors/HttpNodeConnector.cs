@@ -1,8 +1,4 @@
-﻿using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.Enums;
-using ConsensusCore.Node.Exceptions;
-using ConsensusCore.Node.Models;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -10,7 +6,9 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
-using ConsensusCore.Node.RPCs;
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.RPCs;
 
 namespace ConsensusCore.Node.Connectors
 {

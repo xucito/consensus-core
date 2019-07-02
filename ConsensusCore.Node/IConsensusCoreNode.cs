@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using ConsensusCore.Node.BaseClasses;
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.Models;
 using ConsensusCore.Node.Connectors;
-using ConsensusCore.Node.Enums;
-using ConsensusCore.Node.Interfaces;
-using ConsensusCore.Node.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -13,7 +12,7 @@ namespace ConsensusCore.Node
 {
     public interface IConsensusCoreNode<State, Repository>
         where State : BaseState, new()
-        where Repository : BaseRepository
+        where Repository : IBaseRepository
     {
         /* StateMachine<State> _stateMachine { get; }
          int CommitIndex { get; }
@@ -44,5 +43,6 @@ namespace ConsensusCore.Node
         State GetState();
         Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request);
         bool InCluster { get; }
+        bool IsLeader { get; }
     }
 }

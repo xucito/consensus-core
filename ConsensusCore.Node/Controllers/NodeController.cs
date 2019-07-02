@@ -2,11 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.Enums;
-using ConsensusCore.Node.Exceptions;
-using ConsensusCore.Node.Interfaces;
-using ConsensusCore.Node.Models;
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Node.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -19,12 +16,12 @@ namespace ConsensusCore.Node.Controllers
     //[GenericController]
     public class NodeController<State, Repository> : Controller
         where State : BaseState, new()
-        where Repository : BaseRepository
+        where Repository : IBaseRepository
     {
-        private IConsensusCoreNode<State, Repository> _node;
+        private IConsensusCoreNode<State, IBaseRepository> _node;
         private ILogger<NodeController<State, Repository>> Logger;
 
-        public NodeController(IConsensusCoreNode<State, Repository> manager, ILogger<NodeController<State, Repository>> logger)
+        public NodeController(IConsensusCoreNode<State, IBaseRepository> manager, ILogger<NodeController<State, Repository>> logger)
         {
             _node = manager;
             Logger = logger;
@@ -45,7 +42,7 @@ namespace ConsensusCore.Node.Controllers
         [HttpPost("RPC")]
         public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<object> request)
         {
-            if(request == null)
+            if (request == null)
             {
                 Logger.LogError("FOR SOME REASON THE REQUEST IS NULL");
             }

@@ -1,15 +1,16 @@
-﻿using ConsensusCore.Node.BaseClasses;
+﻿using ConsensusCore.Domain.BaseClasses;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Services
 {
     public interface IDataRouter
     {
-        void InsertData(ShardData data);
-        void UpdateData(ShardData data);
-        void DeleteData(ShardData data);
-        ShardData GetData(string type, Guid objectId);
+        Task<ShardData> InsertDataAsync(ShardData data);
+        Task<ShardData> UpdateDataAsync(ShardData data);
+        Task<bool> DeleteDataAsync(ShardData data);
+        Task<ShardData> GetDataAsync(string type, Guid objectId);
     }
 }

@@ -1,5 +1,5 @@
-﻿using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.Models;
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Models;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;

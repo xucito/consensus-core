@@ -1,5 +1,4 @@
 ﻿using ConsensusCore.Node.Controllers;
-using ConsensusCore.Node.Interfaces;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using System;
 using System.Collections.Generic;
