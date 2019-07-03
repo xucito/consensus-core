@@ -37,7 +37,7 @@ namespace ConsensusCore.TestNode.Controllers
                     Data = new TestData()
                     {
                         Data = value,
-                        Type = "number",
+                        ShardType = "number",
                         Id = newId
                     },
                     Operation = ShardOperationOptions.Create,
@@ -115,7 +115,7 @@ namespace ConsensusCore.TestNode.Controllers
                         Data = new TestData()
                         {
                             Data = value,
-                            Type = "number",
+                            ShardType = "number",
                             Id = id
                         },
                         Operation = ShardOperationOptions.Update,

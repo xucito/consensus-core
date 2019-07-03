@@ -17,5 +17,6 @@ namespace ConsensusCore.Node
         public bool TestMode { get; set; }
         public int CommitsTimeout { get; set; } = 10000;
         public int MaxLogsToSend { get; set; } = 100;
+        public int MaxObjectSync { get; set; } = 100;
     }
 }

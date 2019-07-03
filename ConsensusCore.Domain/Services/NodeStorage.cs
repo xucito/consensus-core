@@ -43,6 +43,8 @@ namespace ConsensusCore.Domain.Services
         public void AddNewShardMetaData(LocalShardMetaData metadata)
         {
             ShardMetaData.Add(metadata.ShardId, metadata);
+            if (_repository != null)
+                _repository.SaveNodeData(this);
         }
 
         /// <summary>
@@ -50,12 +52,18 @@ namespace ConsensusCore.Domain.Services
         /// </summary>
         public int AddNewShardOperation(Guid shardId, ShardOperation operation)
         {
-            return ShardMetaData[shardId].AddShardOperation(operation);
+            var result = ShardMetaData[shardId].AddShardOperation(operation);
+            if (_repository != null)
+                _repository.SaveNodeData(this);
+            return result;
         }
 
         public bool ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
         {
-            return ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
+            var result = ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
+            if (_repository != null)
+                _repository.SaveNodeData(this);
+            return result;
         }
 
         public bool CanApplyOperation(Guid shardId, int pos)
@@ -66,12 +74,17 @@ namespace ConsensusCore.Domain.Services
         public void MarkOperationAsCommited(Guid shardId, int pos)
         {
             ShardMetaData[shardId].MarkShardAsApplied(pos);
+            if (_repository != null)
+                _repository.SaveNodeData(this);
             // ShardMetaData[shardId].UpdateSyncPosition(pos);
         }
 
         public bool RemoveOperation(Guid shardId, int pos)
         {
-            return ShardMetaData[shardId].RemoveOperation(pos);
+            var result = ShardMetaData[shardId].RemoveOperation(pos);
+            if (_repository != null)
+                _repository.SaveNodeData(this);
+            return result;
         }
 
         public int GetLogCount()
@@ -209,11 +222,14 @@ namespace ConsensusCore.Domain.Services
 
         public bool MarkShardForDeletion(Guid shardId, Guid objectId)
         {
+            var result = false;
             if (ShardMetaData.ContainsKey(shardId))
             {
-                return ShardMetaData[shardId].MarkObjectForDeletion(objectId);
+                result = ShardMetaData[shardId].MarkObjectForDeletion(objectId);
             }
-            return false;
+            if (_repository != null)
+                _repository.SaveNodeData(this);
+            return result;
         }
 
         public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)

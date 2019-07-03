@@ -47,7 +47,10 @@ namespace ConsensusCore.Domain.BaseClasses
                 noOfShardOperations = ShardOperations.Count + 1;
                 bool addResult = ShardOperations.TryAdd(noOfShardOperations, operation);
                 if (!addResult)
+                {
                     Console.WriteLine("ERROR:Failed to add operation!!!");
+                    throw new Exception("Failed to add shard operation to disk.");
+                }
             }
 
             return noOfShardOperations;
@@ -60,6 +63,7 @@ namespace ConsensusCore.Domain.BaseClasses
             {
                 if (pos > SyncPos)
                 {
+                    Console.WriteLine("Updated sync position with " + pos + "from sync pos" + SyncPos);
                     SyncPos = pos;
                 }
             }

@@ -11,7 +11,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCore.TestNode", "C
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestConsole", "TestConsole\TestConsole.csproj", "{B67056F9-EABC-47CF-B3A4-6A48C3C357A5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsensusCore.Domain", "ConsensusCore.Domain\ConsensusCore.Domain.csproj", "{C4067099-A45F-4434-A04C-D2DCC17936D8}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCore.Domain", "ConsensusCore.Domain\ConsensusCore.Domain.csproj", "{C4067099-A45F-4434-A04C-D2DCC17936D8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

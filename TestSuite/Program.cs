@@ -11,8 +11,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace TestConsole
+namespace TestSuite
 {
+
     class Program
     {
         public static ILogger logger;
@@ -88,9 +89,9 @@ namespace TestConsole
                         }));
                     }
                     Parallel.ForEach(allThreads, thread =>
-                             {
-                                 thread.Start();
-                             });
+                    {
+                        thread.Start();
+                    });
 
                     Task.WhenAll(allThreads).GetAwaiter().GetResult();
                 }
@@ -113,8 +114,8 @@ namespace TestConsole
             {
                 PrintStatus();
                 Thread.Sleep(rand.Next(0, 10000));
-                var numberOfNodeFailures = rand.Next(1, ports.Length); //(processes.Count - 1) / 2;
-                logger.LogInformation("Simulating failure of " + numberOfNodeFailures + "/" + ports.Length);
+                var numberOfNodeFailures = (processes.Count - 1) / 2;
+
 
                 List<int> processesToDisable = new List<int>();
                 // if the number of 
@@ -203,7 +204,7 @@ namespace TestConsole
                             Console.WriteLine("After 10 seconds the cluster is still inconsistent.");
                             Thread.Sleep(1000);
                         }
-                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
+                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY.");
                         /*if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
                         {
                             Console.WriteLine("After 10 seconds the cluster reported as consistent.");
