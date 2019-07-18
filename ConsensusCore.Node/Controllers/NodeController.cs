@@ -48,6 +48,12 @@ namespace ConsensusCore.Node.Controllers
             }
             return Ok(await _node.Send(request));
         }
+
+        [HttpGet("Tasks")]
+        public async Task<IActionResult> GetTasks()
+        {
+            return Ok(_node.GetClusterTasks());
+        }
         /*
         [HttpPost("request-vote")]
         public IActionResult PostRequestVote([FromBody] RequestVote vote)

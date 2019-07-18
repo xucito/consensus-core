@@ -1307,7 +1307,7 @@ namespace ConsensusCore.Node
                             },
                             new UpdateClusterTasks()
                             {
-                                TasksToAdd = InvalidNodes.Select(inv => 
+                                TasksToAdd = InvalidNodes.Select(inv =>
                                 (BaseTask)new RecoverShard()
                                 {
                                     Id = Guid.NewGuid(),
@@ -2271,6 +2271,11 @@ namespace ConsensusCore.Node
                 return true;
             }
             return false;
+        }
+
+        public List<BaseTask> GetClusterTasks()
+        {
+            return _stateMachine.CurrentState.ClusterTasks.Select(ct => ct.Value).ToList();
         }
     }
 }

@@ -46,5 +46,6 @@ namespace ConsensusCore.Node
         bool InCluster { get; }
         bool IsLeader { get; }
         bool HasEntryBeenCommitted(int logIndex);
+        List<BaseTask> GetClusterTasks();
     }
 }

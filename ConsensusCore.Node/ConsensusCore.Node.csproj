@@ -12,7 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="BaseClasses\" />
     <Folder Include="Interfaces\" />
     <Folder Include="Utility\ClusterTasks\" />
     <Folder Include="Utility\RoutedRequests\" />
