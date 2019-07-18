@@ -19,9 +19,8 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "AppendEntry";
     }
 
-    public class AppendEntryResponse
+    public class AppendEntryResponse : BaseResponse
     {
-        public bool Successful { get; set; }
         public string ConflictName { get; set; }
         public int? ConflictingTerm { get; set; }
         public int? FirstTermIndex { get; set; }

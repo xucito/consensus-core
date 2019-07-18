@@ -40,7 +40,7 @@ namespace ConsensusCore.Node.Controllers
         }
 
         [HttpPost("RPC")]
-        public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<object> request)
+        public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<BaseResponse> request)
         {
             if (request == null)
             {

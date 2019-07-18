@@ -7,7 +7,7 @@ namespace ConsensusCore.Domain.Enums
     public enum ClusterTaskStatuses
     {
         Created,
-        Completed,
+        Successful,
         Cancelled,
         Paused
     }

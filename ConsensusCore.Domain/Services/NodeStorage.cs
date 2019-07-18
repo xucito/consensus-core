@@ -1,10 +1,13 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
+using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace ConsensusCore.Domain.Services
 {
@@ -16,10 +19,17 @@ namespace ConsensusCore.Domain.Services
         public int CurrentTerm { get; set; } = 0;
         public Guid? VotedFor { get; set; } = null;
         public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
+        [JsonIgnore]
         public readonly object _locker = new object();
+        [JsonIgnore]
         private IBaseRepository _repository;
-        public Dictionary<Guid, LocalShardMetaData> ShardMetaData { get; set; } = new Dictionary<Guid, LocalShardMetaData>();
-
+        public ConcurrentDictionary<Guid, LocalShardMetaData> ShardMetaData { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
+        [JsonIgnore]
+        public bool RequireSave = false;
+        [JsonIgnore]
+        public readonly object _saveLocker = new object();
+        [JsonIgnore]
+        public Thread _saveThread;
         /*public NodeStorage()
          {
          }
@@ -27,10 +37,20 @@ namespace ConsensusCore.Domain.Services
 
         public NodeStorage(IBaseRepository repository)
         {
+            Id = Guid.NewGuid();
             _repository = repository;
-            if(ShardMetaData == null)
+            if (ShardMetaData == null)
             {
-                ShardMetaData = new Dictionary<Guid, LocalShardMetaData>();
+                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
+            }
+
+            if (_repository != null)
+            {
+                _saveThread = new Thread(() =>
+                {
+                    SaveThread();
+                });
+                _saveThread.Start();
             }
             // var loadedData = _repository.LoadNodeData();
         }
@@ -42,9 +62,12 @@ namespace ConsensusCore.Domain.Services
 
         public void AddNewShardMetaData(LocalShardMetaData metadata)
         {
-            ShardMetaData.Add(metadata.ShardId, metadata);
-            if (_repository != null)
-                _repository.SaveNodeData(this);
+            if (!ShardMetaData.TryAdd(metadata.ShardId, metadata))
+            {
+                throw new Exception("Failed to add new shard metadata");
+            }
+            //Console.WriteLine("Added new shard metadata");
+            Save();
         }
 
         /// <summary>
@@ -53,16 +76,20 @@ namespace ConsensusCore.Domain.Services
         public int AddNewShardOperation(Guid shardId, ShardOperation operation)
         {
             var result = ShardMetaData[shardId].AddShardOperation(operation);
-            if (_repository != null)
-                _repository.SaveNodeData(this);
+
+            //Console.WriteLine("Added new shard operation");
+            Save();
             return result;
         }
 
         public bool ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
         {
             var result = ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
-            if (_repository != null)
-                _repository.SaveNodeData(this);
+            if (result)
+            {
+                //Console.WriteLine("Replicate shard operation");
+                Save();
+            }
             return result;
         }
 
@@ -74,16 +101,18 @@ namespace ConsensusCore.Domain.Services
         public void MarkOperationAsCommited(Guid shardId, int pos)
         {
             ShardMetaData[shardId].MarkShardAsApplied(pos);
-            if (_repository != null)
-                _repository.SaveNodeData(this);
+
+            //Console.WriteLine("MarkOperationAsCommited");
+            Save();
             // ShardMetaData[shardId].UpdateSyncPosition(pos);
         }
 
         public bool RemoveOperation(Guid shardId, int pos)
         {
             var result = ShardMetaData[shardId].RemoveOperation(pos);
-            if (_repository != null)
-                _repository.SaveNodeData(this);
+
+            //Console.WriteLine("Remove operation");
+            Save();
             return result;
         }
 
@@ -112,7 +141,28 @@ namespace ConsensusCore.Domain.Services
             return 0;
         }
 
+        public void SetVotedFor(Guid? id)
+        {
+            if (id != VotedFor)
+            {
+                VotedFor = id;
 
+
+                //Console.WriteLine("Set voted for");
+                Save();
+            }
+        }
+
+        public void SetCurrentTerm(int newTerm)
+        {
+            if (newTerm != CurrentTerm)
+            {
+
+                //Console.WriteLine("Set term for");
+                CurrentTerm = newTerm;
+                Save();
+            }
+        }
 
         public LogEntry GetLogAtIndex(int logIndex)
         {
@@ -133,22 +183,28 @@ namespace ConsensusCore.Domain.Services
 
         public int AddCommands(List<BaseCommand> commands, int term)
         {
-            int index;
-            lock (_locker)
+            if (commands.Count > 0)
             {
-                index = Logs.Count() + 1;
-                Logs.Add(new LogEntry()
+                int index;
+                lock (_locker)
                 {
-                    Commands = commands,
-                    Term = term,
-                    Index = index
-                });
+                    index = Logs.Count() + 1;
+                    Logs.Add(new LogEntry()
+                    {
+                        Commands = commands,
+                        Term = term,
+                        Index = index
+                    });
+                }
+
+                if (_repository != null)
+                {
+                    //Console.WriteLine("Add commands");
+                    Save();
+                }
+                return index;
             }
-
-            if (_repository != null)
-                _repository.SaveNodeData(this);
-
-            return index;
+            throw new Exception("Weird, I was sent a empty list of base commands");
         }
 
         public void AddLog(LogEntry entry)
@@ -159,7 +215,10 @@ namespace ConsensusCore.Domain.Services
                 //The entry should be the next log required
                 if (entry.Index == Logs.Count() + 1)
                 {
+
+                    //Console.WriteLine("Add logs");
                     Logs.Add(entry);
+                    Save();
                 }
                 else if (entry.Index > Logs.Count() + 1)
                 {
@@ -167,32 +226,25 @@ namespace ConsensusCore.Domain.Services
                 }
             }
 
-            if (_repository != null)
-                _repository.SaveNodeData(this);
         }
 
-        public void UpdateCurrentTerm(int newterm)
-        {
-            CurrentTerm = newterm;
-
-            if (_repository != null)
-                _repository.SaveNodeData(this);
-        }
-
-        public void SetVotedFor(Guid candidateId)
-        {
-            VotedFor = candidateId;
-            if (_repository != null)
-                _repository.SaveNodeData(this);
-        }
+        /* public void SetVotedFor(Guid candidateId)
+         {
+             if (VotedFor != candidateId)
+             {
+                 VotedFor = candidateId;
+                 Save();
+             }
+         }*/
 
         public void DeleteLogsFromIndex(int index)
         {
             lock (_locker)
             {
                 Logs.RemoveRange(index - 1, Logs.Count() - index + 1);
-                if (_repository != null)
-                    _repository.SaveNodeData(this);
+
+                //Console.WriteLine("Delete logs from index");
+                Save();
             }
         }
 
@@ -226,9 +278,10 @@ namespace ConsensusCore.Domain.Services
             if (ShardMetaData.ContainsKey(shardId))
             {
                 result = ShardMetaData[shardId].MarkObjectForDeletion(objectId);
+
+                //Console.WriteLine("marked shard for deletion");
+                Save();
             }
-            if (_repository != null)
-                _repository.SaveNodeData(this);
             return result;
         }
 
@@ -243,25 +296,39 @@ namespace ConsensusCore.Domain.Services
 
         public Dictionary<Guid, int> GetShardSyncPositions()
         {
-            if(ShardMetaData == null)
+            if (ShardMetaData == null)
             {
-                ShardMetaData = new Dictionary<Guid, LocalShardMetaData>();
+                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
             }
             var shardMetadata = ShardMetaData;
             return shardMetadata.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
         }
         public Dictionary<Guid, int> GetShardOperationCounts()
         {
-            if(ShardMetaData == null)
+            if (ShardMetaData == null)
             {
-                ShardMetaData = new Dictionary<Guid, LocalShardMetaData>();
+                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
             }
             return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
         }
 
         public void Save()
         {
-            _repository.SaveNodeData(this);
+            RequireSave = true;
+        }
+
+        public void SaveThread()
+        {
+            while (true)
+            {
+                Thread.Sleep(500);
+                if (RequireSave)
+                {
+                    RequireSave = false;
+                    _repository.SaveNodeData(this);
+                    Console.WriteLine("Saved node storage");
+                }
+            }
         }
     }
 }

@@ -5,15 +5,14 @@ using System.Text;
 
 namespace ConsensusCore.Domain.RPCs
 {
-    public class RequestClusterTasksUpsert : BaseRequest<RequestClusterTasksUpsertResponse>
+    /*public class RequestClusterTasksUpsert : BaseRequest<RequestClusterTasksUpsertResponse>
     {
         public List<BaseTask> Tasks { get; set; }
 
         public override string RequestName => "RequestClusterTasksUpsert";
     }
 
-    public class RequestClusterTasksUpsertResponse
+    public class RequestClusterTasksUpsertResponse : BaseResponse
     {
-        public bool IsSuccessful { get; set; }
-    }
+    }*/
 }

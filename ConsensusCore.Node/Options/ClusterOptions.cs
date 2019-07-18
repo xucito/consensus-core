@@ -13,7 +13,7 @@ namespace ConsensusCore.Node
         public int ElectionTimeoutMs { get; set; } = 1000;
         public int DataTransferTimeoutMs { get; set; } = 30000;
         public int NumberOfShards { get; set; }
-        public int ConcurrentTasks { get; set; }
+        public int ConcurrentTasks { get; set; } = 4;
         public bool TestMode { get; set; }
         public int CommitsTimeout { get; set; } = 10000;
         public int MaxLogsToSend { get; set; } = 100;

@@ -20,9 +20,8 @@ namespace ConsensusCore.Domain.RPCs
         public int LockTimeoutMs { get; set; } = 3000;
     }
 
-    public class RequestDataShardResponse
+    public class RequestDataShardResponse: BaseResponse
     {
-        public bool IsSuccessful { get; set; }
         public Guid? ShardId { get; set; }
         public Guid? NodeId { get; set; }
         public ShardData Data { get; set; }

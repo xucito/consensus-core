@@ -12,8 +12,8 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName { get => "RouteCommands"; }
     }
 
-    public class ExecuteCommandsResponse
+    public class ExecuteCommandsResponse : BaseResponse
     {
-        public bool IsSuccessful { get; set; }
+        public int EntryNo { get; set; }
     }
 }

@@ -16,9 +16,8 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "ReplicateShardOperation";
     }
 
-    public class ReplicateShardOperationResponse
+    public class ReplicateShardOperationResponse: BaseResponse
     {
         public int LatestPosition { get; set; }
-        public bool IsSuccessful { get; set; }
     }
 }

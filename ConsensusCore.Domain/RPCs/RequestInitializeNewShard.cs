@@ -13,7 +13,7 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "RequestInitializeNewShard";
     }
 
-    public class RequestInitializeNewShardResponse
+    public class RequestInitializeNewShardResponse: BaseResponse
     {
     }
 }

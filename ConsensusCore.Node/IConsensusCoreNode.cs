@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ConsensusCore.Domain.BaseClasses;
@@ -38,11 +39,12 @@ namespace ConsensusCore.Node
          Guid? CreateNewShardRequestHandler(CreateDataShardRequest shard);
          bool UpdateShardCommand(Guid id,string type, object newData);
          object GetData(Guid id, string type);*/
-        Dictionary<Guid, LocalShardMetaData> LocalShards { get; }
+        ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards { get; }
         NodeInfo NodeInfo { get; }
         State GetState();
-        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request);
+        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
         bool InCluster { get; }
         bool IsLeader { get; }
+        bool HasEntryBeenCommitted(int logIndex);
     }
 }

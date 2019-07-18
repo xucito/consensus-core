@@ -5,10 +5,10 @@ using System.Text;
 
 namespace ConsensusCore.Domain.SystemCommands
 {
-    public class UpsertClusterTasks: BaseCommand
+    /*public class UpsertClusterTasks: BaseCommand
     {
          public List<BaseTask> ClusterTasks { get; set; }
 
         public override string CommandName => "UpsertClusterTasks";
-    }
+    }*/
 }

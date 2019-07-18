@@ -12,8 +12,7 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "RequestCreateIndex";
     }
 
-    public class RequestCreateIndexResponse
+    public class RequestCreateIndexResponse: BaseResponse
     {
-        public bool IsSuccessful { get; set; }
     }
 }

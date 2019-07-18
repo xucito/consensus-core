@@ -16,7 +16,7 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "RequestShardOperation";
     }
 
-    public class RequestShardOperationsResponse
+    public class RequestShardOperationsResponse: BaseResponse
     {
         public SortedDictionary<int, ShardOperationMessage> Operations { get; set; }
         public bool IsSuccessful { get; set; }

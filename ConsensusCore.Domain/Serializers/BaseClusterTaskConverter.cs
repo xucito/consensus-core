@@ -10,14 +10,16 @@ namespace ConsensusCore.Domain.Serializers
     {
         protected override BaseTask Create(Type objectType, Newtonsoft.Json.Linq.JObject jObject)
         {
-            DateTime test = DateTime.Now;
-            foreach (Type t in Assembly.GetExecutingAssembly().GetTypes())
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                if (t.IsSubclassOf(typeof(BaseTask)))
+                foreach (Type t in assembly.GetTypes())
                 {
-                    if (!t.IsGenericTypeDefinition && jObject.Value<string>("Name") == ((BaseTask)Activator.CreateInstance(t)).Name)
+                    if (t.IsSubclassOf(typeof(BaseTask)))
                     {
-                        return (BaseTask)Activator.CreateInstance(t);
+                        if (!t.IsGenericTypeDefinition && jObject.Value<string>("Name") == ((BaseTask)Activator.CreateInstance(t)).Name)
+                        {
+                            return (BaseTask)Activator.CreateInstance(t);
+                        }
                     }
                 }
             }

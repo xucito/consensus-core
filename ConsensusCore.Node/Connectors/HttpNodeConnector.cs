@@ -22,7 +22,6 @@ namespace ConsensusCore.Node.Connectors
             _httpClient = new HttpClient();
             _httpClient.Timeout = timeoutInterval;
             _httpClient.BaseAddress = new Uri(baseUrl);
-
             _dataClient = new HttpClient();
             _dataClient.Timeout = dataTimeoutInterval;
             _dataClient.BaseAddress = new Uri(baseUrl);
@@ -45,7 +44,7 @@ namespace ConsensusCore.Node.Connectors
             return await _httpClient.PostAsync(url, new StringContent(JsonConvert.SerializeObject(o), Encoding.UTF8, "application/json"));
         }
 
-        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request)
+        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse: BaseResponse
         {
             HttpResponseMessage result;
 

@@ -16,8 +16,7 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "RequestVote";
     }
 
-    public class RequestVoteResponse
+    public class RequestVoteResponse: BaseResponse
     {
-        public bool Success { get; set; }
     }
 }

@@ -63,7 +63,7 @@ namespace ConsensusCore.Domain.BaseClasses
             {
                 if (pos > SyncPos)
                 {
-                    Console.WriteLine("Updated sync position with " + pos + "from sync pos" + SyncPos);
+                    //Console.WriteLine("Updated sync position with " + pos + "from sync pos" + SyncPos);
                     SyncPos = pos;
                 }
             }

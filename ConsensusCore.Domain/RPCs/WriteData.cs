@@ -14,9 +14,8 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "WriteData";
     }
 
-    public class WriteDataResponse
+    public class WriteDataResponse: BaseResponse
     {
-        public bool IsSuccessful { get; set; }
         public Guid ShardId { get; set; }
     }
 }

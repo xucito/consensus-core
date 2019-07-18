@@ -10,7 +10,7 @@ namespace ConsensusCore.Node.Connectors
 {
     public interface IConnector
     {
-        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request);
+        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse;
         Task<NodeInfo> GetNodeInfoAsync();
     }
 }

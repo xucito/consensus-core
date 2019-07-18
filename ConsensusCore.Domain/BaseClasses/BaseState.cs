@@ -1,6 +1,8 @@
 ﻿using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.SystemCommands;
+using ConsensusCore.Domain.SystemCommands.ShardMetadata;
+using ConsensusCore.Domain.SystemCommands.Tasks;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -14,7 +16,7 @@ namespace ConsensusCore.Domain.BaseClasses
         public BaseState() { }
         public ConcurrentDictionary<Guid, NodeInformation> Nodes { get; set; } = new ConcurrentDictionary<Guid, NodeInformation>();
         public ConcurrentDictionary<string, Index> Indexes { get; set; } = new ConcurrentDictionary<string, Index>();
-        public List<BaseTask> ClusterTasks { get; set; } = new List<BaseTask>();
+        public ConcurrentDictionary<Guid, BaseTask> ClusterTasks { get; set; } = new ConcurrentDictionary<Guid, BaseTask>();
         //object id and Shard id
         public ConcurrentDictionary<Guid, ObjectLock> ObjectLocks = new ConcurrentDictionary<Guid, ObjectLock>();
 
@@ -57,14 +59,32 @@ namespace ConsensusCore.Domain.BaseClasses
                         Type = t1.Type
                     });
                     break;
-                case UpsertClusterTasks t1:
-                    foreach (var task in t1.ClusterTasks)
+                case UpdateClusterTasks t1:
+                    if(t1.TasksToAdd != null)
                     {
-                        switch (task.Status)
+                        foreach(var task in t1.TasksToAdd)
                         {
-                            case Enums.ClusterTaskStatuses.Created:
-                                ClusterTasks.Add(task);
-                                break;
+                            if (!ClusterTasks.TryAdd(task.Id, task))
+                            {
+                                throw new Exception("Critical error while trying to add cluster task " + task.Id);
+                            }
+                        }
+                    }
+                    if (t1.TasksToRemove != null)
+                    {
+                        foreach (var task in t1.TasksToRemove)
+                        {
+                            if(!ClusterTasks.TryRemove(task, out _))
+                            {
+                                throw new Exception("Critical error while trying to remove cluster task " + task);
+                            }
+                        }
+                    }
+                    if (t1.TasksToUpdate != null)
+                    {
+                        foreach (var task in t1.TasksToUpdate)
+                        {
+                            ClusterTasks[task.Id] = task;
                         }
                     }
                     break;
@@ -75,6 +95,36 @@ namespace ConsensusCore.Domain.BaseClasses
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = t1.InsyncAllocations;
                     if (t1.StaleAllocations != null)
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = t1.StaleAllocations;
+                    break;
+                case UpdateShardMetadataAllocations t1:
+                    if (t1.InsyncAllocationsToAdd != null)
+                    {
+                        foreach (var allocation in t1.InsyncAllocationsToAdd)
+                        {
+                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Add(allocation);
+                        }
+                    }
+                    if (t1.InsyncAllocationsToRemove != null)
+                    {
+                        foreach (var allocation in t1.InsyncAllocationsToRemove)
+                        {
+                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Remove(allocation);
+                        }
+                    }
+                    if (t1.StaleAllocationsToAdd != null)
+                    {
+                        foreach (var allocation in t1.StaleAllocationsToAdd)
+                        {
+                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Add(allocation);
+                        }
+                    }
+                    if (t1.StaleAllocationsToRemove != null)
+                    {
+                        foreach (var allocation in t1.StaleAllocationsToRemove)
+                        {
+                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Remove(allocation);
+                        }
+                    }
                     break;
                 case SetObjectLock t1:
                     var result = ObjectLocks.TryAdd(t1.ObjectId, new ObjectLock()

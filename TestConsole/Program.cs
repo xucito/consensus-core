@@ -114,7 +114,6 @@ namespace TestConsole
                 PrintStatus();
                 Thread.Sleep(rand.Next(0, 10000));
                 var numberOfNodeFailures = rand.Next(1, ports.Length); //(processes.Count - 1) / 2;
-                logger.LogInformation("Simulating failure of " + numberOfNodeFailures + "/" + ports.Length);
 
                 List<int> processesToDisable = new List<int>();
                 // if the number of 
@@ -134,11 +133,11 @@ namespace TestConsole
                 {
                     logger.LogDebug("Not all threads are ready.");
                 }
-
+                
+                    var killTime = DateTime.Now;
                 if (processesToDisable.Count > 0)
                 {
-                    var killTime = DateTime.Now;
-
+                    logger.LogInformation("Simulating failure of " + numberOfNodeFailures + "/" + ports.Length);
                     foreach (var number in processesToDisable)
                     {
                         ThreadManager.KillProcessAndChildrens(Processes[ports[number]].Id);
@@ -153,15 +152,14 @@ namespace TestConsole
                     }
 
                     Interlocked.Increment(ref RandomFailures);
-
-                    while (NumberOfAliveNodes() < (ports.Length - numberOfNodeFailures))
+                    killTime = DateTime.Now;
+                    /*while (NumberOfAliveNodes() < (ports.Length - numberOfNodeFailures))
                     {
                         logger.LogDebug("Cluster has not recovered...");
-                    }
+                    }*/
 
-                    Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
 
-                    logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
+                    // logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
 
                     foreach (var number in processesToDisable)
                     {
@@ -183,6 +181,9 @@ namespace TestConsole
                     {
                         Thread.Sleep(1000);
                     }
+
+                    Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
+                    logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
 
                     if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
                     {
