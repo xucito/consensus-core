@@ -115,7 +115,7 @@ namespace TestConsole
                 Thread.Sleep(rand.Next(0, 10000));
                 var numberOfNodeFailures = rand.Next(1, ports.Length); //(processes.Count - 1) / 2;
 
-                List<int> processesToDisable = new List<int>();
+                List<ChaosDefinition> processesToMessWith = new List<ChaosDefinition>();
                 // if the number of 
                 if (NumberOfAliveNodes() == ports.Length)
                 {
@@ -125,30 +125,38 @@ namespace TestConsole
                         do
                         {
                             number = rand.Next(0, ports.Length);
-                        } while (processesToDisable.Contains(number));
-                        processesToDisable.Add(number);
+                        } while ((processesToMessWith.Where(p => p.Port == number).FirstOrDefault() != null));
+                        processesToMessWith.Add(new ChaosDefinition()
+                        {
+                            Port = number,
+                            Type = rand.Next(2) == 0 ? ChaosType.Failure : ChaosType.Suspension
+                        });
                     }
                 }
                 else
                 {
                     logger.LogDebug("Not all threads are ready.");
                 }
-                
-                    var killTime = DateTime.Now;
-                if (processesToDisable.Count > 0)
+
+                var killTime = DateTime.Now;
+
+                if (processesToMessWith.Count > 0)
                 {
                     logger.LogInformation("Simulating failure of " + numberOfNodeFailures + "/" + ports.Length);
-                    foreach (var number in processesToDisable)
+                    foreach (var chaosThread in processesToMessWith)
                     {
-                        ThreadManager.KillProcessAndChildrens(Processes[ports[number]].Id);
-                        /*while(System.Diagnostics.Process.GetProcessById(Processes[Urls[number]].Id) != null)
+                        if (chaosThread.Type == ChaosType.Failure)
                         {
-                            Thread.Sleep(1000);
-                        }*/
-                        //ThreadManager.Suspend(Processes[Urls[number]]);
-                        logger.LogInformation("Disabling node " + number);
+                            ThreadManager.KillProcessAndChildrens(Processes[ports[chaosThread.Port]].Id);
+                            logger.LogInformation("I am planning to kill node " + chaosThread.Port);
+                        }
+                        else
+                        {
+                            ThreadManager.Suspend(Processes[ports[chaosThread.Port]].Id);
+                            logger.LogInformation("I am planning to suspend node " + chaosThread.Port);
+                        }
 
-                        Thread.Sleep(100);
+                        Thread.Sleep(rand.Next(0, 10000));
                     }
 
                     Interlocked.Increment(ref RandomFailures);
@@ -161,17 +169,27 @@ namespace TestConsole
 
                     // logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
 
-                    foreach (var number in processesToDisable)
+                    foreach (var chaosThread in processesToMessWith)
                     {
-                        logger.LogInformation("Recovering node " + number);
-                        Processes[ports[number]].Start();
+                        logger.LogInformation("Recovering node " + chaosThread.Port);
 
-                        while ((client.GetNodeStatus(Urls[number]).GetAwaiter().GetResult() == NodeStatus.Green))
+                        if (chaosThread.Type == ChaosType.Failure)
                         {
-                            logger.LogDebug("Node " + number + " has not recovered. ");
+                            Processes[ports[chaosThread.Port]].Start();
+                            logger.LogInformation("Node " + chaosThread.Port + " is restarted.");
+                        }
+                        else
+                        {
+                            ThreadManager.Resume(Processes[ports[chaosThread.Port]].Id);
+                            logger.LogInformation("Node " + chaosThread.Port + " is resumed.");
                         }
 
-                        logger.LogInformation("Node " + number + " is recovered.");
+                        /*while ((client.GetNodeStatus(Urls[chaosThread.Port]).GetAwaiter().GetResult() == NodeStatus.Green))
+                        {
+                            logger.LogDebug("Node " + chaosThread.Port + " has not recovered. ");
+                        }*/
+
+                        //logger.LogInformation("Node " + chaosThread.Port + " is recovered.");
                     }
                 }
 
@@ -205,15 +223,6 @@ namespace TestConsole
                             Thread.Sleep(1000);
                         }
                         Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
-                        /*if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
-                        {
-                            Console.WriteLine("After 10 seconds the cluster reported as consistent.");
-                        }
-                        else
-                        {
-                            Console.WriteLine("After 10 seconds the cluster is still inconsistent.");
-
-                        }*/
                     }
 
                 }
@@ -339,34 +348,6 @@ namespace TestConsole
             DIRECT_IMPERSONATION = (0x0200)
         }
 
-        public static void Suspend(this Process process)
-        {
-            foreach (ProcessThread thread in process.Threads)
-            {
-                var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
-                if (pOpenThread == IntPtr.Zero)
-                {
-                    break;
-                }
-                SuspendThread(pOpenThread);
-            }
-        }
-        public static void Resume(this Process process)
-        {
-            foreach (ProcessThread thread in process.Threads)
-            {
-                var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
-                if (pOpenThread == IntPtr.Zero)
-                {
-                    break;
-                }
-                ResumeThread(pOpenThread);
-            }
-        }
-
-
-
-
         public static void KillProcessAndChildrens(int pid)
         {
             ManagementObjectSearcher processSearcher = new ManagementObjectSearcher
@@ -390,6 +371,40 @@ namespace TestConsole
                 {
                     KillProcessAndChildrens(Convert.ToInt32(mo["ProcessID"])); //kill child processes(also kills childrens of childrens etc.)
                 }
+            }
+        }
+
+
+        public static void Suspend(int pid)
+        {
+            ManagementObjectSearcher processSearcher = new ManagementObjectSearcher("Select * From Win32_Process Where ParentProcessID=" + pid);
+            ManagementObjectCollection processCollection = processSearcher.Get();
+
+            Process process = Process.GetProcessById(pid);
+            foreach (ProcessThread thread in process.Threads)
+            {
+                var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                if (pOpenThread == IntPtr.Zero)
+                {
+                    break;
+                }
+                SuspendThread(pOpenThread);
+            }
+        }
+        public static void Resume(int pid)
+        {
+            ManagementObjectSearcher processSearcher = new ManagementObjectSearcher("Select * From Win32_Process Where ParentProcessID=" + pid);
+            ManagementObjectCollection processCollection = processSearcher.Get();
+
+            Process process = Process.GetProcessById(pid);
+            foreach (ProcessThread thread in process.Threads)
+            {
+                var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                if (pOpenThread == IntPtr.Zero)
+                {
+                    break;
+                }
+                ResumeThread(pOpenThread);
             }
         }
     }
@@ -569,5 +584,17 @@ namespace TestConsole
             }
             return true;
         }
+    }
+
+    public class ChaosDefinition
+    {
+        public int Port { get; set; }
+        public ChaosType Type { get; set; }
+    }
+
+    public enum ChaosType
+    {
+        Failure,
+        Suspension
     }
 }

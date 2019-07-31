@@ -326,7 +326,6 @@ namespace ConsensusCore.Domain.Services
                 {
                     RequireSave = false;
                     _repository.SaveNodeData(this);
-                    Console.WriteLine("Saved node storage");
                 }
             }
         }

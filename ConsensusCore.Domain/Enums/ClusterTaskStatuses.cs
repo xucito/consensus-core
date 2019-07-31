@@ -9,6 +9,7 @@ namespace ConsensusCore.Domain.Enums
         Created,
         Successful,
         Cancelled,
-        Paused
+        Paused,
+        Error
     }
 }

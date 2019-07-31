@@ -697,17 +697,19 @@ namespace ConsensusCore.Node
         {
             return new Thread(async () =>
             {
+                try
+                { 
                 Thread.CurrentThread.IsBackground = true;
-                switch (task)
-                {
-                    case RecoverShard t:
-                        await SyncShard(t.ShardId, t.Type);
-                        Console.WriteLine("Detected replication of shard tasks");
-                        t.CompletedOn = DateTime.UtcNow;
-                        t.Status = ClusterTaskStatuses.Successful;
-                        await Send(new ExecuteCommands()
-                        {
-                            Commands = new List<BaseCommand>()
+                    switch (task)
+                    {
+                        case RecoverShard t:
+                            await SyncShard(t.ShardId, t.Type);
+                            Console.WriteLine("Detected replication of shard tasks");
+                            t.CompletedOn = DateTime.UtcNow;
+                            t.Status = ClusterTaskStatuses.Successful;
+                            await Send(new ExecuteCommands()
+                            {
+                                Commands = new List<BaseCommand>()
                             {
                                 new UpdateClusterTasks()
                                 {
@@ -717,47 +719,68 @@ namespace ConsensusCore.Node
                                     }
                                 }
                             },
-                            WaitForCommits = true
-                        });
-                        break;
-                        /*
-                        var currentPos = _nodeStorage.GetCurrentShardPos(t.ShardId);
-                        var shardMetadata = _stateMachine.GetShard(t.Type, t.ShardId);
-                        var lastPosition = 0;
-                        do
-                        {
-                            var result = await Send(new RequestShardOperations()
-                            {
-                                OperationPos = currentPos + 1,
-                                ShardId = t.ShardId,
-                                Type = t.Type
+                                WaitForCommits = true
                             });
-
-                            if (result.IsSuccessful)
+                            break;
+                            /*
+                            var currentPos = _nodeStorage.GetCurrentShardPos(t.ShardId);
+                            var shardMetadata = _stateMachine.GetShard(t.Type, t.ShardId);
+                            var lastPosition = 0;
+                            do
                             {
-                                var replicationResult = await Send(new ReplicateShardOperation()
+                                var result = await Send(new RequestShardOperations()
                                 {
-                                    Operation = new ShardOperation()
-                                    {
-                                        ObjectId = result.ObjectId,
-                                        Operation = result.Operation
-                                    },
-                                    Payload = result.Payload,
-                                    Pos = result.Pos,
-                                    ShardId = t.ShardId
+                                    OperationPos = currentPos + 1,
+                                    ShardId = t.ShardId,
+                                    Type = t.Type
                                 });
 
-                                if (replicationResult.IsSuccessful)
+                                if (result.IsSuccessful)
                                 {
-                                    Console.WriteLine("Replicated upto " + currentPos);
-                                    lastPosition = result.LatestOperationNo;
-                                }
-                                currentPos++;
-                            }
-                        }
-                        while (currentPos < lastPosition);*/
+                                    var replicationResult = await Send(new ReplicateShardOperation()
+                                    {
+                                        Operation = new ShardOperation()
+                                        {
+                                            ObjectId = result.ObjectId,
+                                            Operation = result.Operation
+                                        },
+                                        Payload = result.Payload,
+                                        Pos = result.Pos,
+                                        ShardId = t.ShardId
+                                    });
 
-                        break;
+                                    if (replicationResult.IsSuccessful)
+                                    {
+                                        Console.WriteLine("Replicated upto " + currentPos);
+                                        lastPosition = result.LatestOperationNo;
+                                    }
+                                    currentPos++;
+                                }
+                            }
+                            while (currentPos < lastPosition);*/
+
+                            break;
+                    }
+                }
+                catch(Exception e)
+                {
+                    Logger.LogError("Failed to complete task " + task.Id + " with error " + e.StackTrace);
+                    task.CompletedOn = DateTime.UtcNow;
+                    task.Status = ClusterTaskStatuses.Error;
+                    await Send(new ExecuteCommands()
+                    {
+                        Commands = new List<BaseCommand>()
+                            {
+                                new UpdateClusterTasks()
+                                {
+                                    TasksToUpdate = new List<BaseTask>()
+                                    {
+                                        task
+                                    }
+                                }
+                            },
+                        WaitForCommits = true
+                    });
                 }
             });
         }
