@@ -27,6 +27,9 @@ namespace ConsensusCore.TestNode
         {
             Configuration = configuration;
         }
+        
+        //Used for testing
+        public static bool Killed = false;
 
         public IConfiguration Configuration { get; }
 
@@ -63,6 +66,26 @@ namespace ConsensusCore.TestNode
                 // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
             }
+
+            app.Use(async (context, next) =>
+            {
+                if (context.Request.Path == "/api/kill" && context.Request.Method == "POST")
+                {
+                    Killed = true;
+                    node.SetNodeRole(Domain.Enums.NodeState.Disabled);
+                }
+
+                if (context.Request.Path == "/api/revive" && context.Request.Method == "POST")
+                {
+                    Killed = false;
+                    node.SetNodeRole(Domain.Enums.NodeState.Follower);
+                }
+
+                if (Killed == false)
+                {
+                    await next();
+                }
+            });
 
             app.UseSwagger();
 

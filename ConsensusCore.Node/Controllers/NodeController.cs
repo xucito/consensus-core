@@ -54,6 +54,13 @@ namespace ConsensusCore.Node.Controllers
         {
             return Ok(_node.GetClusterTasks());
         }
+
+        [HttpGet("logs")]
+        public IActionResult GetLogs()
+        {
+            return Ok(_node.GetLogs());
+        }
+
         /*
         [HttpPost("request-vote")]
         public IActionResult PostRequestVote([FromBody] RequestVote vote)

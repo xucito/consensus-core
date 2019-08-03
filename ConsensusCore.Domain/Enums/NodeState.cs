@@ -8,6 +8,7 @@ namespace ConsensusCore.Domain.Enums
     public enum NodeState {
         Leader,
         Follower,
-        Candidate
+        Candidate,
+        Disabled
     }
 }

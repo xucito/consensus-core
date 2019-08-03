@@ -15,6 +15,10 @@ namespace ConsensusCore.Domain.SystemCommands
         public string Type { get; set; }
         public HashSet<Guid> InsyncAllocations { get; set; }
         public HashSet<Guid> StaleAllocations { get; set; }
+        /// <summary>
+        /// Whether to ignore allocations and only update nullable fields
+        /// </summary>
+        public bool IgnoreAllocations = false;
 
         public override string CommandName => "UpdateShardMetadata";
     }

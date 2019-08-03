@@ -12,6 +12,10 @@ namespace ConsensusCore.Domain.RPCs
         public int From { get; set; }
         public int To { get; set; }
         public string Type { get; set; }
+        /// <summary>
+        /// Include the operations with the request
+        /// </summary>
+        public bool IncludeOperations { get; set; } = true;
 
         public override string RequestName => "RequestShardOperation";
     }

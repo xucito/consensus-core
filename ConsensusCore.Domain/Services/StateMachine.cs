@@ -160,5 +160,10 @@ namespace ConsensusCore.Domain.Services
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.StaleAllocations.Contains(nodeId)));
         }
+
+        public BaseTask GetRunningTask(string uniqueId)
+        {
+            return CurrentState.GetRunningTask(uniqueId);
+        }
     }
 }

@@ -129,7 +129,7 @@ namespace TestConsole
                         processesToMessWith.Add(new ChaosDefinition()
                         {
                             Port = number,
-                            Type = rand.Next(2) == 0 ? ChaosType.Failure : ChaosType.Suspension
+                            Type = ChaosType.Suspension//rand.Next(2) == 0 ? ChaosType.Failure : ChaosType.Suspension
                         });
                     }
                 }
@@ -152,13 +152,14 @@ namespace TestConsole
                         }
                         else
                         {
-                            ThreadManager.Suspend(Processes[ports[chaosThread.Port]].Id);
                             logger.LogInformation("I am planning to suspend node " + chaosThread.Port);
+                            await client.KillNode("https://localhost:"+ ports[chaosThread.Port]);
+                            //ThreadManager.Suspend(Processes[ports[chaosThread.Port]].Id);
                         }
 
-                        Thread.Sleep(rand.Next(0, 10000));
                     }
 
+                    Thread.Sleep(rand.Next(0, 10000));
                     Interlocked.Increment(ref RandomFailures);
                     killTime = DateTime.Now;
                     /*while (NumberOfAliveNodes() < (ports.Length - numberOfNodeFailures))
@@ -180,8 +181,9 @@ namespace TestConsole
                         }
                         else
                         {
-                            ThreadManager.Resume(Processes[ports[chaosThread.Port]].Id);
+                            //ThreadManager.Resume(Processes[ports[chaosThread.Port]].Id);
                             logger.LogInformation("Node " + chaosThread.Port + " is resumed.");
+                            await client.ReviveNode("https://localhost:" + ports[chaosThread.Port]);
                         }
 
                         /*while ((client.GetNodeStatus(Urls[chaosThread.Port]).GetAwaiter().GetResult() == NodeStatus.Green))
@@ -210,7 +212,6 @@ namespace TestConsole
                     }
                     else
                     {
-
                         Console.WriteLine("ERROR! THERE IS AN ISSUE WITH THE DATA CONSISTENCY AFTER RECOVERY.");
                         Thread.Sleep(10000);
                         while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
@@ -333,6 +334,8 @@ namespace TestConsole
         static extern uint SuspendThread(IntPtr hThread);
         [DllImport("kernel32.dll")]
         static extern int ResumeThread(IntPtr hThread);
+        [DllImport("kernel32", CharSet = CharSet.Auto, SetLastError = true)]
+        static extern bool CloseHandle(IntPtr handle);
 
         [Flags]
         public enum ThreadAccess : int
@@ -377,23 +380,62 @@ namespace TestConsole
 
         public static void Suspend(int pid)
         {
+
             ManagementObjectSearcher processSearcher = new ManagementObjectSearcher("Select * From Win32_Process Where ParentProcessID=" + pid);
             ManagementObjectCollection processCollection = processSearcher.Get();
 
-            Process process = Process.GetProcessById(pid);
-            foreach (ProcessThread thread in process.Threads)
+            try
             {
-                var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
-                if (pOpenThread == IntPtr.Zero)
+                Process process = Process.GetProcessById(pid);
+                foreach (ProcessThread thread in process.Threads)
                 {
-                    break;
+                    var pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                    if (pOpenThread == IntPtr.Zero)
+                    {
+                        break;
+                    }
+                    Suspend(thread.Id);
+                    Console.WriteLine(thread.WaitReason);
                 }
-                SuspendThread(pOpenThread);
+
+                var parentThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pid);
+                SuspendThread(parentThread);
             }
+            catch (Exception e)
+            {
+
+            }
+
+            /* var process = Process.GetProcessById(pid);
+
+             if (process.ProcessName == string.Empty)
+                 return;
+
+             foreach (ProcessThread pT in process.Threads)
+             {
+                 IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
+
+                 if (pOpenThread == IntPtr.Zero)
+                 {
+                     continue;
+                 }
+
+                 Console.WriteLine(pT.WaitReason);
+
+                 while (true)
+                 {
+                     SuspendThread(pOpenThread);
+                     Console.WriteLine("Still not suspended");
+                     Console.WriteLine(pT.WaitReason);
+                     Thread.Sleep(1000);
+                 }
+                 CloseHandle(pOpenThread);
+             }*/
         }
+
         public static void Resume(int pid)
         {
-            ManagementObjectSearcher processSearcher = new ManagementObjectSearcher("Select * From Win32_Process Where ParentProcessID=" + pid);
+            /*ManagementObjectSearcher processSearcher = new ManagementObjectSearcher("Select * From Win32_Process Where ParentProcessID=" + pid);
             ManagementObjectCollection processCollection = processSearcher.Get();
 
             Process process = Process.GetProcessById(pid);
@@ -405,6 +447,33 @@ namespace TestConsole
                     break;
                 }
                 ResumeThread(pOpenThread);
+            }
+
+            var parentThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pid);
+            ResumeThread(parentThread);
+            */
+            var process = Process.GetProcessById(pid);
+
+            if (process.ProcessName == string.Empty)
+                return;
+
+            foreach (ProcessThread pT in process.Threads)
+            {
+                IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
+
+                if (pOpenThread == IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                var suspendCount = 0;
+                do
+                {
+                    suspendCount = ResumeThread(pOpenThread);
+                } while (suspendCount > 0);
+
+                CloseHandle(pOpenThread);
+                Console.WriteLine(pT.WaitReason);
             }
         }
     }
@@ -552,6 +621,40 @@ namespace TestConsole
             catch (Exception e)
             {
                 return NodeStatus.Unknown;
+            }
+        }
+
+        public async Task<bool> KillNode(string url)
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri(url);
+                    var result = await client.PostAsync("api/kill", null);
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                return false;
+            }
+        }
+
+        public async Task<bool> ReviveNode(string url)
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri(url);
+                    var result = await client.PostAsync("api/revive", null);
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                return false;
             }
         }
 

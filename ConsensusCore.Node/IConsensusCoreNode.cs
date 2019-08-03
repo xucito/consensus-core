@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Node.Connectors;
@@ -47,5 +48,8 @@ namespace ConsensusCore.Node
         bool IsLeader { get; }
         bool HasEntryBeenCommitted(int logIndex);
         List<BaseTask> GetClusterTasks();
+        List<LogEntry> GetLogs();
+        //Used for testing
+        void SetNodeRole(NodeState newState);
     }
 }

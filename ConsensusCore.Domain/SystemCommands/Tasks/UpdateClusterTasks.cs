@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Models;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -13,6 +14,6 @@ namespace ConsensusCore.Domain.SystemCommands.Tasks
         /// Pass the id of the tasks you want to remove
         /// </summary>
         public List<Guid> TasksToRemove { get; set; }
-        public List<BaseTask> TasksToUpdate { get; set; }
+        public List<TaskUpdate> TasksToUpdate { get; set; }
     }
 }

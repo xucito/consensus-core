@@ -265,6 +265,11 @@ namespace ConsensusCore.Domain.Services
             return null;
         }
 
+        public void UpdateShardSyncPosition(Guid shardId, int syncPos)
+        {
+            ShardMetaData[shardId].SyncPos = syncPos;
+        }
+
         public ShardOperation GetOperation(Guid shardId, int pos)
         {
             if (ShardMetaData.ContainsKey(shardId) && ShardMetaData[shardId].ShardOperations.ContainsKey(pos))
@@ -310,6 +315,15 @@ namespace ConsensusCore.Domain.Services
                 ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
             }
             return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
+        }
+
+        public ShardOperation GetShardOperation(Guid shardId, int pos)
+        {
+            if (ShardMetaData.ContainsKey(shardId) && ShardMetaData[shardId].ShardOperations.ContainsKey(pos))
+            {
+                return ShardMetaData[shardId].ShardOperations[pos];
+            }
+            return null;
         }
 
         public void Save()

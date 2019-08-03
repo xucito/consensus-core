@@ -3,6 +3,7 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.SystemCommands.Tasks;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -19,6 +20,18 @@ namespace ConsensusCore.Domain.BaseClasses
         public ConcurrentDictionary<Guid, BaseTask> ClusterTasks { get; set; } = new ConcurrentDictionary<Guid, BaseTask>();
         //object id and Shard id
         public ConcurrentDictionary<Guid, ObjectLock> ObjectLocks = new ConcurrentDictionary<Guid, ObjectLock>();
+
+        public BaseTask GetRunningTask(string uniqueTaskId)
+        {
+            var searchedTasks = ClusterTasks.Where(ct => ct.Value.UniqueRunningId == uniqueTaskId && ct.Value.CompletedOn == null);
+
+            if (searchedTasks.Count() == 0)
+                return null;
+            else
+            {
+                return searchedTasks.FirstOrDefault().Value;
+            }
+        }
 
         public void ApplyCommand(BaseCommand command)
         {
@@ -60,13 +73,21 @@ namespace ConsensusCore.Domain.BaseClasses
                     });
                     break;
                 case UpdateClusterTasks t1:
-                    if(t1.TasksToAdd != null)
+                    if (t1.TasksToAdd != null)
                     {
-                        foreach(var task in t1.TasksToAdd)
+                        foreach (var task in t1.TasksToAdd)
                         {
                             if (!ClusterTasks.TryAdd(task.Id, task))
                             {
-                                throw new Exception("Critical error while trying to add cluster task " + task.Id);
+                                //Can't add a task twice
+                                if (ClusterTasks.ContainsKey(task.Id))
+                                {
+                                    Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                }
+                                else
+                                {
+                                    throw new Exception("Critical error while trying to add cluster task " + task.Id);
+                                }
                             }
                         }
                     }
@@ -74,7 +95,7 @@ namespace ConsensusCore.Domain.BaseClasses
                     {
                         foreach (var task in t1.TasksToRemove)
                         {
-                            if(!ClusterTasks.TryRemove(task, out _))
+                            if (!ClusterTasks.TryRemove(task, out _))
                             {
                                 throw new Exception("Critical error while trying to remove cluster task " + task);
                             }
@@ -84,17 +105,18 @@ namespace ConsensusCore.Domain.BaseClasses
                     {
                         foreach (var task in t1.TasksToUpdate)
                         {
-                            ClusterTasks[task.Id] = task;
+                            ClusterTasks[task.TaskId].CompletedOn = task.CompletedOn;
+                            ClusterTasks[task.TaskId].Status = task.Status;
                         }
                     }
                     break;
                 case UpdateShardMetadata t1:
-                    if (t1.PrimaryAllocation != null)
+                    if (!t1.IgnoreAllocations)
+                    {
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().PrimaryAllocation = t1.PrimaryAllocation;
-                    if (t1.InsyncAllocations != null)
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = t1.InsyncAllocations;
-                    if (t1.StaleAllocations != null)
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = t1.StaleAllocations;
+                    }
                     break;
                 case UpdateShardMetadataAllocations t1:
                     if (t1.InsyncAllocationsToAdd != null)
@@ -103,6 +125,7 @@ namespace ConsensusCore.Domain.BaseClasses
                         {
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Add(allocation);
                         }
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Where(sa => !t1.InsyncAllocationsToAdd.Contains(sa)).ToHashSet();
                     }
                     if (t1.InsyncAllocationsToRemove != null)
                     {
@@ -117,6 +140,7 @@ namespace ConsensusCore.Domain.BaseClasses
                         {
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Add(allocation);
                         }
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Where(sa => !t1.StaleAllocationsToAdd.Contains(sa)).ToHashSet();
                     }
                     if (t1.StaleAllocationsToRemove != null)
                     {
@@ -125,6 +149,8 @@ namespace ConsensusCore.Domain.BaseClasses
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Remove(allocation);
                         }
                     }
+                    if (t1.LatestPos != null)
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().LatestOperationPos = t1.LatestPos.Value;
                     break;
                 case SetObjectLock t1:
                     var result = ObjectLocks.TryAdd(t1.ObjectId, new ObjectLock()

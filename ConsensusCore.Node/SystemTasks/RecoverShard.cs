@@ -11,5 +11,10 @@ namespace ConsensusCore.Node.SystemTasks
         public string Type { get; set; }
 
         public override string Name => "ResyncShard";
+
+        public static string GetTaskUniqueId(Guid shardId ,Guid nodeId)
+        {
+            return "Recover_Shard_" + shardId + "_" + nodeId;
+        }
     }
 }

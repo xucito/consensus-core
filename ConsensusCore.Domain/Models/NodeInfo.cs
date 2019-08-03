@@ -12,6 +12,9 @@ namespace ConsensusCore.Domain.Models
         public int CommitIndex { get; set; }
         public Dictionary<Guid, int> ShardSyncPositions { get; set; }
         public Dictionary<Guid, int> ShardOperationCounts { get; set; }
+        public object ThreadCounts { get; set; }
+        public string CurrentRole { get; set; }
+        public int Term { get; set; }
     }
 
     public enum NodeStatus

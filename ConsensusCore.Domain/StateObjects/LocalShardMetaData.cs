@@ -146,7 +146,7 @@ namespace ConsensusCore.Domain.BaseClasses
             {
                 return ShardOperations.TryRemove(pos, out _);
             }
-            throw new Exception("CONCURRENCY ERROR while trying to reverse operation.");
+            throw new Exception("CONCURRENCY ERROR while trying to reverse operation, the sync position is " + SyncPos + " and the position to remove is " + pos +".");
         }
 
         public bool MarkObjectForDeletion(Guid objectId)
