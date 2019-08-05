@@ -24,6 +24,7 @@ namespace ConsensusCore.Domain.BaseClasses
         public ClusterTaskStatuses Status { get; set; }
         public DateTime CreatedOn { get; set; }
         public DateTime? CompletedOn { get; set; }
+        public string ErrorMessage { get; set; }
 
         public override string ToString()
         {

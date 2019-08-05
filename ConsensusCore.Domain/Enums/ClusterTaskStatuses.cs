@@ -10,6 +10,7 @@ namespace ConsensusCore.Domain.Enums
         Successful,
         Cancelled,
         Paused,
-        Error
+        Error,
+        InProgress
     }
 }

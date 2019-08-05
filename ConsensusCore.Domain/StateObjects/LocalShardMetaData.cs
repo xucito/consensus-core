@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ConsensusCore.Domain.Exceptions;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -142,11 +143,15 @@ namespace ConsensusCore.Domain.BaseClasses
         /// <returns></returns>
         public bool RemoveOperation(int pos)
         {
-            if (SyncPos < pos)
+            if (SyncPos <= pos + 1)
             {
-                return ShardOperations.TryRemove(pos, out _);
+                if (!ShardOperations.TryRemove(pos, out _))
+                {
+                    //throw new ShardOperationConcurrencyException("Failed to remove the operation" + pos + " from shard " + ShardId);
+                }
+                return true;
             }
-            throw new Exception("CONCURRENCY ERROR while trying to reverse operation, the sync position is " + SyncPos + " and the position to remove is " + pos +".");
+            throw new ShardOperationConcurrencyException("CONCURRENCY error while trying to reverse operation, the sync position is " + SyncPos + " and the position to remove is " + pos + ".");
         }
 
         public bool MarkObjectForDeletion(Guid objectId)

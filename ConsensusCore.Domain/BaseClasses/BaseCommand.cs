@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Domain.BaseClasses
 {
+    [Serializable]
     [JsonConverter(typeof(CommandConverter))]
     public abstract class BaseCommand
     {

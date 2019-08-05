@@ -55,6 +55,7 @@ namespace TestConsole
                 foreach (var port in ports)
                 {
                     Processes.Add(port, System.Diagnostics.Process.Start("CMD.exe", "/k C:\\Users\\TNguy\\OneDrive\\Documents\\Repositories\\consensus-core\\ConsensusCore.TestNode\\Node_" + port + ".bat"));
+                    Thread.Sleep(1000);
                 }
                 /*Processes.Add(Urls[0], System.Diagnostics.Process.Start("CMD.exe", "/k C:\\Users\\TNguy\\OneDrive\\Documents\\Repositories\\consensus-core\\ConsensusCore.TestNode\\Node_5021.bat"));
                 Processes.Add(Urls[1], System.Diagnostics.Process.Start("CMD.exe", "/k C:\\Users\\TNguy\\OneDrive\\Documents\\Repositories\\consensus-core\\ConsensusCore.TestNode\\Node_5022.bat"));*/

@@ -16,6 +16,12 @@ namespace ConsensusCore.Domain.BaseClasses
         /// The latest operation detected by the leader
         /// </summary>
         public int LatestOperationPos { get; set; }
+
+        public SharedShardMetadata DeepCopy()
+        {
+            SharedShardMetadata other = (SharedShardMetadata)this.MemberwiseClone();
+            return other;
+        }
     }
 
     public enum DataStates

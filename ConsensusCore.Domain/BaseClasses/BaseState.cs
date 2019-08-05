@@ -1,8 +1,10 @@
-﻿using ConsensusCore.Domain.Exceptions;
+﻿using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.SystemCommands.Tasks;
+using ConsensusCore.Domain.Utility;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -31,6 +33,11 @@ namespace ConsensusCore.Domain.BaseClasses
             {
                 return searchedTasks.FirstOrDefault().Value;
             }
+        }
+
+        public List<Guid> GetClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
+        {
+            return ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(ct => ct.Key).ToList();
         }
 
         public void ApplyCommand(BaseCommand command)
@@ -68,7 +75,7 @@ namespace ConsensusCore.Domain.BaseClasses
                 case CreateIndex t1:
                     Indexes.TryAdd(t1.Type, new Index()
                     {
-                        Shards = t1.Shards,
+                        Shards = t1.Shards.Select(s => s.DeepCopy()).ToList(),
                         Type = t1.Type
                     });
                     break;
@@ -77,17 +84,24 @@ namespace ConsensusCore.Domain.BaseClasses
                     {
                         foreach (var task in t1.TasksToAdd)
                         {
-                            if (!ClusterTasks.TryAdd(task.Id, task))
+                            if (GetRunningTask(task.UniqueRunningId) == null)
                             {
-                                //Can't add a task twice
-                                if (ClusterTasks.ContainsKey(task.Id))
+                                if (!ClusterTasks.TryAdd(task.Id, task))
                                 {
-                                    Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                    //Can't add a task twice
+                                    if (ClusterTasks.ContainsKey(task.Id))
+                                    {
+                                        Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                    }
+                                    else
+                                    {
+                                        throw new Exception("Critical error while trying to add cluster task " + task.Id);
+                                    }
                                 }
-                                else
-                                {
-                                    throw new Exception("Critical error while trying to add cluster task " + task.Id);
-                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine("The task already exists and is running. Skipping addition of task " + task.Id);
                             }
                         }
                     }
@@ -107,6 +121,7 @@ namespace ConsensusCore.Domain.BaseClasses
                         {
                             ClusterTasks[task.TaskId].CompletedOn = task.CompletedOn;
                             ClusterTasks[task.TaskId].Status = task.Status;
+                            ClusterTasks[task.TaskId].ErrorMessage = task.ErrorMessage;
                         }
                     }
                     break;
@@ -121,36 +136,54 @@ namespace ConsensusCore.Domain.BaseClasses
                 case UpdateShardMetadataAllocations t1:
                     if (t1.InsyncAllocationsToAdd != null)
                     {
+                        var newList = new HashSet<Guid>();
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.ToList().ForEach(ia => newList.Add(ia));
                         foreach (var allocation in t1.InsyncAllocationsToAdd)
                         {
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Add(allocation);
+                            //Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = newList;
+                            newList.Add(allocation);
                         }
-                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Where(sa => !t1.InsyncAllocationsToAdd.Contains(sa)).ToHashSet();
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = new HashSet<Guid>(newList);
+                        // Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Where(sa => !t1.InsyncAllocationsToAdd.Contains(sa)).ToHashSet();
                     }
                     if (t1.InsyncAllocationsToRemove != null)
                     {
-                        foreach (var allocation in t1.InsyncAllocationsToRemove)
-                        {
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Remove(allocation);
-                        }
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = new HashSet<Guid>(Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Where(ia => !t1.InsyncAllocationsToRemove.Contains(ia)));
                     }
                     if (t1.StaleAllocationsToAdd != null)
                     {
+                        var newList = new HashSet<Guid>();
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.ToList().ForEach(ia => newList.Add(ia));
+                        foreach (var allocation in t1.StaleAllocationsToAdd)
+                        {
+                            newList.Add(allocation);
+                        }
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = new HashSet<Guid>(newList);
+                        /*
                         foreach (var allocation in t1.StaleAllocationsToAdd)
                         {
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Add(allocation);
-                        }
-                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Where(sa => !t1.StaleAllocationsToAdd.Contains(sa)).ToHashSet();
+                        }*/
+                        //  Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Where(sa => !t1.StaleAllocationsToAdd.Contains(sa)).ToHashSet();
                     }
                     if (t1.StaleAllocationsToRemove != null)
                     {
+                        var newList = new HashSet<Guid>();
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.ToList().ForEach(ia => newList.Add(ia));
                         foreach (var allocation in t1.StaleAllocationsToRemove)
                         {
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Remove(allocation);
+                            if (newList.Contains(allocation))
+                            {
+                                newList.Remove(allocation);
+                            }
                         }
+                        Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = new HashSet<Guid>(newList);
                     }
+
                     if (t1.LatestPos != null)
+                    {
                         Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().LatestOperationPos = t1.LatestPos.Value;
+                    }
                     break;
                 case SetObjectLock t1:
                     var result = ObjectLocks.TryAdd(t1.ObjectId, new ObjectLock()

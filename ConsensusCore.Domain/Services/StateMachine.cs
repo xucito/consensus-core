@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,7 +29,7 @@ namespace ConsensusCore.Domain.Services
 
         public void ApplyLogToStateMachine(LogEntry entry)
         {
-            foreach (var command in entry.Commands)
+            foreach (var command in entry.DeepCopy().Commands)
             {
                 CurrentState.ApplyCommand(command);
             }
@@ -36,9 +37,10 @@ namespace ConsensusCore.Domain.Services
 
         public void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries)
         {
+            var copy = entries.OrderBy(c => c.Index).Select(e => e.DeepCopy());
             lock (currentStateLock)
             {
-                foreach (var entry in entries.OrderBy(c => c.Index))
+                foreach (var entry in copy)
                 {
                     foreach (var command in entry.Commands)
                     {
