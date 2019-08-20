@@ -587,9 +587,14 @@ namespace ConsensusCore.Node
                             if (CurrentState == NodeState.Leader)
                                 CreateIndex(typeToCreate);
 
+                            DateTime startTime = DateTime.Now;
                             while (!_stateMachine.IndexExists(typeToCreate))
                             {
-                                Logger.LogInformation(GetNodeId() + "Awaiting index creation.");
+                                if ((DateTime.Now - startTime).TotalMilliseconds < _clusterOptions.DataTransferTimeoutMs)
+                                {
+                                    throw new Exception("Failed to create index " + typeToCreate + ", timed out index detection.");
+                                }
+                                    Logger.LogInformation(GetNodeId() + "Awaiting index creation.");
                                 Thread.Sleep(100);
                             }
                         }

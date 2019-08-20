@@ -117,6 +117,8 @@ namespace TestConsole
                 var numberOfNodeFailures = rand.Next(1, ports.Length); //(processes.Count - 1) / 2;
 
                 List<ChaosDefinition> processesToMessWith = new List<ChaosDefinition>();
+                var maximumNodesToKill = ports.Length / 2; // always rounds down
+                var numbersKilled = 0;
                 // if the number of 
                 if (NumberOfAliveNodes() == ports.Length)
                 {
@@ -127,11 +129,25 @@ namespace TestConsole
                         {
                             number = rand.Next(0, ports.Length);
                         } while ((processesToMessWith.Where(p => p.Port == number).FirstOrDefault() != null));
-                        processesToMessWith.Add(new ChaosDefinition()
+
+                        // Cannot kill more then half as they can create a quorum on re-voting.
+                        if (rand.Next(2) == 0 || numbersKilled == maximumNodesToKill)
                         {
-                            Port = number,
-                            Type = ChaosType.Suspension//rand.Next(2) == 0 ? ChaosType.Failure : ChaosType.Suspension
-                        });
+                            processesToMessWith.Add(new ChaosDefinition()
+                            {
+                                Port = number,
+                                Type = ChaosType.Suspension
+                            });
+                            numbersKilled++;
+                        }
+                        else
+                        {
+                            processesToMessWith.Add(new ChaosDefinition()
+                            {
+                                Port = number,
+                                Type = ChaosType.Failure
+                            });
+                        }
                     }
                 }
                 else
@@ -154,7 +170,7 @@ namespace TestConsole
                         else
                         {
                             logger.LogInformation("I am planning to suspend node " + chaosThread.Port);
-                            await client.KillNode("https://localhost:"+ ports[chaosThread.Port]);
+                            await client.KillNode("https://localhost:" + ports[chaosThread.Port]);
                             //ThreadManager.Suspend(Processes[ports[chaosThread.Port]].Id);
                         }
 
