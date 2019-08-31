@@ -13,7 +13,6 @@ namespace ConsensusCore.Domain.BaseClasses
         public Guid Id { get; set; }
         public Guid? ShardId { get; set; }
         public string ShardType { get; set; }
-        public object Data { get; set; }
         public string ClassName { get { return this.GetType().FullName; } }
     }
 }

@@ -15,6 +15,7 @@ namespace ConsensusCore.Domain.Models
         public object ThreadCounts { get; set; }
         public string CurrentRole { get; set; }
         public int Term { get; set; }
+        public int LatestLeaderCommit { get; set; }
     }
 
     public enum NodeStatus

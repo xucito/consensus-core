@@ -1,7 +1,9 @@
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.Services;
 using ConsensusCore.Node;
-using ConsensusCore.Node.Models;
 using ConsensusCore.Node.Repositories;
-using ConsensusCore.Node.RPCs;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,10 +25,12 @@ namespace ConcensusCore.Node.Tests.SingleNode
         public AppendEntriesRPC_Test()
         {
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
-            moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions() { });
+            moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions() {
+                TestMode = true
+            });
 
             var moqNodeOptions = new Mock<IOptions<NodeOptions>>();
-            moqNodeOptions.Setup(mqo => mqo.Value).Returns(new NodeOptions() { });
+            moqNodeOptions.Setup(mqo => mqo.Value).Returns(new NodeOptions() {});
 
             var serviceProvider = new ServiceCollection()
             .AddLogging()
@@ -42,12 +46,12 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Logs = new System.Collections.Generic.List<LogEntry>()
                 {
                     new LogEntry(){
-                        Commands = new List<ConsensusCore.Node.BaseClasses.BaseCommand>(),
+                        Commands = new List<BaseCommand>(),
                         Index = 1,
                         Term = 5
                     },
                     new LogEntry(){
-                        Commands =new List<ConsensusCore.Node.BaseClasses.BaseCommand>(),
+                        Commands =new List<BaseCommand>(),
                         Index = 2,
                         Term = 5
                     }
@@ -56,11 +60,10 @@ namespace ConcensusCore.Node.Tests.SingleNode
 
             var inMemoryRepository = new NodeInMemoryRepository();
             Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
-            moqNodeOptions.Object,
-            NodeStorage,
-            logger,
-            new ConsensusCore.Node.Interfaces.StateMachine<TestState>())
+            moqNodeOptions.Object, logger,
+            new StateMachine<TestState>(), inMemoryRepository)
             {
+                _nodeStorage = NodeStorage,
                 IsBootstrapped = true
             };
 
@@ -72,7 +75,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
             Assert.False((Node.Send(new AppendEntry()
             {
                 Term = 2
-            }).GetAwaiter().GetResult()).Successful);
+            }).GetAwaiter().GetResult()).IsSuccessful);
         }
 
         [Fact]
@@ -83,14 +86,14 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Term = 5,
                 PrevLogIndex = 2,
                 PrevLogTerm = 3
-            }).GetAwaiter().GetResult()).Successful);
+            }).GetAwaiter().GetResult()).IsSuccessful);
 
             Assert.False((Node.Send(new AppendEntry()
             {
                 Term = 5,
                 PrevLogIndex = 2,
                 PrevLogTerm = 7
-            }).GetAwaiter().GetResult()).Successful);
+            }).GetAwaiter().GetResult()).IsSuccessful);
         }
 
         /// <summary>
@@ -111,7 +114,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Term = 5,
                 PrevLogIndex = 1,
                 PrevLogTerm = 5
-            }).GetAwaiter().GetResult()).Successful);
+            }).GetAwaiter().GetResult()).IsSuccessful);
 
 
             Assert.Equal(2, NodeStorage.Logs.Count());
@@ -137,7 +140,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 Term = 5,
                 PrevLogIndex = 1,
                 PrevLogTerm = 5
-            }).GetAwaiter().GetResult()).Successful);
+            }).GetAwaiter().GetResult()).IsSuccessful);
 
             Assert.Equal(2, NodeStorage.Logs.Count());
             Assert.Equal(2, NodeStorage.Logs.Last().Index);

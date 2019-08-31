@@ -104,7 +104,7 @@ namespace ConsensusCore.TestNode.Controllers
                     Type = "number"
                 }));
 
-                if (number != null)
+                if (number != null && number.IsSuccessful)
                 {
 
                     var updatedObject = (TestData)number.Data;

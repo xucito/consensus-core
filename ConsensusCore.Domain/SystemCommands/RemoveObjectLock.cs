@@ -5,12 +5,10 @@ using System.Text;
 
 namespace ConsensusCore.Domain.SystemCommands
 {
-    public class SetObjectLock : BaseCommand
+    public class RemoveObjectLock : BaseCommand
     {
-        public override string CommandName => "SetObjectLock";
+        public override string CommandName => "RemoveObjectLock";
         public Guid ObjectId { get; set; }
         public string Type { get; set; }
-        public Guid LockId { get; set; }
-        public int TimeoutMs { get; set; }
     }
 }

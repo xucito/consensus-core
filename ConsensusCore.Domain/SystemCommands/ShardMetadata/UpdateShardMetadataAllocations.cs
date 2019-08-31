@@ -17,6 +17,7 @@ namespace ConsensusCore.Domain.SystemCommands.ShardMetadata
         public HashSet<Guid> StaleAllocationsToAdd { get; set; }
         public HashSet<Guid> StaleAllocationsToRemove { get; set; }
         public int? LatestPos { get; set; }
+        public Guid? PrimaryAllocation { get; set; }
 
         public override string CommandName => "UpdateShardMetadataAllocations";
     }

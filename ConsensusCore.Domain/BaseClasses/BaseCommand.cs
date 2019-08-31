@@ -12,6 +12,7 @@ namespace ConsensusCore.Domain.BaseClasses
     public abstract class BaseCommand
     {
         public BaseCommand() { }
+        public string DebugLog { get; set; }
 
         public abstract string CommandName { get; }
     }

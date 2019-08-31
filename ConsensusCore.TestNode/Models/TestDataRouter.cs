@@ -63,12 +63,11 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-
-                    var updateResult = _numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]);
-                    if (!updateResult)
+                    _numberStore[data.Id] = t1;
+                    /*if (!updateResult)
                     {
                         throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId);
-                    }
+                    }*/
                     break;
             }
             return data;

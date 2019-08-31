@@ -2,6 +2,7 @@
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Utility;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,6 +38,7 @@ namespace ConsensusCore.Domain.Services
 
         public void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries)
         {
+            List<string> FailedLogs = new List<string>();
             var copy = entries.OrderBy(c => c.Index).Select(e => e.DeepCopy());
             lock (currentStateLock)
             {
@@ -44,9 +46,21 @@ namespace ConsensusCore.Domain.Services
                 {
                     foreach (var command in entry.Commands)
                     {
-                        CurrentState.ApplyCommand(command);
+                        try
+                        {
+                            CurrentState.ApplyCommand(command);
+                        }
+                        catch (Exception e)
+                        {
+                            FailedLogs.Add("Entry: " + entry.Index + "| Term: " + entry.Term + "| Command: " + command.CommandName);
+                        }
                     }
                 }
+            }
+
+            if(FailedLogs.Count() > 0)
+            {
+                throw new Exception("Failed to apply all commands successfully, the following logs failed to apply to state" + Environment.NewLine + JsonConvert.SerializeObject(FailedLogs));
             }
         }
 
@@ -153,6 +167,13 @@ namespace ConsensusCore.Domain.Services
         public bool IsObjectLocked(Guid objectId)
         {
             return CurrentState.ObjectLocks.ContainsKey(objectId);
+        }
+
+
+
+        public bool IsLockObtained(Guid objectId, Guid lockId)
+        {
+            return CurrentState.ObjectLocks.ContainsKey(objectId) && CurrentState.ObjectLocks[objectId].LockId == lockId;
         }
 
         /// <summary>

@@ -143,11 +143,16 @@ namespace ConsensusCore.Domain.BaseClasses
         /// <returns></returns>
         public bool RemoveOperation(int pos)
         {
-            if (SyncPos <= pos + 1)
+            if (SyncPos <= pos)
             {
                 if (!ShardOperations.TryRemove(pos, out _))
                 {
                     //throw new ShardOperationConcurrencyException("Failed to remove the operation" + pos + " from shard " + ShardId);
+                }
+                //If pos the last sync position, set the position back one
+                if(SyncPos == pos)
+                {
+                    SyncPos--;
                 }
                 return true;
             }

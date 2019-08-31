@@ -1,6 +1,8 @@
-﻿using ConsensusCore.Domain.Enums;
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
@@ -31,7 +33,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
             moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions()
             {
-                NodeUrls = new List<string>() { "localhost:5022" },
+                NodeUrls =  "localhost:5022",
                 TestMode = true,
                 NumberOfShards = 1,
                 DataTransferTimeoutMs = 1000,
@@ -52,13 +54,12 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
 
             var inMemoryRepository = new NodeInMemoryRepository();
-            NodeStorage = new NodeStorage();
+            NodeStorage = new NodeStorage(inMemoryRepository);
             _dataRouter = new TestDataRouter();
+
             Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
-            moqNodeOptions.Object,
-            NodeStorage,
-            logger,
-            new ConsensusCore.Node.Interfaces.StateMachine<TestState>(), _dataRouter)
+            moqNodeOptions.Object, logger,
+            new StateMachine<TestState>(), inMemoryRepository, new TestDataRouter())
             {
                 IsBootstrapped = true
             };
@@ -79,11 +80,97 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
             Assert.True(result.IsSuccessful);
+        }
+
+        [Fact]
+        public async void ReleaseLockOnUpdate()
+        {
+            var objectId = Guid.NewGuid();
+            var result = await Node.Send(new WriteData()
+            {
+                Data = new TestData
+                {
+                    Id = objectId,
+                    Data = 1,
+                    ShardType = "number"
+                }
+            });
+
+            Assert.True(result.IsSuccessful);
+
+            var dataResult = await Node.Send(new RequestDataShard()
+            {
+                Type = "number",
+                ObjectId = objectId,
+                CreateLock = true
+            });
+
+            Assert.True((await Node.Send(new WriteData()
+            {
+                Data = new TestData
+                {
+                    Id = objectId,
+                    ShardType = "number",
+                    Data = 2
+                },
+                Operation = ShardOperationOptions.Update,
+                WaitForSafeWrite = true,
+                RemoveLock = true
+            })).IsSuccessful);
+
+            Assert.True((await Node.Send(new RequestDataShard()
+            {
+                Type = "number",
+                ObjectId = objectId,
+                CreateLock = true
+            })).IsSuccessful);
+
+        }
+
+        [Fact]
+        public async void RemoveLockCommand()
+        {
+            var objectId = Guid.NewGuid();
+            var result = await Node.Send(new WriteData()
+            {
+                Data = new TestData
+                {
+                    Id = objectId,
+                    Data = 1,
+                    ShardType = "number"
+                }
+            });
+
+            Assert.True(result.IsSuccessful);
+
+            var dataResult = await Node.Send(new RequestDataShard()
+            {
+                Type = "number",
+                ObjectId = objectId,
+                CreateLock = true
+            });
+
+            Assert.True((await Node.Send(new ExecuteCommands()
+            {
+                Commands = new List<BaseCommand>(){ new RemoveObjectLock()
+                {
+                    ObjectId = objectId,
+                    Type = "number"
+                }
+                }
+            })).IsSuccessful);
+
+            Assert.True((await Node.Send(new RequestDataShard()
+            {
+                Type = "number",
+                ObjectId = objectId,
+                CreateLock = true
+            })).IsSuccessful);
         }
 
         [Fact]
@@ -98,7 +185,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                     {
                         Id = objectId,
                         Data = 1,
-                        Type = "number"
+                        ShardType = "number"
                     }
                 })
             );
@@ -109,7 +196,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                     Data = new TestData
                     {
                         Data = 1,
-                        Type = "number"
+                        ShardType = "number"
                     }
                 })
             );
@@ -129,7 +216,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
@@ -169,7 +256,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = Guid.NewGuid(),
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
@@ -194,7 +281,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
@@ -235,7 +322,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
             var tests = new int[] { 1, 2 };
@@ -296,7 +383,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
@@ -321,7 +408,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 1,
-                    Type = "number"
+                    ShardType = "number"
                 }
             });
 
@@ -331,7 +418,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 {
                     Id = objectId,
                     Data = 2,
-                    Type = "number"
+                    ShardType = "number"
                 },
                 Operation = ShardOperationOptions.Update,
             });

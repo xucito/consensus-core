@@ -6,6 +6,7 @@ namespace ConsensusCore.Domain.BaseClasses
 {
     public class ObjectLock
     {
+        public Guid LockId { get; set; }
         public Guid ObjectId { get; set; }
         public string Type { get; set; }
         public DateTime CreatedOn { get; } = DateTime.Now;

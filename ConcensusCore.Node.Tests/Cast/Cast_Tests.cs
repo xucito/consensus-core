@@ -1,5 +1,5 @@
-﻿using ConsensusCore.Node.BaseClasses;
-using ConsensusCore.Node.RPCs;
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.RPCs;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -18,14 +18,14 @@ namespace ConcensusCore.Node.Tests.Cast
         [Fact]
         public void TestCast2()
         {
-            IClusterRequest<object> test = (IClusterRequest<object>)new ExecuteCommands();
+         //   IClusterRequest<object> test = (IClusterRequest<object>)new ExecuteCommands();
         }
 
 
         [Fact]
         public void TestCast3()
         {
-            IClusterRequest<object> test = (IClusterRequest<object>)new AppendEntry();
+          //  IClusterRequest<object> test = (IClusterRequest<object>)new AppendEntry();
         }
     }
 }

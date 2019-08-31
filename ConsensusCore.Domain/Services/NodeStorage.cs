@@ -22,7 +22,7 @@ namespace ConsensusCore.Domain.Services
         public Guid? VotedFor { get; set; } = null;
         public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
         [JsonIgnore]
-        public readonly object _locker = new object();
+        public object _locker = new object();
         [JsonIgnore]
         private IBaseRepository _repository;
         public ConcurrentDictionary<Guid, LocalShardMetaData> ShardMetaData { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
@@ -54,12 +54,17 @@ namespace ConsensusCore.Domain.Services
                 });
                 _saveThread.Start();
             }
+            
             // var loadedData = _repository.LoadNodeData();
         }
 
         public void SetRepository(IBaseRepository repository)
         {
             _repository = repository;
+            if (_locker == null)
+            {
+                _locker = new object();
+            }
         }
 
         public void AddNewShardMetaData(LocalShardMetaData metadata)
@@ -198,12 +203,8 @@ namespace ConsensusCore.Domain.Services
                         Index = index
                     });
                 }
-
-                if (_repository != null)
-                {
-                    //Console.WriteLine("Add commands");
-                    Save();
-                }
+                //Console.WriteLine("Add commands");
+                Save();
                 return index;
             }
             throw new Exception("Weird, I was sent a empty list of base commands");
@@ -217,16 +218,14 @@ namespace ConsensusCore.Domain.Services
                 //The entry should be the next log required
                 if (entry.Index == Logs.Count() + 1)
                 {
-
-                    //Console.WriteLine("Add logs");
                     Logs.Add(entry);
-                    Save();
                 }
                 else if (entry.Index > Logs.Count() + 1)
                 {
                     throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
                 }
             }
+            Save();
 
         }
 
@@ -337,11 +336,14 @@ namespace ConsensusCore.Domain.Services
         {
             while (true)
             {
-                Thread.Sleep(500);
                 if (RequireSave)
                 {
                     RequireSave = false;
                     _repository.SaveNodeData(this);
+                }
+                else
+                {
+                    Thread.Sleep(500);
                 }
             }
         }

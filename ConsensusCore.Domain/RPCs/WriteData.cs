@@ -12,10 +12,12 @@ namespace ConsensusCore.Domain.RPCs
         public ShardOperationOptions Operation { get; set; }
         public bool WaitForSafeWrite { get; set; }
         public override string RequestName => "WriteData";
+        public bool RemoveLock { get; set; } = false;//Remove any lock that may exist on the object
     }
 
     public class WriteDataResponse: BaseResponse
     {
         public Guid ShardId { get; set; }
+        public bool LockRemoved { get; set; } //Whether a lock was removed
     }
 }

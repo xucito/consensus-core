@@ -26,7 +26,11 @@ namespace ConsensusCore.Domain.RPCs
         public Guid? NodeId { get; set; }
         public ShardData Data { get; set; }
         public string Type { get; set; }
-        public bool IsLocked { get; set; }
+        /// <summary>
+        /// Whether a lock was successfully applied
+        /// </summary>
+        public bool AppliedLocked { get; set; } = false;
         public string SearchMessage { get; set; }
+        public Guid? LockId { get; set; }
     }
 }

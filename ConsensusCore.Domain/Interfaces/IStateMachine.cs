@@ -27,6 +27,7 @@ namespace ConsensusCore.Domain.Interfaces
         bool IsNodeContactable(Guid nodeId);
         bool IsNodeContactable(string transportUrl);
         bool IsObjectLocked(Guid objectId);
+        bool IsLockObtained(Guid objectId, Guid lockId); //Check the lock Id whether it was obtained
         BaseTask GetRunningTask(string uniqueId);
     }
 }

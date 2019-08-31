@@ -8,5 +8,6 @@ namespace ConsensusCore.TestNode.Models
 {
     public class TestData : ShardData
     {
+        public int Data { get; set; }
     }
 }

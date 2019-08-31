@@ -12,7 +12,7 @@ using ConsensusCore.Domain.RPCs;
 
 namespace ConsensusCore.Node.Connectors
 {
-    public class HttpNodeConnector: IConnector
+    public class HttpNodeConnector : IConnector
     {
         private HttpClient _httpClient;
         private HttpClient _dataClient;
@@ -35,8 +35,7 @@ namespace ConsensusCore.Node.Connectors
             {
                 return JsonConvert.DeserializeObject<NodeInfo>(await result.Content.ReadAsStringAsync());
             }
-
-            return null;
+            throw new Exception("Failed to get node info with result " + result.StatusCode + " and message " + await result.Content.ReadAsStringAsync());
         }
 
         public async Task<HttpResponseMessage> PostAsJsonAsync(HttpClient client, string url, object o)
@@ -44,7 +43,7 @@ namespace ConsensusCore.Node.Connectors
             return await _httpClient.PostAsync(url, new StringContent(JsonConvert.SerializeObject(o), Encoding.UTF8, "application/json"));
         }
 
-        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse: BaseResponse
+        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse
         {
             HttpResponseMessage result;
 
@@ -64,12 +63,15 @@ namespace ConsensusCore.Node.Connectors
                 {
                     return JsonConvert.DeserializeObject<TResponse>(await result.Content.ReadAsStringAsync());
                 }
+                else
+                {
+                    throw new Exception("Failed to send request with status code " + result.StatusCode + ".");
+                }
             }
             catch (Exception e)
             {
                 throw e;
             }
-            throw new Exception("Failed to send request.");
         }
     }
 }

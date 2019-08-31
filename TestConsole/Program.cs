@@ -138,7 +138,6 @@ namespace TestConsole
                                 Port = number,
                                 Type = ChaosType.Suspension
                             });
-                            numbersKilled++;
                         }
                         else
                         {
@@ -147,6 +146,7 @@ namespace TestConsole
                                 Port = number,
                                 Type = ChaosType.Failure
                             });
+                            numbersKilled++;
                         }
                     }
                 }

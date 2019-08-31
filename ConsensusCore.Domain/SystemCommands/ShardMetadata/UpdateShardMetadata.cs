@@ -8,7 +8,7 @@ namespace ConsensusCore.Domain.SystemCommands
     /// <summary>
     /// This is only managed by the leader.
     /// </summary>
-    public class UpdateShardMetadata: BaseCommand
+   /* public class UpdateShardMetadata: BaseCommand
     {
         public Guid ShardId { get; set; }
         public Guid PrimaryAllocation { get; set; }
@@ -21,5 +21,5 @@ namespace ConsensusCore.Domain.SystemCommands
         public bool IgnoreAllocations = false;
 
         public override string CommandName => "UpdateShardMetadata";
-    }
+    }*/
 }
