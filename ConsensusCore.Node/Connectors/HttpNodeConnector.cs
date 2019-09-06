@@ -16,6 +16,7 @@ namespace ConsensusCore.Node.Connectors
     {
         private HttpClient _httpClient;
         private HttpClient _dataClient;
+        public string Url { get; set; }
 
         public HttpNodeConnector(string baseUrl, TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval)
         {
@@ -25,6 +26,7 @@ namespace ConsensusCore.Node.Connectors
             _dataClient = new HttpClient();
             _dataClient.Timeout = dataTimeoutInterval;
             _dataClient.BaseAddress = new Uri(baseUrl);
+            Url = baseUrl;
         }
 
         public async Task<NodeInfo> GetNodeInfoAsync()

@@ -21,6 +21,7 @@ namespace ConsensusCore.Domain.Services
         public int CurrentTerm { get; set; } = 0;
         public Guid? VotedFor { get; set; } = null;
         public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
+        public ConcurrentBag<DataReversionRecord> RevertedOperations = new ConcurrentBag<DataReversionRecord>();
         [JsonIgnore]
         public object _locker = new object();
         [JsonIgnore]
@@ -346,6 +347,12 @@ namespace ConsensusCore.Domain.Services
                     Thread.Sleep(500);
                 }
             }
+        }
+
+        public void AddDataReversionRecord(DataReversionRecord record)
+        {
+            RevertedOperations.Add(record);
+            Save();
         }
     }
 }

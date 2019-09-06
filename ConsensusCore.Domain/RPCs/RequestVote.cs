@@ -18,5 +18,6 @@ namespace ConsensusCore.Domain.RPCs
 
     public class RequestVoteResponse: BaseResponse
     {
+        public Guid NodeId { get; set; }
     }
 }

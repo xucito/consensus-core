@@ -16,6 +16,7 @@ namespace ConsensusCore.Domain.Models
         public string CurrentRole { get; set; }
         public int Term { get; set; }
         public int LatestLeaderCommit { get; set; }
+        public string[] Connectors { get; set; }
     }
 
     public enum NodeStatus

@@ -14,6 +14,14 @@ namespace ConsensusCore.Domain.Interfaces
         void ApplyLogToStateMachine(LogEntry entry);
         IEnumerable<SharedShardMetadata> GetAllOutOfSyncShards(Guid nodeId);
         List<SharedShardMetadata> GetAllPrimaryShards(Guid nodeId);
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns>
+        /// Key = shardId
+        /// Value = Primary Node Id
+        /// </returns>
         Dictionary<Guid, Guid> GetAllPrimaryShards(string type);
         Z GetCurrentState();
         NodeInformation GetNode(Guid nodeId);

@@ -61,6 +61,12 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_node.GetLogs());
         }
 
+        [HttpGet("reverted-operations")]
+        public IActionResult GetRevertedOperations()
+        {
+            return Ok(_node.RevertedOperations);
+        }
+
         /*
         [HttpPost("request-vote")]
         public IActionResult PostRequestVote([FromBody] RequestVote vote)

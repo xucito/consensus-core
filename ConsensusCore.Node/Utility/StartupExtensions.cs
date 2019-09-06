@@ -19,7 +19,7 @@ namespace ConsensusCore.Node.Utility
             where Repository : class, IBaseRepository
         {
             services.AddSingleton<IBaseRepository, Repository>();
-            services.AddSingleton<NodeStorage>();
+            //services.AddSingleton<NodeStorage>();
             services.AddSingleton<StateMachine<State>>();
             services.AddSingleton<IConsensusCoreNode<State, Repository>, ConsensusCoreNode<State, Repository>>();
             services.AddTransient<NodeController<State, Repository>>();

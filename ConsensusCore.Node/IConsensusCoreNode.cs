@@ -51,5 +51,6 @@ namespace ConsensusCore.Node
         List<LogEntry> GetLogs();
         //Used for testing
         void SetNodeRole(NodeState newState);
+        List<DataReversionRecord> RevertedOperations { get; }
     }
 }
