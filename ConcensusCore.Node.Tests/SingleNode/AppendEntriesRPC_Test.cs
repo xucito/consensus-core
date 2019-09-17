@@ -3,6 +3,7 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Node;
+using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
@@ -24,26 +25,9 @@ namespace ConcensusCore.Node.Tests.SingleNode
 
         public AppendEntriesRPC_Test()
         {
-            var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
-            moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions() {
-                TestMode = true
-            });
-
-            var moqNodeOptions = new Mock<IOptions<NodeOptions>>();
-            moqNodeOptions.Setup(mqo => mqo.Value).Returns(new NodeOptions() {});
-
-            var serviceProvider = new ServiceCollection()
-            .AddLogging()
-            .BuildServiceProvider();
-
-            var factory = serviceProvider.GetService<ILoggerFactory>();
-
-            var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
-
-            NodeStorage = new NodeStorage(new NodeInMemoryRepository())
-            {
-                CurrentTerm = 5,
-                Logs = new System.Collections.Generic.List<LogEntry>()
+            Node = TestUtility.GetTestConsensusCoreNode();
+            NodeStorage = Node._nodeStorage;
+            NodeStorage.Logs = new System.Collections.Generic.List<LogEntry>()
                 {
                     new LogEntry(){
                         Commands = new List<BaseCommand>(),
@@ -55,18 +39,8 @@ namespace ConcensusCore.Node.Tests.SingleNode
                         Index = 2,
                         Term = 5
                     }
-                }
-            };
-
-            var inMemoryRepository = new NodeInMemoryRepository();
-            Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
-            moqNodeOptions.Object, logger,
-            new StateMachine<TestState>(), inMemoryRepository)
-            {
-                _nodeStorage = NodeStorage,
-                IsBootstrapped = true
-            };
-
+                };
+            NodeStorage.CurrentTerm = 5;
         }
 
         [Fact]

@@ -14,7 +14,10 @@ namespace ConsensusCore.Node.Repositories
 
         public NodeStorage LoadNodeData()
         {
-            return null;
+            return new NodeStorage()
+            {
+                Id = Guid.NewGuid()
+            };
         }
 
         public void SaveNodeData(NodeStorage storage)

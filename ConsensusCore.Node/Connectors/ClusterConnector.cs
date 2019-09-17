@@ -1,5 +1,6 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Node.Connectors.Exceptions;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,6 +25,12 @@ namespace ConsensusCore.Node.Connectors
         {
             _timeoutInterval = timeoutInterval;
             _dataTimeoutInterval = dataTimeoutInterval;
+        }
+
+        public ClusterConnector(IOptions<ClusterOptions> options)
+        {
+            _timeoutInterval = TimeSpan.FromMilliseconds(options.Value.LatencyToleranceMs);
+            _dataTimeoutInterval = TimeSpan.FromMilliseconds(options.Value.DataTransferTimeoutMs);
         }
 
         public async Task<TResponse> Send<TResponse>(Guid nodeId, IClusterRequest<TResponse> request) where TResponse : BaseResponse

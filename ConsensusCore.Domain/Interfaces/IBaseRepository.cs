@@ -5,7 +5,7 @@ namespace ConsensusCore.Domain.Interfaces
 {
     public interface IBaseRepository
     {
-        void SaveNodeData(NodeStorage storage);
-        NodeStorage LoadNodeData();
+        void SaveNodeData<Z>(NodeStorage<Z> storage) where Z : BaseState, new();
+        NodeStorage<Z> LoadNodeData<Z>() where Z : BaseState, new();
     }
 }

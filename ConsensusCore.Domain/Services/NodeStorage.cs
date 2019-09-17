@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using Newtonsoft.Json;
@@ -13,14 +14,27 @@ using System.Threading;
 
 namespace ConsensusCore.Domain.Services
 {
-    public class NodeStorage
+    public class NodeStorage<Z> where Z : BaseState, new()
     {
         public Guid Id { get; set; }
         public string Name { get; set; }
         public double Version { get; set; } = 1.0;
         public int CurrentTerm { get; set; } = 0;
         public Guid? VotedFor { get; set; } = null;
-        public List<LogEntry> Logs { get; set; } = new List<LogEntry>();
+
+        /// <summary>
+        /// The last term the snapshot was captured for
+        /// </summary>
+        public int LastSnapshotIncludedTerm { get; set; } = 0;
+        /// <summary>
+        /// The last index the snapshot was captured for, inclusive
+        /// </summary>
+        public int LastSnapshotIncludedIndex { get; set; } = 0;
+        /// <summary>
+        /// The last snapshot to apply logs to
+        /// </summary>
+        public Z LastSnapshot { get; set; }
+        public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
         public ConcurrentBag<DataReversionRecord> RevertedOperations = new ConcurrentBag<DataReversionRecord>();
         [JsonIgnore]
         public object _locker = new object();
@@ -33,18 +47,41 @@ namespace ConsensusCore.Domain.Services
         public readonly object _saveLocker = new object();
         [JsonIgnore]
         public Thread _saveThread;
-        /*public NodeStorage()
-         {
-         }
-         */
+
+        public NodeStorage()
+        {
+        }
+
 
         public NodeStorage(IBaseRepository repository)
         {
-            Id = Guid.NewGuid();
             _repository = repository;
             if (ShardMetaData == null)
             {
                 ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
+            }
+
+
+            var loadedData = repository.LoadNodeData<Z>();
+            if (loadedData != null)
+            {
+                Id = loadedData.Id;
+                Name = loadedData.Name;
+                Version = loadedData.Version;
+                CurrentTerm = loadedData.CurrentTerm;
+                VotedFor = loadedData.VotedFor;
+                Logs = loadedData.Logs;
+                ShardMetaData = loadedData.ShardMetaData;
+
+                LastSnapshot = loadedData.LastSnapshot;
+                LastSnapshotIncludedTerm = loadedData.LastSnapshotIncludedTerm;
+                LastSnapshotIncludedIndex = loadedData.LastSnapshotIncludedIndex;
+            }
+            else
+            {
+                Id = Guid.NewGuid();
+                Console.WriteLine("Failed to load local node storage from store, creating new node storage");
+                Save();
             }
 
             if (_repository != null)
@@ -55,17 +92,8 @@ namespace ConsensusCore.Domain.Services
                 });
                 _saveThread.Start();
             }
-            
-            // var loadedData = _repository.LoadNodeData();
-        }
 
-        public void SetRepository(IBaseRepository repository)
-        {
-            _repository = repository;
-            if (_locker == null)
-            {
-                _locker = new object();
-            }
+            // var loadedData = _repository.LoadNodeData();
         }
 
         public void AddNewShardMetaData(LocalShardMetaData metadata)
@@ -76,6 +104,38 @@ namespace ConsensusCore.Domain.Services
             }
             //Console.WriteLine("Added new shard metadata");
             Save();
+        }
+
+        public void CreateSnapshot(int currentCommitIndex)
+        {
+            var stateMachine = new StateMachine<Z>();
+            //Find the log position of the commit index
+            if (LastSnapshot != null)
+            {
+                stateMachine.ApplySnapshotToStateMachine(LastSnapshot);
+            }
+
+            for (var i = LastSnapshotIncludedIndex; i <= currentCommitIndex; i++)
+                stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, currentCommitIndex));
+
+            // Deleting logs from the index
+            DeleteLogsFromIndex(currentCommitIndex);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="startIndex">Start index to send from inclusive</param>
+        /// <param name="endIndex">End index to send to exclusive</param>
+        /// <returns></returns>
+        public List<LogEntry> GetLogRange(int startIndexToSendFrom, int endIndexToSendTo)
+        {
+            List<LogEntry> listToSend = new List<LogEntry>();
+            for (var i = startIndexToSendFrom; i <= endIndexToSendTo; i++)
+            {
+                listToSend.Add(Logs[i]);
+            }
+            return listToSend;
         }
 
         /// <summary>
@@ -124,29 +184,39 @@ namespace ConsensusCore.Domain.Services
             return result;
         }
 
-        public int GetLogCount()
+        public int GetTotalLogCount()
         {
-            return Logs.Count();
+            return Logs.Last().Key;
         }
 
         public int GetLastLogTerm()
         {
-            var lastLog = Logs.LastOrDefault();
-            if (lastLog != null)
+            if (Logs.Count() == 0 && LastSnapshot == null)
             {
-                return lastLog.Term;
+                return 0;
             }
-            return 0;
+
+            if (Logs.Count() == 0)
+            {
+                return LastSnapshotIncludedTerm;
+            }
+            var lastLog = Logs.LastOrDefault();
+            return lastLog.Value.Term;
         }
 
         public int GetLastLogIndex()
         {
-            var lastLog = Logs.LastOrDefault();
-            if (lastLog != null)
+            if (Logs.Count() == 0 && LastSnapshot == null)
             {
-                return lastLog.Index;
+                return 0;
             }
-            return 0;
+
+            if (Logs.Count() == 0)
+            {
+                return LastSnapshotIncludedIndex;
+            }
+            var lastLog = Logs.LastOrDefault();
+            return lastLog.Value.Index;
         }
 
         public void SetVotedFor(Guid? id)
@@ -185,7 +255,15 @@ namespace ConsensusCore.Domain.Services
             }
             else
             {
-                return Logs.Where(l => l.Index == logIndex).FirstOrDefault();
+                if (Logs.ContainsKey(logIndex))
+                {
+                    return Logs[logIndex];
+                }
+                else if (LastSnapshotIncludedIndex >= logIndex)
+                {
+                    throw new LogSnapshottedException();
+                }
+                throw new Exception("Log " + logIndex + " not found in storage.");
             }
         }
 
@@ -197,7 +275,7 @@ namespace ConsensusCore.Domain.Services
                 lock (_locker)
                 {
                     index = Logs.Count() + 1;
-                    Logs.Add(new LogEntry()
+                    Logs.Add(index, new LogEntry()
                     {
                         Commands = commands,
                         Term = term,
@@ -219,7 +297,7 @@ namespace ConsensusCore.Domain.Services
                 //The entry should be the next log required
                 if (entry.Index == Logs.Count() + 1)
                 {
-                    Logs.Add(entry);
+                    Logs.Add(entry.Index, entry);
                 }
                 else if (entry.Index > Logs.Count() + 1)
                 {
@@ -243,7 +321,22 @@ namespace ConsensusCore.Domain.Services
         {
             lock (_locker)
             {
-                Logs.RemoveRange(index - 1, Logs.Count() - index + 1);
+                List<int> markedForDeletion = new List<int>();
+                foreach (var pos in Logs)
+                {
+                    if (pos.Key >= index)
+                    {
+                        markedForDeletion.Add(pos.Key);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                foreach (var delete in markedForDeletion)
+                {
+                    Logs.Remove(delete);
+                }
 
                 //Console.WriteLine("Delete logs from index");
                 Save();

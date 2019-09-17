@@ -48,7 +48,7 @@ namespace ConsensusCore.Node
         bool IsLeader { get; }
         bool HasEntryBeenCommitted(int logIndex);
         List<BaseTask> GetClusterTasks();
-        List<LogEntry> GetLogs();
+        SortedList<int, LogEntry> GetLogs();
         //Used for testing
         void SetNodeRole(NodeState newState);
         List<DataReversionRecord> RevertedOperations { get; }

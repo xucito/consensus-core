@@ -12,6 +12,7 @@ namespace ConsensusCore.Domain.Interfaces
 
         void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries);
         void ApplyLogToStateMachine(LogEntry entry);
+        void ApplySnapshotToStateMachine(Z state);
         IEnumerable<SharedShardMetadata> GetAllOutOfSyncShards(Guid nodeId);
         List<SharedShardMetadata> GetAllPrimaryShards(Guid nodeId);
         /// <summary>

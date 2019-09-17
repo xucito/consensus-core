@@ -131,7 +131,7 @@ namespace TestConsole
                         } while ((processesToMessWith.Where(p => p.Port == number).FirstOrDefault() != null));
 
                         // Cannot kill more then half as they can create a quorum on re-voting.
-                        if (rand.Next(2) == 0 || numbersKilled == maximumNodesToKill)
+                        if (true)//(rand.Next(2) == 0 || numbersKilled == maximumNodesToKill)
                         {
                             processesToMessWith.Add(new ChaosDefinition()
                             {

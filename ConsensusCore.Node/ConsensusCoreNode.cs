@@ -46,7 +46,7 @@ namespace ConsensusCore.Node
         /// <summary>
         /// Allow setting this for testing
         /// </summary>
-        public NodeStorage _nodeStorage { get; set; }
+        public NodeStorage<State> _nodeStorage { get; set; }
         public NodeState CurrentState { get; private set; }
         public ILogger<ConsensusCoreNode<State, Repository>> Logger { get; }
         /// <summary>
@@ -141,11 +141,14 @@ namespace ConsensusCore.Node
             return false;
         }
 
-        public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards { get { return _nodeStorage.ShardMetaData; } }
 
         public bool IsLeader => CurrentLeader.Key.HasValue && CurrentLeader.Key.Value == _nodeStorage.Id;
 
         public List<DataReversionRecord> RevertedOperations { get => _nodeStorage.RevertedOperations.ToList(); }
+
+        public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards => _nodeStorage.ShardMetaData;
+
+        ShardManager<State, IBaseRepository> _shardManager;
 
         public ConsensusCoreNode(
             IOptions<ClusterOptions> clusterOptions,
@@ -155,31 +158,33 @@ namespace ConsensusCore.Node
             Repository>> logger,
             IStateMachine<State> stateMachine,
             Repository repository,
-            IDataRouter dataRouter = null
+            ClusterConnector connector,
+            IDataRouter dataRouter,
+            ShardManager<State, IBaseRepository> shardManager,
+            NodeStorage<State> nodeStorage
             )
         {
             Logger = logger;
             _repository = repository;
-            var storage = _repository.LoadNodeData();
-            if (storage != null)
+            _nodeStorage = nodeStorage;
+
+            //Load the snapshot from persistent storage
+            if (_nodeStorage.LastSnapshot != null)
             {
-                Logger.LogInformation("Loaded Consensus Local Node storage from store");
-                _nodeStorage = storage;
-                _nodeStorage.SetRepository(repository);
+                Logger.LogInformation("Detected snapshot, loading snapshot into state.");
+                stateMachine.ApplySnapshotToStateMachine(_nodeStorage.LastSnapshot);
+                CommitIndex = _nodeStorage.LastSnapshotIncludedIndex;
+                SetCurrentTerm(_nodeStorage.LastSnapshotIncludedTerm);
             }
-            else
-            {
-                Logger.LogInformation("Failed to load local node storage from store, creating new node storage");
-                _nodeStorage = new NodeStorage(repository);
-                _nodeStorage.Save();
-            }
+
             _nodeOptions = nodeOptions.Value;
             _clusterOptions = clusterOptions.Value;
             _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
             _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
             _stateMachine = stateMachine;
+            _clusterConnector = connector;
+            _shardManager = shardManager;
             SetNodeRole(NodeState.Follower);
-            _clusterConnector = new ClusterConnector(TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(_clusterOptions.DataTransferTimeoutMs));
 
             if (!_clusterOptions.TestMode)
             {
@@ -194,9 +199,11 @@ namespace ConsensusCore.Node
             else
             {
                 Console.WriteLine("Running in test mode...");
+                InCluster = true;
                 IsBootstrapped = true;
                 MyUrl = "https://localhost:5022";
                 NodeUrls = new string[] { "https://localhost:5022" };
+                SetNodeRole(NodeState.Leader);
             }
             _dataRouter = dataRouter;
             if (dataRouter != null)
@@ -230,7 +237,7 @@ namespace ConsensusCore.Node
                                 //You can catch this error as presumably all nodes in cluster wil experience the same error
                                 try
                                 {
-                                    _stateMachine.ApplyLogsToStateMachine(_nodeStorage.Logs.GetRange(CommitIndex, indexToAddTo - CommitIndex));// _nodeStorage.GetLogAtIndex(CommitIndex + 1));
+                                    _stateMachine.ApplyLogsToStateMachine(_nodeStorage.GetLogRange(CommitIndex, indexToAddTo));// _nodeStorage.GetLogAtIndex(CommitIndex + 1));
                                 }
                                 catch (Exception e)
                                 {
@@ -253,7 +260,7 @@ namespace ConsensusCore.Node
                             var numberOfLogs = _nodeStorage.Logs.Count(); ;
                             //On resync, the commit index could be higher then the local amount of logs available
                             var commitIndexToSyncTill = numberOfLogs < LatestLeaderCommit ? numberOfLogs : LatestLeaderCommit;
-                            var allLogsToBeCommited = _nodeStorage.Logs.GetRange(CommitIndex, commitIndexToSyncTill - CommitIndex);
+                            var allLogsToBeCommited = _nodeStorage.GetLogRange(CommitIndex, commitIndexToSyncTill);
                             if (allLogsToBeCommited.Count > 0)
                             {
                                 try
@@ -276,6 +283,17 @@ namespace ConsensusCore.Node
                     {
                         Thread.Sleep(1000);
                     }
+
+                    if (CurrentState == NodeState.Leader || CurrentState == NodeState.Follower)
+                    {
+                        // If the number of logs that are commited but not included in the snapshot are not included in interval, create snapshot
+                        if (_clusterOptions.SnapshottingInterval < (CommitIndex - _nodeStorage.LastSnapshotIncludedIndex))
+                        {
+                            Logger.LogInformation("Reached snapshotting interval, creating snapshot.");
+                            _nodeStorage.CreateSnapshot(CommitIndex);
+                        }
+                    }
+
                     Thread.Sleep(100);
                 }
                 catch (Exception e)
@@ -767,17 +785,24 @@ namespace ConsensusCore.Node
                                     Logger.LogInformation("NEW INVALID: " + JsonConvert.SerializeObject(invalidInsyncAllocations));
                                     Logger.LogInformation("INSYNC: " + JsonConvert.SerializeObject(shard.InsyncAllocations));
 
-                                    Guid newPrimary = !invalidInsyncAllocations.Contains(shard.PrimaryAllocation) ? shard.PrimaryAllocation : insyncAllocations.ElementAt(rand.Next(0, insyncAllocations.Count()));// await GetMostUpdatedNode(shard.Id, shard.Type, shard.InsyncAllocations.Where(ia => !invalidInsyncAllocations.Contains(ia)).ToArray());
-                                    nodeUpsertCommands.Add(new UpdateShardMetadataAllocations()
+                                    if (insyncAllocations.Count() > 0)
                                     {
-                                        PrimaryAllocation = newPrimary,
-                                        InsyncAllocationsToRemove = invalidInsyncAllocations.ToHashSet<Guid>(),
-                                        StaleAllocationsToAdd = NodesToMarkAsStale.ToHashSet<Guid>(),
-                                        StaleAllocationsToRemove = NodesToRemove.ToHashSet<Guid>(),
-                                        ShardId = shard.Id,
-                                        Type = shard.Type,
-                                        DebugLog = GetNodeId() + "Reassigning nodes based on node becoming unavailable. Primary node is " + newPrimary
-                                    });
+                                        Guid newPrimary = !invalidInsyncAllocations.Contains(shard.PrimaryAllocation) ? shard.PrimaryAllocation : insyncAllocations.ElementAt(rand.Next(0, insyncAllocations.Count()));// await GetMostUpdatedNode(shard.Id, shard.Type, shard.InsyncAllocations.Where(ia => !invalidInsyncAllocations.Contains(ia)).ToArray());
+                                        nodeUpsertCommands.Add(new UpdateShardMetadataAllocations()
+                                        {
+                                            PrimaryAllocation = newPrimary,
+                                            InsyncAllocationsToRemove = invalidInsyncAllocations.ToHashSet<Guid>(),
+                                            StaleAllocationsToAdd = NodesToMarkAsStale.ToHashSet<Guid>(),
+                                            StaleAllocationsToRemove = NodesToRemove.ToHashSet<Guid>(),
+                                            ShardId = shard.Id,
+                                            Type = shard.Type,
+                                            DebugLog = GetNodeId() + "Reassigning nodes based on node becoming unavailable. Primary node is " + newPrimary
+                                        });
+                                    }
+                                    else
+                                    {
+                                        Logger.LogError("Shard " + shard.Id + " does not have an assignable in-sync primary allocation. Awaiting for shard " + shard.PrimaryAllocation + " to come back online...");
+                                    }
                                     // }
                                     /*else
                                     {
@@ -949,11 +974,17 @@ namespace ConsensusCore.Node
                 switch (task)
                 {
                     case RecoverShard t:
-                        await SyncShard(t.ShardId, t.Type);
+                        await _shardManager.SyncShard(t.ShardId, t.Type);
                         await Send(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>()
                                 {
+                                    new UpdateShardMetadataAllocations(){
+                                        ShardId = t.ShardId,
+                                        Type = t.Type,
+                                        InsyncAllocationsToAdd = new HashSet<Guid>(){_nodeStorage.Id },
+                                        StaleAllocationsToRemove = new HashSet<Guid>(){_nodeStorage.Id }
+                                    },
                                     new UpdateClusterTasks()
                                     {
                                         TasksToUpdate = new List<TaskUpdate>()
@@ -1041,7 +1072,6 @@ namespace ConsensusCore.Node
         {
             try
             {
-
                 Logger.LogDebug(GetNodeId() + "Detected RPC " + request.GetType().Name + ".");
                 if (!IsBootstrapped)
                 {
@@ -1093,6 +1123,8 @@ namespace ConsensusCore.Node
                     case RequestShardOperations t1:
                         response = (TResponse)(object)await RequestShardOperationsHandler(t1);
                         break;
+                    case InstallSnapshot t1:
+                        TODO Add logic for applying snapshotting
                     default:
                         throw new Exception("Request is not implemented");
                 }
@@ -1139,47 +1171,7 @@ namespace ConsensusCore.Node
 
         public async Task<RequestShardOperationsResponse> RequestShardOperationsHandler(RequestShardOperations request)
         {
-            //Check that the shard is insync here
-            var localShard = _nodeStorage.GetShardMetadata(request.ShardId);
-
-            if (localShard == null)
-            {
-                Logger.LogError(GetNodeId() + "Request for shard " + request.ShardId + " however shard does not exist on node.");
-                return new RequestShardOperationsResponse()
-                {
-                    IsSuccessful = false
-                };
-            }
-            SortedDictionary<int, ShardOperationMessage> FinalList = new SortedDictionary<int, ShardOperationMessage>();
-
-
-            if (request.IncludeOperations)
-            {
-                //foreach value in from - to, pull the operation and then pull the object from object router
-                for (var i = request.From; i <= request.To; i++)
-                {
-                    var operation = _nodeStorage.GetOperation(request.ShardId, i);
-                    if (operation != null)
-                    {
-                        //This data could be in a future state
-                        var currentData = (ShardData)await _dataRouter.GetDataAsync(request.Type, operation.ObjectId);
-                        FinalList.Add(i, new ShardOperationMessage()
-                        {
-                            ObjectId = operation.ObjectId,
-                            Operation = operation.Operation,
-                            Payload = currentData,
-                            Position = i
-                        });
-                    }
-                }
-            }
-
-            return new RequestShardOperationsResponse()
-            {
-                IsSuccessful = true,
-                LatestPosition = _nodeStorage.GetCurrentShardLatestCount(request.ShardId),
-                Operations = FinalList
-            };
+            return await _shardManager.RequestShardOperations(request.ShardId, request.From, request.To, request.Type, request.IncludeOperations);
         }
 
         public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle) where TResponse : BaseResponse, new()
@@ -1227,39 +1219,7 @@ namespace ConsensusCore.Node
         {
             try
             {
-                Logger.LogDebug(GetNodeId() + "Recieved replication request for shard" + request.ShardId + " for object " + request.Operation.ObjectId + " for action " + request.Operation.Operation.ToString() + " operation " + request.Pos);
-                var startTime = DateTime.Now;
-                while (!_nodeStorage.CanApplyOperation(request.ShardId, request.Pos))
-                {
-                    Thread.Sleep(100);
-                }
-
-                if (_nodeStorage.ReplicateShardOperation(request.ShardId, request.Pos, request.Operation))
-                {
-                    if (!await RunDataOperation(request.Operation.Operation, request.Payload))
-                    {
-                        Logger.LogError("Ran into error while running operation " + request.Operation.ToString() + " on " + request.ShardId);
-                        if (!_nodeStorage.RemoveOperation(request.ShardId, request.Pos))
-                        {
-                            Logger.LogError("Ran into critical error when rolling back operation " + request.Pos + " on shard " + request.ShardId);
-                        }
-                        return new ReplicateShardOperationResponse()
-                        {
-                            IsSuccessful = false
-                        };
-                    }
-                    else
-                    {
-                        _nodeStorage.MarkOperationAsCommited(request.ShardId, request.Pos);
-                        Logger.LogDebug(GetNodeId() + "Marked operation " + request.Pos + " on shard " + request.ShardId + "as commited");
-                    }
-                }
-                Logger.LogDebug(GetNodeId() + "Successfully replicated request for shard" + request.ShardId + " for object " + request.Operation.ObjectId + " for action " + request.Operation.Operation.ToString());
-                return new ReplicateShardOperationResponse()
-                {
-                    LatestPosition = LocalShards[request.ShardId].LatestShardOperation,
-                    IsSuccessful = true
-                };
+                return await _shardManager.ReplicateShardOperation(request.ShardId, request.Operation, request.Payload, request.Pos, request.Type);
             }
             catch (Exception e)
             {
@@ -1316,62 +1276,11 @@ namespace ConsensusCore.Node
             };
         }
 
-        public async Task<bool> RunDataOperation(ShardOperationOptions operation, ShardData shard)
-        {
-            try
-            {
-                switch (operation)
-                {
-                    case ShardOperationOptions.Create:
-                        await _dataRouter.InsertDataAsync(shard);
-                        break;
-                    case ShardOperationOptions.Update:
-                        if (!_nodeStorage.IsObjectMarkedForDeletion(shard.ShardId.Value, shard.Id))
-                        {
-                            try
-                            {
-                                await _dataRouter.UpdateDataAsync(shard);
-                            }
-                            catch (Exception e)
-                            {
-                                Logger.LogWarning(GetNodeId() + "Failed to update data with exception " + e.Message + " trying to add the data instead.");
-                                await _dataRouter.InsertDataAsync(shard);
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine("OBJECT IS MARKED FOR DELETION");
-                        }
-                        break;
-                    case ShardOperationOptions.Delete:
-                        if (_nodeStorage.MarkShardForDeletion(shard.ShardId.Value, shard.Id))
-                        {
-                            await _dataRouter.DeleteDataAsync(shard);
-                        }
-                        else
-                        {
-                            Logger.LogError("Ran into error while deleting " + shard.Id);
-                            return false;
-                        }
-                        break;
-                }
-                return true;
-            }
-            catch (Exception e)
-            {
-                Logger.LogError("Failed to run data operation against shard " + shard.Id + " with exception " + e.StackTrace);
-                return false;
-            }
-        }
+
 
         public RequestInitializeNewShardResponse RequestInitializeNewShardHandler(RequestInitializeNewShard request)
         {
-            _nodeStorage.AddNewShardMetaData(new LocalShardMetaData()
-            {
-                ShardId = request.ShardId,
-                ShardOperations = new ConcurrentDictionary<int, ShardOperation>(),
-                Type = request.Type
-            });
+            _shardManager.AddNewShardMetadata(request.ShardId, request.Type);
 
             return new RequestInitializeNewShardResponse()
             {
@@ -1389,6 +1298,7 @@ namespace ConsensusCore.Node
         public async Task<WriteDataResponse> WriteDataRPCHandler(WriteData shard)
         {
             Logger.LogDebug(GetNodeId() + "Received write request for object " + shard.Data.Id + " for shard " + shard.Data.ShardId);
+            WriteDataResponse finalResult = new WriteDataResponse();
             //Check if index exists, if not - create one
             if (!_stateMachine.IndexExists(shard.Data.ShardType))
             {
@@ -1426,118 +1336,26 @@ namespace ConsensusCore.Node
             //If the shard is assigned to you
             if (shardMetadata.PrimaryAllocation == _nodeStorage.Id)
             {
-                if (_nodeStorage.GetShardMetadata(shard.Data.ShardId.Value) == null)
+                finalResult = await _shardManager.WriteData(shard.Data, shard.Operation, shard.WaitForSafeWrite, shard.RemoveLock);
+
+                if (finalResult.FailedNodes.Count() > 0)
                 {
-                    Logger.LogDebug(GetNodeId() + "Creating local copy of shard " + shard.Data.ShardId);
-                    _nodeStorage.AddNewShardMetaData(new LocalShardMetaData()
+                    Logger.LogWarning("Detected invalid nodes, setting nodes " + finalResult.FailedNodes.Select(ivn => ivn.ToString()).Aggregate((i, j) => i + "," + j) + " to be out-of-sync");
+
+                    var result = await Send(new ExecuteCommands()
                     {
-                        ShardId = shard.Data.ShardId.Value,
-                        ShardOperations = new ConcurrentDictionary<int, ShardOperation>(),
-                        Type = shard.Data.ShardType
-                    });
-                }
-
-                //Commit the sequence Number
-                int sequenceNumber = _nodeStorage.AddNewShardOperation(shard.Data.ShardId.Value, new ShardOperation()
-                {
-                    ObjectId = shard.Data.Id,
-                    Operation = shard.Operation
-                });
-
-
-
-                if (!await RunDataOperation(shard.Operation, shard.Data))
-                {
-                    Logger.LogError("Ran into error while running operation " + shard.Operation.ToString() + " on " + shard.Data.Id);
-                    if (!_nodeStorage.RemoveOperation(shard.Data.ShardId.Value, sequenceNumber))
-                    {
-                        Logger.LogError("Ran into critical error when rolling back operation " + sequenceNumber + " on shard " + shard.Data.ShardId.Value);
-                    }
-                    return new WriteDataResponse()
-                    {
-                        IsSuccessful = false
-                    };
-                }
-                else
-                {
-                    //If the shard metadata is not synced upto date
-                    if (_nodeStorage.GetShardMetadata(shard.Data.ShardId.Value).SyncPos < sequenceNumber - 1)
-                    {
-                        //Logger.LogInformation(GetNodeId() + "Detected delayed sync position, sending recovery command.");
-                        //AddShardSyncTask(shard.Data.Id, shard.Data.ShardType);
-                    }
-                    _nodeStorage.MarkOperationAsCommited(shard.Data.ShardId.Value, sequenceNumber);
-
-                    //Write to the replicated nodes
-                    ConcurrentBag<Guid> InvalidNodes = new ConcurrentBag<Guid>();
-
-                    bool successfullyMarkedOutOfSync = false;
-                    //All allocations except for your own
-                    var tasks = shardMetadata.InsyncAllocations.Where(id => id != _nodeStorage.Id).Select(async allocation =>
-                     {
-                         try
-                         {
-                             var result = await _clusterConnector.Send(allocation, new ReplicateShardOperation()
-                             {
-                                 ShardId = shardMetadata.Id,
-                                 Operation = new ShardOperation()
-                                 {
-                                     ObjectId = shard.Data.Id,
-                                     Operation = shard.Operation
-                                 },
-                                 Payload = shard.Data,
-                                 Pos = sequenceNumber,
-                                 Type = shard.Data.ShardType
-                             });
-
-                             if (result.IsSuccessful)
-                             {
-                                 Logger.LogDebug(GetNodeId() + "Successfully replicated all " + shardMetadata.Id + "shards.");
-                             }
-                             else
-                             {
-                                 throw new Exception("Failed to replicate data to shard " + shardMetadata.Id + " to node " + allocation);
-                             }
-                         }
-                         catch (TaskCanceledException e)
-                         {
-                             Logger.LogError(GetNodeId() + "Failed to replicate shard " + shardMetadata.Id + " on shard " + _stateMachine.CurrentState.Nodes[allocation].TransportAddress + " for operation " + sequenceNumber + " as request timed out, marking shard as not insync...");
-                             InvalidNodes.Add(allocation);
-                         }
-                         catch (Exception e)
-                         {
-                             Logger.LogError(GetNodeId() + "Failed to replicate shard " + shardMetadata.Id + " for operation " + sequenceNumber + ", marking shard as not insync..." + e.StackTrace);
-                             InvalidNodes.Add(allocation);
-                         }
-                     });
-
-                    await Task.WhenAll(tasks);
-
-                    if (InvalidNodes.Count() > 0)
-                    {
-                        Logger.LogWarning(GetNodeId() + "Detected invalid nodes, setting nodes " + InvalidNodes.Select(ivn => ivn.ToString()).Aggregate((i, j) => i + "," + j) + " to be out-of-sync");
-
-                        var result = await Send(new ExecuteCommands()
-                        {
-                            Commands = new List<BaseCommand>()
-                        {
-                            new UpdateShardMetadataAllocations()
+                        Commands = new List<BaseCommand>()
                             {
-                                ShardId = shardMetadata.Id,
-                                Type = shardMetadata.Type,
-                                InsyncAllocationsToRemove = InvalidNodes.ToHashSet(),
-                                StaleAllocationsToAdd = InvalidNodes.ToHashSet()
-                            }
-                },
-                            WaitForCommits = true
-                        });
-
-                        successfullyMarkedOutOfSync = result.IsSuccessful;
-                    }
-                    else
-                    {
-                        successfullyMarkedOutOfSync = true;
-                    }
+                                new UpdateShardMetadataAllocations()
+                                {
+                                    ShardId = shardMetadata.Id,
+                                    Type = shardMetadata.Type,
+                                    InsyncAllocationsToRemove = finalResult.FailedNodes.ToHashSet(),
+                                    StaleAllocationsToAdd = finalResult.FailedNodes.ToHashSet()
+                                }
+                            },
+                        WaitForCommits = true
+                    });
                 }
             }
             else
@@ -1567,13 +1385,14 @@ namespace ConsensusCore.Node
                 },
                     WaitForCommits = true
                 });
+
+                if (result.IsSuccessful)
+                {
+                    finalResult.LockRemoved = true;
+                }
             }
 
-            return new WriteDataResponse()
-            {
-                IsSuccessful = true,
-                ShardId = shard.Data.ShardId.Value
-            };
+            return finalResult;
         }
 
         object VoteLock = new object();
@@ -1588,7 +1407,7 @@ namespace ConsensusCore.Node
                 {
                     //Ref1 $5.2, $5.4
                     if (_nodeStorage.CurrentTerm <= requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
-                    (requestVoteRPC.LastLogIndex >= _nodeStorage.GetLogCount() && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+                    (requestVoteRPC.LastLogIndex >= _nodeStorage.GetTotalLogCount() && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
                     {
                         _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
                         Logger.LogDebug(GetNodeId() + "Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
@@ -1601,9 +1420,9 @@ namespace ConsensusCore.Node
                     {
                         Logger.LogDebug(GetNodeId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as current term is greater (" + requestVoteRPC.Term + "<" + _nodeStorage.CurrentTerm + ") | " + CurrentState.ToString());
                     }
-                    else if (requestVoteRPC.LastLogIndex < _nodeStorage.GetLogCount() - 1)
+                    else if (requestVoteRPC.LastLogIndex < _nodeStorage.GetTotalLogCount() - 1)
                     {
-                        Logger.LogDebug(GetNodeId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetLogCount() - 1) + ")" + CurrentState.ToString());
+                        Logger.LogDebug(GetNodeId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetTotalLogCount() - 1) + ")" + CurrentState.ToString());
                     }
                     else if (requestVoteRPC.LastLogTerm < _nodeStorage.GetLastLogTerm())
                     {
@@ -1676,20 +1495,20 @@ namespace ConsensusCore.Node
                     ConflictingTerm = null,
                     ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
                     FirstTermIndex = null,
-                    LastLogEntryIndex = _nodeStorage.GetLogCount()
+                    LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
                 };
             }
 
             if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
             {
                 Logger.LogWarning(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogTerm + " from term " + entry.PrevLogTerm + " does not exist.");
-                var logs = _nodeStorage.Logs.Where(l => l.Term == entry.PrevLogTerm).FirstOrDefault();
+                var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
                 return new AppendEntryResponse()
                 {
                     ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
                     IsSuccessful = false,
                     ConflictingTerm = entry.PrevLogTerm,
-                    FirstTermIndex = logs != null ? logs.Index : 0
+                    FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
                 };
             }
 
@@ -1743,18 +1562,16 @@ namespace ConsensusCore.Node
                 };
             }
 
-            if (request.ShardId == null)
+            if (request.CreateLock)
             {
-                if (request.CreateLock)
+                try
                 {
-                    try
+                    if (!_stateMachine.IsObjectLocked(request.ObjectId))
                     {
-                        if (!_stateMachine.IsObjectLocked(request.ObjectId))
+                        Guid newLockId = Guid.NewGuid();
+                        await Send(new ExecuteCommands()
                         {
-                            Guid newLockId = Guid.NewGuid();
-                            await Send(new ExecuteCommands()
-                            {
-                                Commands = new List<BaseCommand>{
+                            Commands = new List<BaseCommand>{
                                     new SetObjectLock()
                                     {
                                         ObjectId = request.ObjectId,
@@ -1762,129 +1579,50 @@ namespace ConsensusCore.Node
                                         LockId = newLockId
                                     }
                                 },
-                                WaitForCommits = true
-                            });
+                            WaitForCommits = true
+                        });
 
-                            var lockStartTime = DateTime.Now;
-                            //While the object is not locked yet, wait
-                            while (!_stateMachine.IsObjectLocked(request.ObjectId))
+                        var lockStartTime = DateTime.Now;
+                        //While the object is not locked yet, wait
+                        while (!_stateMachine.IsObjectLocked(request.ObjectId))
+                        {
+                            if ((DateTime.Now - lockStartTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
                             {
-                                if ((DateTime.Now - lockStartTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
-                                {
-                                    throw new ClusterOperationTimeoutException("Locking operation timed out on " + request.ObjectId);
-                                }
-                                Thread.Sleep(100);
+                                throw new ClusterOperationTimeoutException("Locking operation timed out on " + request.ObjectId);
                             }
-
-                            //After the objects been locked check the ID
-                            if (!_stateMachine.IsLockObtained(request.ObjectId, newLockId))
-                            {
-                                throw new ConflictingObjectLockException("Object was locked by another process...");
-                            }
-
-                            lockId = newLockId;
-                            appliedLock = true;
+                            Thread.Sleep(100);
                         }
-                        else
+
+                        //After the objects been locked check the ID
+                        if (!_stateMachine.IsLockObtained(request.ObjectId, newLockId))
                         {
-                            throw new ConflictingObjectLockException();
+                            throw new ConflictingObjectLockException("Object was locked by another process...");
                         }
-                    }
-                    catch (ConflictingObjectLockException e)
-                    {
-                        return new RequestDataShardResponse()
-                        {
-                            IsSuccessful = true,
-                            AppliedLocked = false,
-                            SearchMessage = "Object " + request.ObjectId + " is locked."
-                        };
-                    }
 
-                }
-
-                var shards = _stateMachine.GetAllPrimaryShards(request.Type);
-
-                bool foundResult = false;
-                ShardData finalObject = null;
-                var totalRespondedShards = 0;
-
-                var tasks = shards.Select(async shard =>
-                {
-                    if (shard.Value != _nodeStorage.Id)
-                    {
-                        try
-                        {
-                            var result = await _clusterConnector.Send(shard.Value, new RequestDataShard()
-                            {
-                                ObjectId = request.ObjectId,
-                                ShardId = shard.Key, //Set the shard
-                                Type = request.Type
-                            });
-
-                            if (result.IsSuccessful)
-                            {
-                                foundResult = true;
-                                finalObject = result.Data;
-                                FoundShard = result.ShardId;
-                                FoundOnNode = result.NodeId;
-                            }
-
-                            Interlocked.Increment(ref totalRespondedShards);
-                        }
-                        catch (Exception e)
-                        {
-                            Logger.LogError("Error thrown while getting " + e.Message);
-                        }
+                        lockId = newLockId;
+                        appliedLock = true;
                     }
                     else
                     {
-                        finalObject = await _dataRouter.GetDataAsync(request.Type, request.ObjectId);
-                        foundResult = finalObject != null ? true : false;
-                        FoundShard = shard.Key;
-                        FoundShard = shard.Value;
-                        Interlocked.Increment(ref totalRespondedShards);
+                        throw new ConflictingObjectLockException();
                     }
-                });
-
-                //Don't await, this will trigger the tasks
-                Task.WhenAll(tasks);
-
-                while (!foundResult && totalRespondedShards < shards.Count)
+                }
+                catch (ConflictingObjectLockException e)
                 {
-                    if ((DateTime.Now - currentTime).TotalMilliseconds > request.TimeoutMs)
+                    return new RequestDataShardResponse()
                     {
-                        return new RequestDataShardResponse()
-                        {
-                            IsSuccessful = false
-                        };
-                    }
-                    Thread.Sleep(10);
+                        IsSuccessful = true,
+                        AppliedLocked = false,
+                        SearchMessage = "Object " + request.ObjectId + " is locked."
+                    };
                 }
 
-                return new RequestDataShardResponse()
-                {
-                    IsSuccessful = true,
-                    Data = finalObject,
-                    SearchMessage = finalObject != null ? null : "Object " + request.ObjectId + " could not be found in shards.",
-                    LockId = lockId,
-                    AppliedLocked = appliedLock
+            }
 
-                };
-            }
-            else
-            {
-                var finalObject = await _dataRouter.GetDataAsync(request.Type, request.ObjectId);
-                return new RequestDataShardResponse()
-                {
-                    IsSuccessful = finalObject != null,
-                    Data = finalObject,
-                    NodeId = FoundOnNode,
-                    ShardId = FoundShard,
-                    SearchMessage = finalObject != null ? null : "Object " + request.ObjectId + " could not be found in shards.",
-                    LockId = lockId,
-                    AppliedLocked = appliedLock
-                };
-            }
+            data = await _shardManager.RequestDataShard(request.ObjectId, request.Type, request.TimeoutMs, request.ShardId);
+            data.LockId = lockId;
+            data.AppliedLocked = appliedLock;
+            return data;
         }
         #endregion
 
@@ -1907,7 +1645,7 @@ namespace ConsensusCore.Node
                 {
                     //Add the match index if required
                     if (!NextIndex.ContainsKey(node.Key))
-                        NextIndex.Add(node.Key, _nodeStorage.GetLogCount() + 1);
+                        NextIndex.Add(node.Key, _nodeStorage.GetTotalLogCount() + 1);
                     if (!MatchIndex.ContainsKey(node.Key))
                         MatchIndex.TryAdd(node.Key, 0);
 
@@ -1915,13 +1653,15 @@ namespace ConsensusCore.Node
                     var entriesToSend = new List<LogEntry>();
 
                     var prevLogIndex = Math.Max(0, NextIndex[node.Key] - 1);
-                    int prevLogTerm = (_nodeStorage.GetLogCount() > 0 && prevLogIndex > 0) ? prevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+                    int prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? prevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
 
                     if (NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, true))
                     {
-                        var unsentLogs = (_nodeStorage.GetLogCount() - NextIndex[node.Key] + 1);
+                        var unsentLogs = (_nodeStorage.GetTotalLogCount() - NextIndex[node.Key] + 1);
                         var quantityToSend = unsentLogs;
-                        entriesToSend = _nodeStorage.Logs.GetRange(NextIndex[node.Key] == 0 ? 0 : NextIndex[node.Key] - 1, quantityToSend < _clusterOptions.MaxLogsToSend ? quantityToSend : _clusterOptions.MaxLogsToSend).ToList();
+                        var startingLogsToSend = NextIndex[node.Key] == 0 ? 0 : NextIndex[node.Key] - 1;
+                        var endingLogsToSend = startingLogsToSend + (quantityToSend < _clusterOptions.MaxLogsToSend ? quantityToSend : _clusterOptions.MaxLogsToSend);
+                        entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).ToList();
                         // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
                         Logger.LogDebug(GetNodeId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
                         // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
@@ -1941,6 +1681,8 @@ namespace ConsensusCore.Node
                         PrevLogIndex = prevLogIndex,
                         PrevLogTerm = prevLogTerm
                     });
+
+                    TODO add the append function here if you do not have the log
 
                     LogsSent.TryUpdate(node.Key, false, true);
 
@@ -1983,8 +1725,8 @@ namespace ConsensusCore.Node
                     }
                     else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
                     {
-                        var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Term == result.ConflictingTerm).FirstOrDefault();
-                        var revertedIndex = firstEntryOfTerm.Index < result.FirstTermIndex ? firstEntryOfTerm.Index : result.FirstTermIndex.Value;
+                        var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
+                        var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
                         Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
 
                         //Revert back to the first index of that term
@@ -2230,8 +1972,14 @@ namespace ConsensusCore.Node
                     //This is for the primary copy
                     var eligbleNodes = _stateMachine.CurrentState.Nodes.Where(n => n.Value.IsContactable).ToDictionary(k => k.Key, v => v.Value);
                     var rand = new Random();
+                    DateTime startTime = DateTime.Now;
                     while (eligbleNodes.Count() == 0)
                     {
+                        if ((DateTime.Now - startTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
+                        {
+                            Logger.LogError("Failed to create indext type " + type + " request timed out...");
+                            throw new ClusterOperationTimeoutException("Failed to create indext type " + type + " request timed out...");
+                        }
                         Logger.LogWarning(GetNodeId() + "No eligible nodes found, awaiting eligible nodes.");
                         Thread.Sleep(1000);
                         eligbleNodes = _stateMachine.CurrentState.Nodes.Where(n => n.Value.IsContactable).ToDictionary(k => k.Key, v => v.Value);
@@ -2289,357 +2037,9 @@ namespace ConsensusCore.Node
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="operation"></param>
-        /// <param name="shardId"></param>
-        /// <param name="type"></param>
-        /// <param name="pos"></param>
-        /// <param name="data">correct data</param>
-        public async void ReverseLocalTransaction(Guid shardId, string type, int pos)
-        {
-            ShardOperation operation = _nodeStorage.GetShardOperation(shardId, pos);
-            try
-            {
-                Logger.LogWarning(GetNodeId() + " Reverting operation " + ":" + pos + " " + operation.Operation.ToString() + " on shard " + shardId + " for object " + operation.ObjectId);
-                _nodeStorage.RemoveOperation(shardId, pos);
-            }
-            catch (ShardOperationConcurrencyException e)
-            {
-                Logger.LogError(GetNodeId() + " tried to remove a sync position out of order, " + e.Message + Environment.NewLine + e.StackTrace);
-                throw e;
-            }
-            //Exception might be thrown because the sync position might be equal to the position you are setting
-            catch (Exception e)
-            {
-                throw e;
-            }
-
-            ShardData data = null;
-            if (operation.Operation == ShardOperationOptions.Delete || operation.Operation == ShardOperationOptions.Update)
-            {
-                var result = await _clusterConnector.Send(_stateMachine.GetShard(type, shardId).PrimaryAllocation, new RequestDataShard()
-                {
-                    ShardId = shardId,
-                    Type = type,
-                    ObjectId = operation.ObjectId
-                });
-
-                data = result.Data;
-            }
-
-            _nodeStorage.RevertedOperations.Add(new DataReversionRecord()
-            {
-                OriginalOperation = operation,
-                NewData = data,
-                OriginalData = await _dataRouter.GetDataAsync(type, operation.ObjectId),
-                RevertedTime = DateTime.Now
-            });
-
-            switch (operation.Operation)
-            {
-                case ShardOperationOptions.Create:
-                    data = await _dataRouter.GetDataAsync(type, operation.ObjectId);
-                    if (data != null)
-                    {
-                        Logger.LogInformation("Reverting create with deletion of " + data);
-                        await _dataRouter.DeleteDataAsync(data);
-                    }
-                    break;
-                // Put the data back in the right position
-                case ShardOperationOptions.Delete:
-                    // Set correct data for null for a full rollback
-                    if (data != null)
-                        await _dataRouter.InsertDataAsync(data);
-                    else
-                    {
-                        Logger.LogError(GetNodeId() + "Failed to re-add deleted record " + operation.ObjectId + "...");
-                        throw new Exception("Failed to re-add deleted record " + operation.ObjectId + "...");
-                    }
-                    break;
-                case ShardOperationOptions.Update:
-                    if (data != null)
-                    {
-                        data = await _dataRouter.GetDataAsync(type, operation.ObjectId);
-                        if (data != null)
-                            await _dataRouter.UpdateDataAsync(data);
-                        else
-                            await _dataRouter.InsertDataAsync(data);
-                    }
-                    else
-                    {
-                        Logger.LogError("Failed to revert update as there was no correct data given.");
-                    }
-                    break;
-            }
-        }
-
-        /// <summary>
-        /// Sync the local shard with the clusters shard. Used mainly if the node is out of sync with the cluster.
-        /// </summary>
-        /// <param name="shardId"></param>
-        /// <returns></returns>
-        public async Task<bool> SyncShard(Guid shardId, string type)
-        {
-            Logger.LogDebug(GetNodeId() + "Starting sync of " + shardId + " on node " + MyUrl);
-            LocalShardMetaData shard;
-            //Check if shard exists, if not create it.
-            if ((shard = _nodeStorage.GetShardMetadata(shardId)) == null)
-            {
-                //Create local empty shard
-                _nodeStorage.AddNewShardMetaData(new LocalShardMetaData()
-                {
-                    ShardId = shardId,
-                    ShardOperations = new ConcurrentDictionary<int, ShardOperation>(),
-                    Type = type
-                });
-                shard = _nodeStorage.GetShardMetadata(shardId);
-            }
-
-            //you should sync twice, first to sync from stale, then to sync any trailing data
-            var syncs = 0;
-            Random rand = new Random();
-            SharedShardMetadata shardMetadata = null;// = _stateMachine.GetShardMetadata(shard.ShardId, shard.Type);
-            Guid? selectedNode = null;
-            var startTime = DateTime.Now;
-            while (selectedNode == null)
-            {
-                shardMetadata = _stateMachine.GetShardMetadata(shard.ShardId, shard.Type);
-                //Time out finding a allocation
-                if ((DateTime.Now - startTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
-                {
-                    Logger.LogError("Failed to completed sync shard for shard " + shardId + " for type " + type + " request timed out...");
-                    throw new ClusterOperationTimeoutException("Failed to completed sync shard for shard " + shardId + " for type " + type + " request timed out...");
-                }
-
-                var randomlySelectedNode = shardMetadata.PrimaryAllocation;//shardMetadata.InsyncAllocations[rand.Next(0, shardMetadata.InsyncAllocations.Where(i => i != _nodeStorage.Id).Count())];
-
-                if (_stateMachine.CurrentState.Nodes.ContainsKey(randomlySelectedNode) && _clusterConnector.ContainsNode(randomlySelectedNode))
-                {
-                    selectedNode = randomlySelectedNode;
-                }
-                else
-                {
-                    Logger.LogWarning(GetNodeId() + " primary node " + randomlySelectedNode + " was not available for recovery, sleeping and will try again...");
-                    Thread.Sleep(1000);
-                }
-            }
-
-            //Start by checking whether the last 3 transaction was consistent
-            Logger.LogDebug(GetNodeId() + " rechecking consistency for shard " + shard.ShardId);
-
-            if (shard.SyncPos != 0)
-            {
-                var isConsistent = false;
-                var positionsToCheck = 10;
-                while (!isConsistent)
-                {
-                    var pointToCheckFrom = shard.SyncPos < 2 ? shard.SyncPos : shard.SyncPos - positionsToCheck;
-                    int? lowestPosition = null;
-
-                    var from = shard.SyncPos < positionsToCheck ? 0 : shard.SyncPos - positionsToCheck;
-                    var to = shard.SyncPos;
-
-                    Logger.LogWarning(GetNodeId() + " pulling operation " + shard.ShardId + " from:" + from + " to:" + to);
-                    var lastOperation = await _clusterConnector.Send(selectedNode.Value, new RequestShardOperations()
-                    {
-                        From = from,
-                        To = to,
-                        ShardId = shardId,
-                        Type = type,
-                        IncludeOperations = true
-                    });
-
-                    if (!lastOperation.IsSuccessful)
-                    {
-                        Logger.LogError(GetNodeId() + " could not successfully fetch operations for shard " + shard.ShardId + " from:" + from + " to:" + to);
-                        throw new Exception(GetNodeId() + " could not successfully fetch operations." + shard.ShardId + " from:" + from + " to:" + to);
-                    }
-
-                    // If you have more operations then the primary, delete the local operations
-                    var currentOperationCount = _nodeStorage.GetCurrentShardLatestCount(shard.ShardId);
-                    if (lastOperation.LatestPosition < currentOperationCount)
-                    {
-                        Logger.LogWarning(GetNodeId() + "Found local operations is ahead of primary, rolling back operations");
-                        for (var i = currentOperationCount; i > lastOperation.LatestPosition; i--)
-                        {
-                            var operation = _nodeStorage.GetOperation(shardId, i);
-                            ReverseLocalTransaction(shard.ShardId, shard.Type, i);
-                        }
-                    }
-
-                    foreach (var pos in lastOperation.Operations.OrderByDescending(o => o.Key))
-                    {
-                        Logger.LogWarning(GetNodeId() + "Checking operation " + pos.Key);
-                        var myCopyOfTheTransaction = _nodeStorage.GetShardOperation(shard.ShardId, pos.Key);
-
-                        if (myCopyOfTheTransaction == null || myCopyOfTheTransaction.ObjectId != pos.Value.ObjectId || myCopyOfTheTransaction.Operation != pos.Value.Operation)
-                        {
-                            Logger.LogWarning(GetNodeId() + "Found my copy of the operation" + pos.Key + " was not equal to the primary. Reverting operation " + Environment.NewLine + JsonConvert.SerializeObject(myCopyOfTheTransaction));
-                            //Reverse the transaction
-                            ReverseLocalTransaction(shard.ShardId, shard.Type, pos.Key);
-                            if (lowestPosition == null || lowestPosition > pos.Key)
-                            {
-                                lowestPosition = pos.Key;
-                            }
-                        }
-                    }
-
-                    Logger.LogError("My current operation count is " + currentOperationCount + " the remote operation count is " + lastOperation.LatestPosition);
-
-                    if (lowestPosition == null)
-                    {
-                        isConsistent = true;
-                        Logger.LogDebug(GetNodeId() + "Detected three consistently transactions, continuing recovery for shard " + shard.ShardId);
-                    }
-                    else
-                    {
-                        Logger.LogWarning(GetNodeId() + " reverted sync position to " + _nodeStorage.GetShardSyncPositions()[shard.ShardId]);
-                        shard = _nodeStorage.GetShardMetadata(shardId);
-                    }
-                }
-
-            }
 
 
-            var latestPrimary = await _clusterConnector.Send(selectedNode.Value, new RequestShardOperations()
-            {
-                From = shard.SyncPos + 1,
-                To = shard.SyncPos + 1,
-                ShardId = shardId,
-                Type = type
-            });
 
-            var currentPos = _nodeStorage.GetShardMetadata(shardId).SyncPos;
-            var lastPrimaryPosition = latestPrimary.LatestPosition;
-
-            if (currentPos < lastPrimaryPosition)
-            {
-                while (currentPos < lastPrimaryPosition)
-                {
-
-                    var syncTo = lastPrimaryPosition > (shard.SyncPos + _clusterOptions.MaxObjectSync) ? (shard.SyncPos + _clusterOptions.MaxObjectSync) : lastPrimaryPosition;
-                    Logger.LogDebug(GetNodeId() + "Syncing from " + (shard.SyncPos + 1) + " to " + syncTo);
-                    var nextOperations = await _clusterConnector.Send(selectedNode.Value, new RequestShardOperations()
-                    {
-                        From = shard.SyncPos + 1,
-                        // do 100 records at a time
-                        To = syncTo,
-                        ShardId = shardId,
-                        Type = type
-                    });
-
-                    foreach (var operation in nextOperations.Operations)
-                    {
-                        Logger.LogDebug(GetNodeId() + "Recovering operation " + operation.Value.Position + " on shard " + shard.ShardId);
-                        var result = await Send(new ReplicateShardOperation()
-                        {
-                            Operation = new ShardOperation()
-                            {
-                                Operation = operation.Value.Operation,
-                                ObjectId = operation.Value.ObjectId
-                            },
-                            Payload = (ShardData)operation.Value.Payload,
-                            Pos = operation.Key,
-                            ShardId = shard.ShardId
-                        });
-
-                        if (!result.IsSuccessful)
-                        {
-                            throw new Exception("Failed to replicate shard " + shard.ShardId + " operation " + operation.Value.Operation.ToString() + " for object " + operation.Value.ObjectId);
-                        }
-                        if (result.LatestPosition > lastPrimaryPosition)
-                        {
-                            Logger.LogDebug(GetNodeId() + "Updating the sync length to " + lastPrimaryPosition + " for shard " + shard.ShardId);
-                            lastPrimaryPosition = result.LatestPosition;
-                        }
-                    }
-
-                    currentPos = _nodeStorage.GetShardMetadata(shardId).SyncPos;
-
-                    if (syncTo == lastPrimaryPosition)
-                    {
-                        Logger.LogDebug(GetNodeId() + "Recovery options finished current position " + currentPos + " latest position " + lastPrimaryPosition);
-
-                        //If there is no next latest position, wait and check after a second
-                        if (lastPrimaryPosition == nextOperations.LatestPosition)
-                        {
-                            Logger.LogDebug(GetNodeId() + "Caught up shard " + shard.ShardId + ". Reallocating node as insync and creating watch period.");
-                            shardMetadata = _stateMachine.GetShardMetadata(shard.ShardId, shard.Type);
-
-                            //Update cluster to make this node in-sync
-                            await Send(new ExecuteCommands()
-                            {
-                                Commands = new List<BaseCommand>()
-                            {
-                                new UpdateShardMetadataAllocations(){
-                                    ShardId = shardMetadata.Id,
-                                    Type = shardMetadata.Type,
-                                    InsyncAllocationsToAdd = new HashSet<Guid>(){_nodeStorage.Id },
-                                    StaleAllocationsToRemove = new HashSet<Guid>(){_nodeStorage.Id }
-                                }
-                            },
-                                WaitForCommits = true
-                            });
-
-                            while (!_stateMachine.GetShard(type, shardId).InsyncAllocations.Contains(_nodeStorage.Id))
-                            {
-                                Thread.Sleep(100);
-                                Logger.LogDebug(GetNodeId() + "Awaiting the shard " + shardId + " to be insync.");
-                            }
-                            //Wait three seconds
-                            Thread.Sleep(5000);
-
-                            // reset and try to find the next position
-                            var tempLastPosition = (await _clusterConnector.Send(selectedNode.Value, new RequestShardOperations()
-                            {
-                                From = shard.SyncPos + 1,
-                                To = lastPrimaryPosition,
-                                ShardId = shardId,
-                                Type = type
-                            })).LatestPosition;
-
-                            if (lastPrimaryPosition != tempLastPosition)
-                            {
-                                lastPrimaryPosition = tempLastPosition;
-                                Logger.LogDebug(GetNodeId() + "Detected that shard " + shardMetadata.Id + " has had transient transactions. Continuing to resync.");
-                            }
-                            else
-                            {
-                                Logger.LogDebug(GetNodeId() + "Everything on " + shardMetadata.Id + " has been synced and the shard is now insync.");
-                            }
-                        }
-                        else
-                        {
-                            Logger.LogDebug(GetNodeId() + "Detected shard " + shard.ShardId + " on " + MyUrl + " has a new latest sync position " + lastPrimaryPosition + " < " + nextOperations.LatestPosition);
-                            lastPrimaryPosition = nextOperations.LatestPosition;
-                        }
-                    }
-                }
-            }
-            //If the shard is insync but just not marked correctly, set the shard as insync
-            else if (shardMetadata.StaleAllocations.Contains(_nodeStorage.Id))
-            {
-                //Update cluster to make this node in-sync
-                await Send(new ExecuteCommands()
-                {
-                    Commands = new List<BaseCommand>()
-                            {
-                                new UpdateShardMetadataAllocations(){
-                                    ShardId = shardMetadata.Id,
-                                    Type = shardMetadata.Type,
-                                    //Remove this node from stale operations
-                                    StaleAllocationsToRemove = new HashSet<Guid>(){  _nodeStorage.Id },
-                                    InsyncAllocationsToAdd = new HashSet<Guid>(){  _nodeStorage.Id }
-                                }
-                            },
-                    WaitForCommits = true
-                });
-            }
-            Logger.LogDebug(GetNodeId() + "Caught up shard " + shard.ShardId + ". Reallocating node as insync and creating watch period.");
-            return true;
-        }
 
         public void SetCurrentTerm(int newTerm)
         {
@@ -2665,14 +2065,14 @@ namespace ConsensusCore.Node
             return _stateMachine.CurrentState.ClusterTasks.Select(ct => ct.Value).ToList();
         }
 
-        public List<LogEntry> GetLogs()
+        public SortedList<int, LogEntry> GetLogs()
         {
             return _nodeStorage.Logs;
         }
 
         public bool IsUptoDate()
         {
-            return CommitIndex == _nodeStorage.GetLogCount();
+            return CommitIndex == _nodeStorage.GetTotalLogCount();
         }
     }
 }

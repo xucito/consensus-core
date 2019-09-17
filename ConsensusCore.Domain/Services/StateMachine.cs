@@ -64,6 +64,11 @@ namespace ConsensusCore.Domain.Services
             }
         }
 
+        public void ApplySnapshotToStateMachine(Z state)
+        {
+            this.CurrentState = state;
+        }
+
         public Z GetCurrentState()
         {
             return CurrentState;
@@ -188,5 +193,6 @@ namespace ConsensusCore.Domain.Services
         {
             return CurrentState.GetRunningTask(uniqueId);
         }
+
     }
 }

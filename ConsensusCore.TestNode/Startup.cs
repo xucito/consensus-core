@@ -36,10 +36,8 @@ namespace ConsensusCore.TestNode
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.Configure<ClusterOptions>(Configuration.GetSection("Cluster"));
-            services.Configure<NodeOptions>(Configuration.GetSection("Node"));
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository>(s => new NodeInMemoryRepository());
+            services.AddConsensusCore<TestState, NodeInMemoryRepository>(s => new NodeInMemoryRepository(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
@@ -53,8 +51,9 @@ namespace ConsensusCore.TestNode
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env, 
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env,
             IBaseRepository repository,
+            ShardManager<TestState, IBaseRepository> shardManager,
             IConsensusCoreNode<TestState, IBaseRepository> node)
         {
             if (env.IsDevelopment())

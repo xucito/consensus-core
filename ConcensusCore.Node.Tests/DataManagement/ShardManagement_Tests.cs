@@ -4,6 +4,7 @@ using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node;
+using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
@@ -25,49 +26,12 @@ namespace ConcensusCore.Node.Tests.DataManagement
     public class ShardManagement_Tests
     {
         public ConsensusCoreNode<TestState, NodeInMemoryRepository> Node;
-        public IDataRouter _dataRouter;
-        public NodeStorage NodeStorage;
+        public NodeStorage<TestState> NodeStorage;
 
         public ShardManagement_Tests()
         {
-            var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
-            moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions()
-            {
-                NodeUrls =  "localhost:5022",
-                TestMode = true,
-                NumberOfShards = 1,
-                DataTransferTimeoutMs = 1000,
-                ElectionTimeoutMs = 1000,
-                LatencyToleranceMs = 1000,
-                MinimumNodes = 1
-            });
-
-            var moqNodeOptions = new Mock<IOptions<NodeOptions>>();
-            moqNodeOptions.Setup(mqo => mqo.Value).Returns(new NodeOptions() { });
-
-            var serviceProvider = new ServiceCollection()
-            .AddLogging()
-            .BuildServiceProvider();
-
-            var factory = serviceProvider.GetService<ILoggerFactory>();
-
-            var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
-
-            var inMemoryRepository = new NodeInMemoryRepository();
-            NodeStorage = new NodeStorage(inMemoryRepository);
-            _dataRouter = new TestDataRouter();
-
-            Node = new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
-            moqNodeOptions.Object, logger,
-            new StateMachine<TestState>(), inMemoryRepository, new TestDataRouter())
-            {
-                IsBootstrapped = true
-            };
-
-            while (!Node.InCluster || Node.CurrentState != NodeState.Leader)
-            {
-                Thread.Sleep(1000);
-            }
+            Node = TestUtility.GetTestConsensusCoreNode();
+            NodeStorage = Node._nodeStorage;
         }
 
         [Fact]
@@ -85,6 +49,13 @@ namespace ConcensusCore.Node.Tests.DataManagement
             });
 
             Assert.True(result.IsSuccessful);
+        }
+
+
+        [Fact]
+        public async void ThrowErrorWhenNumberOfShardsIs0()
+        {
+            Assert.True(false);
         }
 
         [Fact]
