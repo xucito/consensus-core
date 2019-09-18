@@ -14,7 +14,11 @@ The raft paper proposed to send snapshots from leader to followers in chunks how
 - Snapshots are always starting from 0 to x (x being the lastIncludedIndex) 
 - The snapshot can be transferred via a single network transaction.
 
+Two Cluster options relate to the snapshot trailing
+- SnapshottingInterval: How frequently to create snapshots in terms of commited logs i.e. 10 = every 10 commits it will create a snapshot
+- SnapshottingTrailingLogCount: How many recent logs to exclude from the snapshot, this is used so that you do not create snapshots (and also delete) the more recent logs that may be in transient transactions. Generally the higher this number the lower likelihood of any race conditions occuring i.e. After evaluating that an AppendEntryRPC is to be sent from the leader, the logs are removed from the index.
 
+Example: if Snapshotting interval is set to 50 and snapshottingtraillogcount is set to 10, every 50 commits, it will create a snapshot up to x (x being the commit index) - 10
 
 # Add Extensions
 
