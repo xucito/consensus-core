@@ -17,10 +17,10 @@ namespace ConsensusCore.TestNode.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        IConsensusCoreNode<TestState, IBaseRepository> _node;
+        IConsensusCoreNode<TestState, IBaseRepository<TestState>> _node;
         TestDataRouter _router;
 
-        public ValuesController(IConsensusCoreNode<TestState, IBaseRepository> node, IDataRouter router)
+        public ValuesController(IConsensusCoreNode<TestState, IBaseRepository<TestState>> node, IDataRouter router)
         {
             _node = node;
             _router = (TestDataRouter)router;
@@ -32,7 +32,7 @@ namespace ConsensusCore.TestNode.Controllers
             if (_node.InCluster)
             {
                 var newId = Guid.NewGuid();
-                var result = await (_node.Send(new WriteData()
+                var result = await (_node.Handle(new WriteData()
                 {
                     Data = new TestData()
                     {
@@ -65,10 +65,31 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                return Ok((await _node.Send(new RequestDataShard()
+                return Ok((await _node.Handle(new RequestDataShard()
                 {
                     ObjectId = id,
                     Type = "number"
+                })));
+            }
+            else
+            {
+                return StatusCode(503);
+
+            }
+            //return Ok(_router._numberStore.Where(n => n.Id == id));
+        }
+
+        [HttpGet("{id}/lock")]
+        public async Task<IActionResult> GetNumberLock(Guid id)
+        {
+            if (_node.InCluster)
+            {
+                return Ok((await _node.Handle(new RequestDataShard()
+                {
+                    ObjectId = id,
+                    Type = "number",
+                    CreateLock = true,
+                    LockTimeoutMs = 10000
                 })));
             }
             else
@@ -98,7 +119,7 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                var number = (await _node.Send(new RequestDataShard()
+                var number = (await _node.Handle(new RequestDataShard()
                 {
                     ObjectId = id,
                     Type = "number"
@@ -110,7 +131,7 @@ namespace ConsensusCore.TestNode.Controllers
                     var updatedObject = (TestData)number.Data;
                     updatedObject.Data = value;
 
-                    var result = _node.Send(new WriteData()
+                    var result = _node.Handle(new WriteData()
                     {
                         Data = new TestData()
                         {

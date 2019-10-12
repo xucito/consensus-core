@@ -9,5 +9,6 @@ namespace ConsensusCore.Domain.Enums
     {
         public static string ConflictingLogEntryException = "ConflictingLogEntryException";
         public static string MissingLogEntryException = "MissingLogEntryException";
+        public static string OldTermException = "MissingLogEntryException";
     }
 }

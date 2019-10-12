@@ -4,7 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -16,12 +19,12 @@ namespace ConsensusCore.Node.Controllers
     //[GenericController]
     public class NodeController<State, Repository> : Controller
         where State : BaseState, new()
-        where Repository : IBaseRepository
+        where Repository : IBaseRepository<State>
     {
-        private IConsensusCoreNode<State, IBaseRepository> _node;
+        private IConsensusCoreNode<State, IBaseRepository<State>> _node;
         private ILogger<NodeController<State, Repository>> Logger;
 
-        public NodeController(IConsensusCoreNode<State, IBaseRepository> manager, ILogger<NodeController<State, Repository>> logger)
+        public NodeController(IConsensusCoreNode<State, IBaseRepository<State>> manager, ILogger<NodeController<State, Repository>> logger)
         {
             _node = manager;
             Logger = logger;
@@ -46,7 +49,7 @@ namespace ConsensusCore.Node.Controllers
             {
                 Logger.LogError("FOR SOME REASON THE REQUEST IS NULL");
             }
-            return Ok(await _node.Send(request));
+            return Ok(await _node.Handle(request));
         }
 
         [HttpGet("Tasks")]
@@ -65,6 +68,40 @@ namespace ConsensusCore.Node.Controllers
         public IActionResult GetRevertedOperations()
         {
             return Ok(_node.RevertedOperations);
+        }
+
+        //Locks
+        [HttpPost("locks")]
+        public async Task<IActionResult> CreateLock(PostLockRequest request)
+        {
+            return Ok(await _node.Handle(new RequestDataShard()
+            {
+                ObjectId = request.Id,
+                Type = request.Type,
+                CreateLock = true,
+                LockTimeoutMs = request.LockTimeoutMs
+            }));
+        }
+
+        [HttpDelete("locks/{lockId}")]
+        public async Task<IActionResult> RemoveLock(Guid lockId)
+        {
+            await _node.Handle(new ExecuteCommands()
+            {
+                Commands = new List<BaseCommand>() {
+                new RemoveObjectLock()
+            {
+                LockId = lockId
+            } },
+                WaitForCommits = true
+            });
+            return Ok();
+        }
+
+        [HttpGet("locks")]
+        public IActionResult GetLocks()
+        {
+            return Ok(_node.ObjectLocks);
         }
 
         /*

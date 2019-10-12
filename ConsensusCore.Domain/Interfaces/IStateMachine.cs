@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Models;
@@ -38,5 +39,6 @@ namespace ConsensusCore.Domain.Interfaces
         bool IsObjectLocked(Guid objectId);
         bool IsLockObtained(Guid objectId, Guid lockId); //Check the lock Id whether it was obtained
         BaseTask GetRunningTask(string uniqueId);
+        ConcurrentDictionary<Guid, ObjectLock> GetObjectLocks(); 
     }
 }

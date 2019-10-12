@@ -19,5 +19,10 @@ namespace ConsensusCore.Node
         public int MaxLogsToSend { get; set; } = 100;
         public int MaxObjectSync { get; set; } = 100;
         public int SnapshottingInterval { get; set; } = 50;
+        public int SnapshottingTrailingLogCount { get; set; } = 10;
+        /// <summary>
+        /// How many positions to validate when recovering a shard
+        /// </summary>
+        public int ShardRecoveryValidationCount { get; set; } = 20;
     }
 }

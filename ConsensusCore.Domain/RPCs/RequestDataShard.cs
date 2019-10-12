@@ -17,7 +17,7 @@ namespace ConsensusCore.Domain.RPCs
         public override string RequestName => "GetDataShard";
         public int TimeoutMs = 3000;
         public bool CreateLock { get; set; }
-        public int LockTimeoutMs { get; set; } = 3000;
+        public int LockTimeoutMs { get; set; } = 30000;
     }
 
     public class RequestDataShardResponse: BaseResponse

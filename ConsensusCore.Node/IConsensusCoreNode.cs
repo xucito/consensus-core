@@ -14,7 +14,7 @@ namespace ConsensusCore.Node
 {
     public interface IConsensusCoreNode<State, Repository>
         where State : BaseState, new()
-        where Repository : IBaseRepository
+        where Repository : IBaseRepository<State>
     {
         /* StateMachine<State> _stateMachine { get; }
          int CommitIndex { get; }
@@ -43,7 +43,7 @@ namespace ConsensusCore.Node
         ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards { get; }
         NodeInfo NodeInfo { get; }
         State GetState();
-        Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
+        Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
         bool InCluster { get; }
         bool IsLeader { get; }
         bool HasEntryBeenCommitted(int logIndex);
@@ -52,5 +52,6 @@ namespace ConsensusCore.Node
         //Used for testing
         void SetNodeRole(NodeState newState);
         List<DataReversionRecord> RevertedOperations { get; }
+        List<ObjectLock> ObjectLocks { get; }
     }
 }

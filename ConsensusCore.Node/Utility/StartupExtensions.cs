@@ -40,13 +40,13 @@ namespace ConsensusCore.Node.Utility
             Action<NodeOptions> nodeOptions,
             Action<ClusterOptions> clusterOptions)
                 where State : BaseState, new()
-                where Repository : class, IBaseRepository
+                where Repository : class, IBaseRepository<State>
         {
-            services.AddSingleton<IBaseRepository, Repository>(implementationFactory);
+            services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository>, ConsensusCoreNode<State, IBaseRepository>>();
-            services.AddTransient<NodeController<State, IBaseRepository>>();
+            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository<State>>, ConsensusCoreNode<State, IBaseRepository<State>>>();
+            services.AddTransient<NodeController<State, IBaseRepository<State>>>();
             services.Configure(nodeOptions);
             services.Configure(clusterOptions);
             services.AddSingleton<ClusterConnector>();
@@ -64,18 +64,18 @@ namespace ConsensusCore.Node.Utility
      IConfigurationSection nodeOptions,
     IConfigurationSection clusterOptions)
         where State : BaseState, new()
-        where Repository : class, IBaseRepository
+        where Repository : class, IBaseRepository<State>
         {
-            services.AddSingleton<IBaseRepository, Repository>(implementationFactory);
+            services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository>, ConsensusCoreNode<State, IBaseRepository>>();
-            services.AddTransient<NodeController<State, IBaseRepository>>();
+            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository<State>>, ConsensusCoreNode<State, IBaseRepository<State>>>();
+            services.AddTransient<NodeController<State, IBaseRepository<State>>>();
             services.Configure<NodeOptions>(nodeOptions);
             services.Configure<ClusterOptions>(clusterOptions);
             services.AddSingleton<ClusterConnector>();
-            services.AddSingleton<NodeStorage>();
-            services.AddSingleton<ShardManager<State, IBaseRepository>>();
+            services.AddSingleton<NodeStorage<State>>();
+            services.AddSingleton<ShardManager<State, IBaseRepository<State>>>();
 
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
                 .ConfigureApplicationPartManager(apm =>

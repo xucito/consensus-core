@@ -3,9 +3,9 @@ using ConsensusCore.Domain.Services;
 
 namespace ConsensusCore.Domain.Interfaces
 {
-    public interface IBaseRepository
+    public interface IBaseRepository<State> where State : BaseState, new()
     {
-        void SaveNodeData<Z>(NodeStorage<Z> storage) where Z : BaseState, new();
-        NodeStorage<Z> LoadNodeData<Z>() where Z : BaseState, new();
+        void SaveNodeData(NodeStorage<State> storage);
+        NodeStorage<State> LoadNodeData();
     }
 }

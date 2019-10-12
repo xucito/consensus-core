@@ -13,7 +13,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 {
     public class ShardManager_Tests
     {
-        ShardManager<TestState, IBaseRepository> _shardManager { get; set; }
+        ShardManager<TestState, IBaseRepository<TestState>> _shardManager { get; set; }
 
         public ShardManager_Tests()
         {

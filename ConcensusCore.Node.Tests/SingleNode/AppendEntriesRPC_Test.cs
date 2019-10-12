@@ -1,4 +1,5 @@
 using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
@@ -20,14 +21,14 @@ namespace ConcensusCore.Node.Tests.SingleNode
 {
     public class AppendEntriesRPC_Test
     {
-        public ConsensusCoreNode<TestState, NodeInMemoryRepository> Node;
-        public NodeStorage NodeStorage;
+        public ConsensusCoreNode<TestState, IBaseRepository<TestState>> Node;
+        public NodeStorage<TestState> NodeStorage;
 
         public AppendEntriesRPC_Test()
         {
             Node = TestUtility.GetTestConsensusCoreNode();
             NodeStorage = Node._nodeStorage;
-            NodeStorage.Logs = new System.Collections.Generic.List<LogEntry>()
+            NodeStorage.AddLogs(new System.Collections.Generic.List<LogEntry>()
                 {
                     new LogEntry(){
                         Commands = new List<BaseCommand>(),
@@ -39,14 +40,14 @@ namespace ConcensusCore.Node.Tests.SingleNode
                         Index = 2,
                         Term = 5
                     }
-                };
+                });
             NodeStorage.CurrentTerm = 5;
         }
 
         [Fact]
         public void FalseIfTermIsLessThenCurrentTerm()
         {
-            Assert.False((Node.Send(new AppendEntry()
+            Assert.False((Node.Handle(new AppendEntry()
             {
                 Term = 2
             }).GetAwaiter().GetResult()).IsSuccessful);
@@ -55,14 +56,14 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void FalseIfPrevLogIndexTermIsDifferent()
         {
-            Assert.False((Node.Send(new AppendEntry()
+            Assert.False((Node.Handle(new AppendEntry()
             {
                 Term = 5,
                 PrevLogIndex = 2,
                 PrevLogTerm = 3
             }).GetAwaiter().GetResult()).IsSuccessful);
 
-            Assert.False((Node.Send(new AppendEntry()
+            Assert.False((Node.Handle(new AppendEntry()
             {
                 Term = 5,
                 PrevLogIndex = 2,
@@ -76,7 +77,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void NewEntryConflictsWithExistingOne()
         {
-            Assert.True((Node.Send(new AppendEntry()
+            Assert.True((Node.Handle(new AppendEntry()
             {
                 Entries = new System.Collections.Generic.List<LogEntry>() {
                     new LogEntry()
@@ -91,9 +92,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
             }).GetAwaiter().GetResult()).IsSuccessful);
 
 
-            Assert.Equal(2, NodeStorage.Logs.Count());
-            Assert.Equal(2, NodeStorage.Logs.Last().Index);
-            Assert.Equal(9, NodeStorage.Logs.Last().Term);
+            Assert.Equal(5, NodeStorage.GetLogAtIndex(2).Term);
         }
 
         /// <summary>
@@ -102,7 +101,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
         [Fact]
         public void DontAppendExistingLog()
         {
-            Assert.True((Node.Send(new AppendEntry()
+            Assert.True((Node.Handle(new AppendEntry()
             {
                 Entries = new System.Collections.Generic.List<LogEntry>() {
                     new LogEntry()
@@ -116,9 +115,25 @@ namespace ConcensusCore.Node.Tests.SingleNode
                 PrevLogTerm = 5
             }).GetAwaiter().GetResult()).IsSuccessful);
 
-            Assert.Equal(2, NodeStorage.Logs.Count());
-            Assert.Equal(2, NodeStorage.Logs.Last().Index);
-            Assert.Equal(9, NodeStorage.Logs.Last().Term);
+            Assert.Equal(5, NodeStorage.GetLogAtIndex(2).Term);
+        }
+
+        [Fact]
+        public void CreateSnapshot()
+        {
+            Assert.False(true);
+        }
+
+        [Fact]
+        public void LoadSnapshotOnStartup()
+        {
+            Assert.False(true);
+        }
+
+        [Fact]
+        public void ApplySnapshot()
+        {
+            Assert.False(true);
         }
     }
 }

@@ -21,7 +21,7 @@ namespace ConcensusCore.Node.Tests
     {
         public static Guid DefaultShardId = Guid.NewGuid();
 
-        public static ConsensusCoreNode<TestState, NodeInMemoryRepository> GetTestConsensusCoreNode()
+        public static ConsensusCoreNode<TestState, IBaseRepository<TestState>> GetTestConsensusCoreNode()
         {
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
             moqClusterOptions.Setup(mqo => mqo.Value).Returns(new ClusterOptions()
@@ -44,24 +44,24 @@ namespace ConcensusCore.Node.Tests
 
             var factory = serviceProvider.GetService<ILoggerFactory>();
 
-            var logger = factory.CreateLogger<ConsensusCoreNode<TestState, NodeInMemoryRepository>>();
+            var logger = factory.CreateLogger<ConsensusCoreNode<TestState, IBaseRepository<TestState>>>();
 
-            var inMemoryRepository = new NodeInMemoryRepository();
-            var NodeStorage = new NodeStorage(inMemoryRepository) { };
+            IBaseRepository<TestState> inMemoryRepository = (IBaseRepository<TestState>)new NodeInMemoryRepository<TestState>();
+            var NodeStorage = new NodeStorage<TestState>(inMemoryRepository) { };
             var _dataRouter = new TestDataRouter();
             var _stateMachine = new StateMachine<TestState>();
             var _connector = new ClusterConnector(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
 
-            return new ConsensusCoreNode<TestState, NodeInMemoryRepository>(moqClusterOptions.Object,
+            return new ConsensusCoreNode<TestState, IBaseRepository<TestState>>(moqClusterOptions.Object,
             moqNodeOptions.Object,
             logger,
             _stateMachine,
             inMemoryRepository,
            _connector,
             _dataRouter,
-            new ShardManager<TestState, IBaseRepository>(_stateMachine,
+            new ShardManager<TestState, IBaseRepository<TestState>>(_stateMachine,
                 inMemoryRepository,
-                factory.CreateLogger<ShardManager<TestState, IBaseRepository>>(),
+                factory.CreateLogger<ShardManager<TestState, IBaseRepository<TestState>>>(),
             _connector,
             _dataRouter,
             moqClusterOptions.Object,
@@ -70,7 +70,7 @@ namespace ConcensusCore.Node.Tests
             );
         }
 
-        public static ShardManager<TestState, IBaseRepository> GetTestShardManager()
+        public static ShardManager<TestState, IBaseRepository<TestState>> GetTestShardManager()
         {
             var serviceProvider = new ServiceCollection()
             .AddLogging()
@@ -80,14 +80,14 @@ namespace ConcensusCore.Node.Tests
 
             };
             var factory = serviceProvider.GetService<ILoggerFactory>();
-            var inMemoryRepository = new NodeInMemoryRepository();
+            IBaseRepository<TestState> inMemoryRepository = (IBaseRepository<TestState>)new NodeInMemoryRepository<TestState>();
             var _connector = new ClusterConnector(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
             var _dataRouter = new TestDataRouter();
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
 
 
             Guid nodeStorageId = Guid.NewGuid();
-            var NodeStorage = new NodeStorage(inMemoryRepository)
+            var NodeStorage = new NodeStorage<TestState>(inMemoryRepository)
             {
                 Id = nodeStorageId
             };
@@ -129,9 +129,9 @@ namespace ConcensusCore.Node.Tests
             });
 
 
-            var manager = new ShardManager<TestState, IBaseRepository>(_stateMachine,
+            var manager = new ShardManager<TestState, IBaseRepository<TestState>>(_stateMachine,
                 inMemoryRepository,
-                factory.CreateLogger<ShardManager<TestState, IBaseRepository>>(),
+                factory.CreateLogger<ShardManager<TestState, IBaseRepository<TestState>>>(),
             _connector,
             _dataRouter,
             moqClusterOptions.Object,

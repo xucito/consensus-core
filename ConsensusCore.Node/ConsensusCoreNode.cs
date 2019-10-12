@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -27,7 +28,7 @@ namespace ConsensusCore.Node
 {
     public class ConsensusCoreNode<State, Repository> : IConsensusCoreNode<State, Repository>
         where State : BaseState, new()
-        where Repository : IBaseRepository
+        where Repository : IBaseRepository<State>
     {
         private Timer _heartbeatTimer;
         private Timer _electionTimeoutTimer;
@@ -108,7 +109,9 @@ namespace ConsensusCore.Node
                     CurrentRole = CurrentState.ToString(),
                     Term = _nodeStorage.CurrentTerm,
                     LatestLeaderCommit = LatestLeaderCommit,
-                    Connectors = _clusterConnector.NodeConnectors.Select(nc => nc.Key + ":" + nc.Value.Url).ToArray()
+                    Connectors = _clusterConnector.NodeConnectors.Select(nc => nc.Key + ":" + nc.Value.Url).ToArray(),
+                    LastSnapshotIncludedIndex = _nodeStorage.LastSnapshotIncludedIndex,
+                    LastSnapshotIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm
                 };
             }
         }
@@ -148,7 +151,9 @@ namespace ConsensusCore.Node
 
         public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards => _nodeStorage.ShardMetaData;
 
-        ShardManager<State, IBaseRepository> _shardManager;
+        public List<ObjectLock> ObjectLocks => _stateMachine.GetObjectLocks().Select(ol => ol.Value).ToList();
+
+        ShardManager<State, Repository> _shardManager;
 
         public ConsensusCoreNode(
             IOptions<ClusterOptions> clusterOptions,
@@ -160,7 +165,7 @@ namespace ConsensusCore.Node
             Repository repository,
             ClusterConnector connector,
             IDataRouter dataRouter,
-            ShardManager<State, IBaseRepository> shardManager,
+            ShardManager<State, Repository> shardManager,
             NodeStorage<State> nodeStorage
             )
         {
@@ -237,7 +242,7 @@ namespace ConsensusCore.Node
                                 //You can catch this error as presumably all nodes in cluster wil experience the same error
                                 try
                                 {
-                                    _stateMachine.ApplyLogsToStateMachine(_nodeStorage.GetLogRange(CommitIndex, indexToAddTo));// _nodeStorage.GetLogAtIndex(CommitIndex + 1));
+                                    _stateMachine.ApplyLogsToStateMachine(_nodeStorage.GetLogRange(CommitIndex + 1, indexToAddTo));// _nodeStorage.GetLogAtIndex(CommitIndex + 1));
                                 }
                                 catch (Exception e)
                                 {
@@ -257,12 +262,13 @@ namespace ConsensusCore.Node
                     {
                         if (CommitIndex < LatestLeaderCommit)
                         {
-                            var numberOfLogs = _nodeStorage.Logs.Count(); ;
+                            var numberOfLogs = _nodeStorage.GetTotalLogCount();
                             //On resync, the commit index could be higher then the local amount of logs available
                             var commitIndexToSyncTill = numberOfLogs < LatestLeaderCommit ? numberOfLogs : LatestLeaderCommit;
-                            var allLogsToBeCommited = _nodeStorage.GetLogRange(CommitIndex, commitIndexToSyncTill);
-                            if (allLogsToBeCommited.Count > 0)
+
+                            if (_nodeStorage.LogExists(CommitIndex + 1))
                             {
+                                var allLogsToBeCommited = _nodeStorage.GetLogRange(CommitIndex + 1, commitIndexToSyncTill);
                                 try
                                 {
                                     _stateMachine.ApplyLogsToStateMachine(allLogsToBeCommited);
@@ -275,6 +281,7 @@ namespace ConsensusCore.Node
                             }
                             else
                             {
+                                Logger.LogWarning(GetNodeId() + "Waiting for log " + (CommitIndex + 1));
                             }
                         }
                     }
@@ -286,15 +293,16 @@ namespace ConsensusCore.Node
 
                     if (CurrentState == NodeState.Leader || CurrentState == NodeState.Follower)
                     {
+                        var snapshotTo = CommitIndex - _clusterOptions.SnapshottingTrailingLogCount;
                         // If the number of logs that are commited but not included in the snapshot are not included in interval, create snapshot
-                        if (_clusterOptions.SnapshottingInterval < (CommitIndex - _nodeStorage.LastSnapshotIncludedIndex))
+                        if (_clusterOptions.SnapshottingInterval < (CommitIndex - _nodeStorage.LastSnapshotIncludedIndex) && _nodeStorage.LogExists(_nodeStorage.LastSnapshotIncludedIndex + 1))
                         {
-                            Logger.LogInformation("Reached snapshotting interval, creating snapshot.");
-                            _nodeStorage.CreateSnapshot(CommitIndex);
+                            Logger.LogInformation("Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
+                            _nodeStorage.CreateSnapshot(snapshotTo);
                         }
                     }
 
-                    Thread.Sleep(100);
+                    Thread.Sleep(500);
                 }
                 catch (Exception e)
                 {
@@ -425,7 +433,7 @@ namespace ConsensusCore.Node
                                 }
                                 if (updates.Count > 0)
                                 {
-                                    await Send(new ExecuteCommands()
+                                    await Handle(new ExecuteCommands()
                                     {
                                         Commands = updates,
                                         WaitForCommits = true
@@ -447,6 +455,8 @@ namespace ConsensusCore.Node
                             if (recoveryTask == null)
                             {
                                 Logger.LogInformation(GetNodeId() + "Found I have a stale version of " + shard.Id + " and I am not recovering. Adding a recovery task");
+
+                                Console.WriteLine(GetNodeId() + "Found I have a stale version of " + shard.Id + " and I am not recovering. Adding a recovery task");
                                 shardCommands.Add(new RecoverShard()
                                 {
                                     Id = Guid.NewGuid(),
@@ -459,13 +469,14 @@ namespace ConsensusCore.Node
                             }
                             else
                             {
+                                Console.WriteLine(GetNodeId() + "Found I have a stale version of " + shard.Id + " i am already recovering using task " + recoveryTask + " with status " + recoveryTask.Status.ToString() + ".");
                                 Logger.LogInformation(GetNodeId() + "Found I have a stale version of " + shard.Id + " i am already recovering using task " + recoveryTask + " with status " + recoveryTask.Status.ToString() + ".");
                             }
                         }
 
                         if (shardCommands.Count > 0)
                         {
-                            await Send(new ExecuteCommands()
+                            await Handle(new ExecuteCommands()
                             {
                                 Commands = new List<BaseCommand>() {
                            new UpdateClusterTasks()
@@ -487,7 +498,7 @@ namespace ConsensusCore.Node
                         if (invalidTasks.Count() > 0)
                         {
                             Logger.LogInformation(GetNodeId() + "Found a number of tasks (" + invalidTasks.Count() + ") that are now not running in memory but marked for inprogress. Erroring the tasks " + JsonConvert.SerializeObject(invalidTasks, Formatting.Indented));
-                            await Send(new ExecuteCommands()
+                            await Handle(new ExecuteCommands()
                             {
                                 Commands = new List<BaseCommand>()
                             {
@@ -636,7 +647,7 @@ namespace ConsensusCore.Node
                         if (staleNodes.Count() > 0)
                         {
                             //Add nodes that were previously not in the cluster to automatically be assigned as a stale node
-                            await Send(new ExecuteCommands()
+                            await Handle(new ExecuteCommands()
                             {
                                 Commands = new List<BaseCommand>() {
                                 new UpdateShardMetadataAllocations()
@@ -824,13 +835,15 @@ namespace ConsensusCore.Node
 
                         foreach (var nodeId in NodesToMarkAsStale)
                         {
-                            if (_stateMachine.IsNodeContactable(nodeId))
+                            //There could be already requests in queue marking the node as unreachable
+                            if (_stateMachine.IsNodeContactable(nodeId) && IsUptoDate())
                             {
                                 nodeUpsertCommands.Add(new UpsertNodeInformation()
                                 {
                                     IsContactable = false,
                                     Id = nodeId,
-                                    TransportAddress = _stateMachine.GetNodes().Where(n => n.Id == nodeId).First().TransportAddress
+                                    TransportAddress = _stateMachine.GetNodes().Where(n => n.Id == nodeId).First().TransportAddress,
+                                    DebugLog = "Node became unreachable"
                                 });
                             }
                         }
@@ -844,18 +857,36 @@ namespace ConsensusCore.Node
                             Name = "",
                             IsContactable = true
                         });
+                        CompletedFirstLeaderDiscovery = true;
+                    }
+
+                    //Check object locks
+                    var objectLocks = _stateMachine.GetObjectLocks();
+
+                    foreach(var objectLock in objectLocks)
+                    {
+                        if(objectLock.Value.IsExpired)
+                        {
+                            Logger.LogWarning("Found expired lock on object " + objectLock.Key + ", releasing lock.");
+                            nodeUpsertCommands.Add(new RemoveObjectLock()
+                            {
+                                ObjectId = objectLock.Value.ObjectId,
+                                Type = objectLock.Value.Type
+                            });
+                        }
                     }
 
                     if (CurrentState == NodeState.Leader)
                         if (nodeUpsertCommands.Count > 0)
                         {
-                            await Send(new ExecuteCommands()
+                            await Handle(new ExecuteCommands()
                             {
                                 Commands = nodeUpsertCommands,
                                 WaitForCommits = true
                             });
                         }
-                    CompletedFirstLeaderDiscovery = true;
+
+                    Thread.Sleep(100);
                 }
                 catch (Exception e)
                 {
@@ -925,7 +956,7 @@ namespace ConsensusCore.Node
                     Logger.LogDebug(GetNodeId() + numberOfTasksToAssign + "tasks to run. || " + currentTasksNo);
                     if (numberOfTasksToAssign > 0)
                     {
-                        await Send(new ExecuteCommands()
+                        await Handle(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>()
                                 {
@@ -974,8 +1005,8 @@ namespace ConsensusCore.Node
                 switch (task)
                 {
                     case RecoverShard t:
-                        await _shardManager.SyncShard(t.ShardId, t.Type);
-                        await Send(new ExecuteCommands()
+                        await _shardManager.SyncShard(t.ShardId, t.Type, _clusterOptions.ShardRecoveryValidationCount);
+                        await Handle(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>()
                                 {
@@ -1006,7 +1037,7 @@ namespace ConsensusCore.Node
             catch (Exception e)
             {
                 Logger.LogError(GetNodeId() + "Failed to complete task " + task.Id + " with error " + e.Message + Environment.NewLine + e.StackTrace);
-                await Send(new ExecuteCommands()
+                await Handle(new ExecuteCommands()
                 {
                     Commands = new List<BaseCommand>()
                             {
@@ -1068,7 +1099,7 @@ namespace ConsensusCore.Node
 
 
         #region RPC Handlers
-        public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
+        public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
         {
             try
             {
@@ -1124,7 +1155,8 @@ namespace ConsensusCore.Node
                         response = (TResponse)(object)await RequestShardOperationsHandler(t1);
                         break;
                     case InstallSnapshot t1:
-                        TODO Add logic for applying snapshotting
+                        response = (TResponse)(object)InstallSnapshotHandler(t1);
+                        break;
                     default:
                         throw new Exception("Request is not implemented");
                 }
@@ -1140,7 +1172,7 @@ namespace ConsensusCore.Node
             }
             catch (Exception e)
             {
-                Logger.LogError(GetNodeId() + "Failed request " + request.RequestName + " with error " + e.StackTrace);
+                Logger.LogError(GetNodeId() + "Failed to handle request " + request.RequestName + " with error " + e.Message + Environment.StackTrace + e.StackTrace);
                 return new TResponse()
                 {
                     IsSuccessful = false
@@ -1240,6 +1272,39 @@ namespace ConsensusCore.Node
             };
         }
 
+        public InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request)
+        {
+            if (request.Term < _nodeStorage.CurrentTerm)
+            {
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = false,
+                    Term = request.Term
+                };
+            }
+
+            if (_nodeStorage.GetTotalLogCount() < request.LastIncludedIndex)
+            {
+                _nodeStorage.SetLastSnapshot(((JObject)request.Snapshot).ToObject<State>(), request.LastIncludedIndex, request.LastIncludedTerm);
+                _stateMachine.ApplySnapshotToStateMachine(((JObject)request.Snapshot).ToObject<State>());
+                CommitIndex = request.LastIncludedIndex;
+                SetCurrentTerm(request.LastIncludedTerm);
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = true,
+                    Term = request.Term
+                };
+            }
+            else
+            {
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = true,
+                    Term = request.Term
+                };
+            }
+        }
+
         public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
         {
             int index = _nodeStorage.AddCommands(request.Commands.ToList(), _nodeStorage.CurrentTerm);
@@ -1302,7 +1367,7 @@ namespace ConsensusCore.Node
             //Check if index exists, if not - create one
             if (!_stateMachine.IndexExists(shard.Data.ShardType))
             {
-                await Send(new RequestCreateIndex()
+                await Handle(new RequestCreateIndex()
                 {
                     Type = shard.Data.ShardType
                 });
@@ -1342,7 +1407,7 @@ namespace ConsensusCore.Node
                 {
                     Logger.LogWarning("Detected invalid nodes, setting nodes " + finalResult.FailedNodes.Select(ivn => ivn.ToString()).Aggregate((i, j) => i + "," + j) + " to be out-of-sync");
 
-                    var result = await Send(new ExecuteCommands()
+                    var result = await Handle(new ExecuteCommands()
                     {
                         Commands = new List<BaseCommand>()
                             {
@@ -1373,7 +1438,7 @@ namespace ConsensusCore.Node
 
             if (shard.RemoveLock)
             {
-                var result = await Send(new ExecuteCommands()
+                var result = await Handle(new ExecuteCommands()
                 {
                     Commands = new List<BaseCommand>()
                         {
@@ -1453,7 +1518,7 @@ namespace ConsensusCore.Node
                 Logger.LogDebug(GetNodeId() + "Rejected RPC from " + entry.LeaderId + " due to lower term " + entry.Term + "<" + _nodeStorage.CurrentTerm);
                 return new AppendEntryResponse()
                 {
-                    ConflictName = "Old Term Name",
+                    ConflictName = AppendEntriesExceptionNames.OldTermException,
                     IsSuccessful = false
                 };
             }
@@ -1483,33 +1548,51 @@ namespace ConsensusCore.Node
                 LatestLeaderCommit = entry.LeaderCommit;
             }
 
-            var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
-
-            if (previousEntry == null && entry.PrevLogIndex != 0)
+            // If your log entry is not within the last snapshot, then check the validity of the previous log index
+            if (_nodeStorage.LastSnapshotIncludedIndex < entry.PrevLogIndex)
             {
-                Logger.LogWarning(GetNodeId() + "Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
 
-                return new AppendEntryResponse()
+                if (previousEntry == null && entry.PrevLogIndex != 0)
                 {
-                    IsSuccessful = false,
-                    ConflictingTerm = null,
-                    ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
-                    FirstTermIndex = null,
-                    LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
-                };
+                    Logger.LogWarning(GetNodeId() + "Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+
+                    return new AppendEntryResponse()
+                    {
+                        IsSuccessful = false,
+                        ConflictingTerm = null,
+                        ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
+                        FirstTermIndex = null,
+                        LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
+                    };
+                }
+
+                if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
+                {
+                    Logger.LogWarning(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
+                    return new AppendEntryResponse()
+                    {
+                        ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                        IsSuccessful = false,
+                        ConflictingTerm = entry.PrevLogTerm,
+                        FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
+                    };
+                }
             }
-
-            if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
+            else
             {
-                Logger.LogWarning(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogTerm + " from term " + entry.PrevLogTerm + " does not exist.");
-                var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
-                return new AppendEntryResponse()
+                if (_nodeStorage.LastSnapshotIncludedTerm != entry.PrevLogTerm)
                 {
-                    ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
-                    IsSuccessful = false,
-                    ConflictingTerm = entry.PrevLogTerm,
-                    FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
-                };
+                    Logger.LogWarning(GetNodeId() + "Inconsistency found in the node snapshot and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    return new AppendEntryResponse()
+                    {
+                        ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                        IsSuccessful = false,
+                        ConflictingTerm = entry.PrevLogTerm,
+                        FirstTermIndex = 0 //always set to 0 as snapshots are assumed to be from 0 > n
+                    };
+                }
             }
 
             SetCurrentTerm(entry.Term);
@@ -1534,7 +1617,15 @@ namespace ConsensusCore.Node
 
             foreach (var log in entry.Entries)
             {
-                _nodeStorage.AddLog(log);
+                try
+                {
+                    _nodeStorage.AddLog(log);
+                }
+                catch (Exception e)
+                {
+                    Logger.LogError(GetNodeId() + " failed to add log " + log.Index + " with exception " + e.Message + Environment.NewLine + e.StackTrace);
+                    throw e;
+                }
             }
 
             return new AppendEntryResponse()
@@ -1569,14 +1660,15 @@ namespace ConsensusCore.Node
                     if (!_stateMachine.IsObjectLocked(request.ObjectId))
                     {
                         Guid newLockId = Guid.NewGuid();
-                        await Send(new ExecuteCommands()
+                        await Handle(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>{
                                     new SetObjectLock()
                                     {
                                         ObjectId = request.ObjectId,
                                         Type = request.Type,
-                                        LockId = newLockId
+                                        LockId = newLockId,
+                                        TimeoutMs = request.LockTimeoutMs
                                     }
                                 },
                             WaitForCommits = true
@@ -1653,102 +1745,148 @@ namespace ConsensusCore.Node
                     var entriesToSend = new List<LogEntry>();
 
                     var prevLogIndex = Math.Max(0, NextIndex[node.Key] - 1);
-                    int prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? prevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+                    var startingLogsToSend = NextIndex[node.Key] == 0 ? 1 : NextIndex[node.Key];
+                    var unsentLogs = (_nodeStorage.GetTotalLogCount() - NextIndex[node.Key] + 1);
+                    var quantityToSend = unsentLogs;
+                    var endingLogsToSend = startingLogsToSend + (quantityToSend < _clusterOptions.MaxLogsToSend ? quantityToSend : _clusterOptions.MaxLogsToSend) - 1;
 
-                    if (NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, true))
+                    //If the logs still exist in the state then get the logs to be sent
+                    if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
                     {
-                        var unsentLogs = (_nodeStorage.GetTotalLogCount() - NextIndex[node.Key] + 1);
-                        var quantityToSend = unsentLogs;
-                        var startingLogsToSend = NextIndex[node.Key] == 0 ? 0 : NextIndex[node.Key] - 1;
-                        var endingLogsToSend = startingLogsToSend + (quantityToSend < _clusterOptions.MaxLogsToSend ? quantityToSend : _clusterOptions.MaxLogsToSend);
-                        entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).ToList();
-                        // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
-                        Logger.LogDebug(GetNodeId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+                        int prevLogTerm = 0;
+                        if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
+                        {
+                            prevLogTerm = _nodeStorage.LastSnapshotIncludedTerm;
+                        }
+                        else
+                        {
+                            prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+                        }
+                        if (NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, false))
+                        {
+                            entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).ToList();
+                            // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
+                            Logger.LogDebug(GetNodeId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+
+                        }
+
                         // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
                         LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
+                            {
+                                return true;
+                            });
+                        var result = await _clusterConnector.Send(node.Key, new AppendEntry()
                         {
-                            return true;
+                            Term = _nodeStorage.CurrentTerm,
+                            Entries = entriesToSend,
+                            LeaderCommit = CommitIndex,
+                            LeaderId = _nodeStorage.Id,
+                            PrevLogIndex = prevLogIndex,
+                            PrevLogTerm = prevLogTerm
                         });
-                    }
 
-                    DateTime timeNow = DateTime.Now;
-                    var result = await _clusterConnector.Send(node.Key, new AppendEntry()
-                    {
-                        Term = _nodeStorage.CurrentTerm,
-                        Entries = entriesToSend,
-                        LeaderCommit = CommitIndex,
-                        LeaderId = _nodeStorage.Id,
-                        PrevLogIndex = prevLogIndex,
-                        PrevLogTerm = prevLogTerm
-                    });
+                        LogsSent.TryUpdate(node.Key, false, true);
 
-                    TODO add the append function here if you do not have the log
-
-                    LogsSent.TryUpdate(node.Key, false, true);
-
-                    if (result.IsSuccessful)
-                    {
-                        Logger.LogDebug(GetNodeId() + "Successfully updated logs on " + node.Key);
-                        if (entriesToSend.Count() > 0)
+                        if (result.IsSuccessful)
                         {
-                            var lastIndexToSend = entriesToSend.Last().Index;
-                            NextIndex[node.Key] = lastIndexToSend + 1;
+                            Logger.LogDebug(GetNodeId() + "Successfully updated logs on " + node.Key);
+                            if (entriesToSend.Count() > 0)
+                            {
+                                var lastIndexToSend = entriesToSend.Last().Index;
+                                NextIndex[node.Key] = lastIndexToSend + 1;
 
-                            int previousValue;
-                            bool SuccessfullyGotValue = MatchIndex.TryGetValue(node.Key, out previousValue);
-                            if (!SuccessfullyGotValue)
-                            {
-                                Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
-                            }
-                            var updateWorked = MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
-                            //If the updated did not execute, there hs been a concurrency issue
-                            while (!updateWorked)
-                            {
-                                SuccessfullyGotValue = MatchIndex.TryGetValue(node.Key, out previousValue);
-                                // If the match index has already exceeded the previous value, dont bother updating it
-                                if (previousValue > lastIndexToSend && SuccessfullyGotValue)
+                                int previousValue;
+                                bool SuccessfullyGotValue = MatchIndex.TryGetValue(node.Key, out previousValue);
+                                if (!SuccessfullyGotValue)
                                 {
-                                    updateWorked = true;
+                                    Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
                                 }
-                                else
+                                var updateWorked = MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                //If the updated did not execute, there hs been a concurrency issue
+                                while (!updateWorked)
                                 {
-                                    updateWorked = MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                    SuccessfullyGotValue = MatchIndex.TryGetValue(node.Key, out previousValue);
+                                    // If the match index has already exceeded the previous value, dont bother updating it
+                                    if (previousValue > lastIndexToSend && SuccessfullyGotValue)
+                                    {
+                                        updateWorked = true;
+                                    }
+                                    else
+                                    {
+                                        updateWorked = MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                    }
                                 }
+                                Logger.LogDebug(GetNodeId() + "Updated match index to " + MatchIndex);
                             }
-                            Logger.LogDebug(GetNodeId() + "Updated match index to " + MatchIndex);
                         }
-                    }
-                    else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
-                    {
-                        Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + result.LastLogEntryIndex.Value + 1);
-                        NextIndex[node.Key] = result.LastLogEntryIndex.Value + 1;
-                    }
-                    else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
-                    {
-                        var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
-                        var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
-                        Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
+                        else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
+                        {
+                            Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + result.LastLogEntryIndex.Value + 1);
+                            NextIndex[node.Key] = result.LastLogEntryIndex.Value + 1;
+                        }
+                        else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
+                        {
+                            var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
+                            var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
+                            Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
 
-                        //Revert back to the first index of that term
-                        NextIndex[node.Key] = revertedIndex;
+                            //Revert back to the first index of that term
+                            NextIndex[node.Key] = revertedIndex;
+                        }
+                        else if (result.ConflictName == AppendEntriesExceptionNames.OldTermException)
+                        {
+                            Logger.LogError(GetNodeId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
+                        }
+                        else
+                        {
+                            Logger.LogError(GetNodeId() + "Append entry returned with undefined conflict name");
+                            //Mark the node as uncontactable
+
+                            if (_stateMachine.IsNodeContactable(node.Key) && IsUptoDate())
+                            {
+                                await Handle(new ExecuteCommands()
+                                {
+                                    Commands = new List<BaseCommand>()
+                                    {
+                                        new UpsertNodeInformation()
+                                        {
+                                            IsContactable = false,
+                                            Id = node.Key,
+                                            TransportAddress = _clusterConnector.GetNodeUrl(node.Key),
+                                            DebugLog = "Node has become contactable."
+                                        }
+                                    }
+                                });
+                            }
+                            throw new Exception("Append entry returned with undefined conflict name");
+                        }
                     }
                     else
                     {
-                        Logger.LogError(GetNodeId() + "Append entry returned with undefined conflict name");
-                        //Mark the node as uncontactable
-                        await Send(new ExecuteCommands()
-                        {
-                            Commands = new List<BaseCommand>()
+                        Logger.LogInformation("Detected pending snapshot to send, sending snapshot with included index " + _nodeStorage.LastSnapshotIncludedIndex);
+
+                        //Mark that you have send the logs to this node
+                        LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
                             {
-                                new UpsertNodeInformation()
-                                {
-                                    IsContactable = false,
-                                    Id = node.Key,
-                                    TransportAddress = _clusterConnector.GetNodeUrl(node.Key)
-                                }
-                            }
+                                return true;
+                            });
+                        var lastIndex = _nodeStorage.LastSnapshotIncludedIndex;
+                        var result = await _clusterConnector.Send(node.Key, new InstallSnapshot()
+                        {
+                            Term = _nodeStorage.CurrentTerm,
+                            LastIncludedIndex = lastIndex,
+                            LastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
+                            LeaderId = _nodeStorage.Id,
+                            Snapshot = _nodeStorage.LastSnapshot
                         });
-                        throw new Exception("Append entry returned with undefined conflict name");
+
+                        if (result.IsSuccessful)
+                        {
+                            //mark the node has successfully received the logs
+                            LogsSent.TryUpdate(node.Key, false, true);
+                            NextIndex[node.Key] = lastIndex + 1;
+                        }
+
                     }
 
                     Interlocked.Increment(ref recognizedhosts);
@@ -1756,11 +1894,10 @@ namespace ConsensusCore.Node
                 catch (TaskCanceledException e)
                 {
                     Logger.LogWarning(GetNodeId() + "Heartbeat to node " + node.Key + " timed out");
-
                 }
                 catch (Exception e)
                 {
-                    Logger.LogWarning(GetNodeId() + "Encountered error while sending heartbeat to node " + node.Key + ", request failed with error \"" + e.Message + " STACK TRACE:" + e.StackTrace);//+ "\"" + e.StackTrace);
+                    Logger.LogWarning(GetNodeId() + "Encountered error while sending heartbeat to node " + node.Key + ", request failed with error \"" + e.Message + Environment.NewLine + " STACK TRACE:" + e.StackTrace);//+ "\"" + e.StackTrace);
                 }
             });
 
@@ -2009,7 +2146,7 @@ namespace ConsensusCore.Node
                             }
                             else
                             {
-                                await Send(new RequestInitializeNewShard()
+                                await Handle(new RequestInitializeNewShard()
                                 {
                                     ShardId = Shards[i].Id,
                                     Type = type
@@ -2018,7 +2155,7 @@ namespace ConsensusCore.Node
                         }
                     }
 
-                    var result = await Send(new ExecuteCommands()
+                    var result = await Handle(new ExecuteCommands()
                     {
                         Commands = new List<CreateIndex>() {
                                 new CreateIndex() {

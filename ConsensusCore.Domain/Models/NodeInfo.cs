@@ -17,6 +17,8 @@ namespace ConsensusCore.Domain.Models
         public int Term { get; set; }
         public int LatestLeaderCommit { get; set; }
         public string[] Connectors { get; set; }
+        public int LastSnapshotIncludedIndex { get; set; }
+        public int LastSnapshotIncludedTerm { get; set; }
     }
 
     public enum NodeStatus

@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.RPCs;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -6,8 +7,9 @@ using System.Text;
 
 namespace ConsensusCore.Domain.Serializers
 {
-    public class BaseRequestConverter : JsonCreationConverter<BaseRequest>
+    public class BaseRequestConverter: JsonCreationConverter<BaseRequest>
     {
+        public static BaseState StateType;
         protected override BaseRequest Create(Type objectType, Newtonsoft.Json.Linq.JObject jObject)
         {
             DateTime test = DateTime.Now;

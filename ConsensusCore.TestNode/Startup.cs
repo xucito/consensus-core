@@ -37,7 +37,7 @@ namespace ConsensusCore.TestNode
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository>(s => new NodeInMemoryRepository(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
+            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
@@ -52,9 +52,9 @@ namespace ConsensusCore.TestNode
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env,
-            IBaseRepository repository,
-            ShardManager<TestState, IBaseRepository> shardManager,
-            IConsensusCoreNode<TestState, IBaseRepository> node)
+            IBaseRepository<TestState> repository,
+            ShardManager<TestState, IBaseRepository<TestState>> shardManager,
+            IConsensusCoreNode<TestState, IBaseRepository<TestState>> node)
         {
             if (env.IsDevelopment())
             {

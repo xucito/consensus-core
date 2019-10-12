@@ -14,7 +14,7 @@ using System.Threading;
 
 namespace ConsensusCore.Domain.Services
 {
-    public class NodeStorage<Z> where Z : BaseState, new()
+    public class NodeStorage<State> where State : BaseState, new()
     {
         public Guid Id { get; set; }
         public string Name { get; set; }
@@ -33,13 +33,13 @@ namespace ConsensusCore.Domain.Services
         /// <summary>
         /// The last snapshot to apply logs to
         /// </summary>
-        public Z LastSnapshot { get; set; }
+        public State LastSnapshot { get; set; }
         public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
         public ConcurrentBag<DataReversionRecord> RevertedOperations = new ConcurrentBag<DataReversionRecord>();
         [JsonIgnore]
         public object _locker = new object();
         [JsonIgnore]
-        private IBaseRepository _repository;
+        private IBaseRepository<State> _repository;
         public ConcurrentDictionary<Guid, LocalShardMetaData> ShardMetaData { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
         [JsonIgnore]
         public bool RequireSave = false;
@@ -53,7 +53,7 @@ namespace ConsensusCore.Domain.Services
         }
 
 
-        public NodeStorage(IBaseRepository repository)
+        public NodeStorage(IBaseRepository<State> repository)
         {
             _repository = repository;
             if (ShardMetaData == null)
@@ -62,7 +62,7 @@ namespace ConsensusCore.Domain.Services
             }
 
 
-            var loadedData = repository.LoadNodeData<Z>();
+            var loadedData = repository.LoadNodeData();
             if (loadedData != null)
             {
                 Id = loadedData.Id;
@@ -73,9 +73,7 @@ namespace ConsensusCore.Domain.Services
                 Logs = loadedData.Logs;
                 ShardMetaData = loadedData.ShardMetaData;
 
-                LastSnapshot = loadedData.LastSnapshot;
-                LastSnapshotIncludedTerm = loadedData.LastSnapshotIncludedTerm;
-                LastSnapshotIncludedIndex = loadedData.LastSnapshotIncludedIndex;
+                SetLastSnapshot(loadedData.LastSnapshot, loadedData.LastSnapshotIncludedIndex, loadedData.LastSnapshotIncludedTerm);
             }
             else
             {
@@ -96,6 +94,17 @@ namespace ConsensusCore.Domain.Services
             // var loadedData = _repository.LoadNodeData();
         }
 
+        public void SetLastSnapshot(State snapshot, int lastIncludedIndex, int lastIncludedTerm)
+        {
+            lock (_locker)
+            {
+                LastSnapshot = snapshot;
+                LastSnapshotIncludedIndex = lastIncludedIndex;
+                LastSnapshotIncludedTerm = lastIncludedTerm;
+            }
+            Save();
+        }
+
         public void AddNewShardMetaData(LocalShardMetaData metadata)
         {
             if (!ShardMetaData.TryAdd(metadata.ShardId, metadata))
@@ -106,36 +115,55 @@ namespace ConsensusCore.Domain.Services
             Save();
         }
 
-        public void CreateSnapshot(int currentCommitIndex)
+        public void CreateSnapshot(int indexIncludedTo)
         {
-            var stateMachine = new StateMachine<Z>();
+            var stateMachine = new StateMachine<State>();
             //Find the log position of the commit index
             if (LastSnapshot != null)
             {
                 stateMachine.ApplySnapshotToStateMachine(LastSnapshot);
             }
 
-            for (var i = LastSnapshotIncludedIndex; i <= currentCommitIndex; i++)
-                stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, currentCommitIndex));
+            var logIncludedTo = GetLogAtIndex(indexIncludedTo);
+            var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
+            if (logIncludedTo != null && logIncludedFrom != null)
+            {
+                //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
+                stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, indexIncludedTo));
 
-            // Deleting logs from the index
-            DeleteLogsFromIndex(currentCommitIndex);
+                LastSnapshot = stateMachine.CurrentState;
+                LastSnapshotIncludedIndex = indexIncludedTo;
+                LastSnapshotIncludedTerm = logIncludedTo.Term;
+
+                lock (_locker)
+                {
+                    // Deleting logs from the index
+                    DeleteLogsFromIndex(indexIncludedTo);
+                }
+            }
         }
 
         /// <summary>
-        /// 
+        /// Locking operation
         /// </summary>
         /// <param name="startIndex">Start index to send from inclusive</param>
         /// <param name="endIndex">End index to send to exclusive</param>
         /// <returns></returns>
         public List<LogEntry> GetLogRange(int startIndexToSendFrom, int endIndexToSendTo)
         {
-            List<LogEntry> listToSend = new List<LogEntry>();
-            for (var i = startIndexToSendFrom; i <= endIndexToSendTo; i++)
+            lock (_locker)
             {
-                listToSend.Add(Logs[i]);
+                List<LogEntry> listToSend = new List<LogEntry>();
+                if (startIndexToSendFrom == 0)
+                {
+                    startIndexToSendFrom = 1;
+                }
+                for (var i = startIndexToSendFrom; i <= endIndexToSendTo; i++)
+                {
+                    listToSend.Add(Logs[i]);
+                }
+                return listToSend;
             }
-            return listToSend;
         }
 
         /// <summary>
@@ -186,7 +214,10 @@ namespace ConsensusCore.Domain.Services
 
         public int GetTotalLogCount()
         {
-            return Logs.Last().Key;
+            if (Logs.Count() > 0)
+                return Logs.Last().Key;
+            else
+                return LastSnapshotIncludedIndex;
         }
 
         public int GetLastLogTerm()
@@ -244,11 +275,11 @@ namespace ConsensusCore.Domain.Services
 
         public LogEntry GetLogAtIndex(int logIndex)
         {
-            if (logIndex == 0 || Logs.Count() < logIndex)
+            if (logIndex == 0 || GetTotalLogCount() < logIndex || logIndex <= LastSnapshotIncludedIndex)
             {
                 return null;
             }
-            var log = Logs[logIndex - 1];
+            var log = Logs[logIndex];
             if (log.Index == logIndex)
             {
                 return log;
@@ -261,10 +292,15 @@ namespace ConsensusCore.Domain.Services
                 }
                 else if (LastSnapshotIncludedIndex >= logIndex)
                 {
-                    throw new LogSnapshottedException();
+                    throw new LogSnapshottedException("Log " + logIndex + " has been removed as apart of snapshotting.");
                 }
-                throw new Exception("Log " + logIndex + " not found in storage.");
+                throw new MissingLogEntryException("Log " + logIndex + " not found in storage.");
             }
+        }
+
+        public bool LogExists(int logIndex)
+        {
+            return Logs.ContainsKey(logIndex);
         }
 
         public int AddCommands(List<BaseCommand> commands, int term)
@@ -274,7 +310,7 @@ namespace ConsensusCore.Domain.Services
                 int index;
                 lock (_locker)
                 {
-                    index = Logs.Count() + 1;
+                    index = GetTotalLogCount() + 1;
                     Logs.Add(index, new LogEntry()
                     {
                         Commands = commands,
@@ -295,17 +331,38 @@ namespace ConsensusCore.Domain.Services
             lock (_locker)
             {
                 //The entry should be the next log required
-                if (entry.Index == Logs.Count() + 1)
+                if (entry.Index == GetTotalLogCount() + 1)
                 {
                     Logs.Add(entry.Index, entry);
                 }
-                else if (entry.Index > Logs.Count() + 1)
+                else if (entry.Index > GetTotalLogCount() + 1)
                 {
                     throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
                 }
             }
             Save();
 
+        }
+
+        public void AddLogs(List<LogEntry> entries)
+        {
+            int index;
+            lock (_locker)
+            {
+                foreach (var entry in entries)
+                {
+                    //The entry should be the next log required
+                    if (entry.Index == GetTotalLogCount() + 1)
+                    {
+                        Logs.Add(entry.Index, entry);
+                    }
+                    else if (entry.Index > GetTotalLogCount() + 1)
+                    {
+                        throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
+                    }
+                }
+            }
+            Save();
         }
 
         /* public void SetVotedFor(Guid candidateId)
@@ -324,7 +381,7 @@ namespace ConsensusCore.Domain.Services
                 List<int> markedForDeletion = new List<int>();
                 foreach (var pos in Logs)
                 {
-                    if (pos.Key >= index)
+                    if (pos.Key <= index)
                     {
                         markedForDeletion.Add(pos.Key);
                     }

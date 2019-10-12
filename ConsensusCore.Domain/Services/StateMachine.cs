@@ -4,6 +4,7 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Utility;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -46,22 +47,15 @@ namespace ConsensusCore.Domain.Services
                 {
                     foreach (var command in entry.Commands)
                     {
-                        try
-                        {
-                            CurrentState.ApplyCommand(command);
-                        }
-                        catch (Exception e)
-                        {
-                            FailedLogs.Add("Entry: " + entry.Index + "| Term: " + entry.Term + "| Command: " + command.CommandName);
-                        }
+                        CurrentState.ApplyCommand(command);
                     }
                 }
             }
 
-            if(FailedLogs.Count() > 0)
+            /*if(FailedLogs.Count() > 0)
             {
                 throw new Exception("Failed to apply all commands successfully, the following logs failed to apply to state" + Environment.NewLine + JsonConvert.SerializeObject(FailedLogs));
-            }
+            }*/
         }
 
         public void ApplySnapshotToStateMachine(Z state)
@@ -194,5 +188,9 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.GetRunningTask(uniqueId);
         }
 
+        public ConcurrentDictionary<Guid, ObjectLock> GetObjectLocks()
+        {
+            return new ConcurrentDictionary<Guid, ObjectLock>(CurrentState.ObjectLocks);
+        }
     }
 }

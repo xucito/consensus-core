@@ -21,9 +21,9 @@ namespace ConsensusCore.Node.Services
 {
     public class ShardManager<State, Repository>
         where State : BaseState, new()
-        where Repository : IBaseRepository
+        where Repository : IBaseRepository<State>
     {
-        public NodeStorage _nodeStorage { get; set; }
+        public NodeStorage<State> _nodeStorage { get; set; }
         ILogger<ShardManager<State, Repository>> Logger { get; set; }
         ClusterConnector _clusterConnector;
         IStateMachine<State> _stateMachine;
@@ -36,7 +36,7 @@ namespace ConsensusCore.Node.Services
             ClusterConnector connector,
             IDataRouter dataRouter,
             IOptions<ClusterOptions> clusterOptions,
-            NodeStorage nodeStorage)
+            NodeStorage<State> nodeStorage)
         {
             var storage = repository.LoadNodeData();
             _clusterConnector = connector;
@@ -198,7 +198,7 @@ namespace ConsensusCore.Node.Services
         /// </summary>
         /// <param name="shardId"></param>
         /// <returns></returns>
-        public async Task<bool> SyncShard(Guid shardId, string type)
+        public async Task<bool> SyncShard(Guid shardId, string type, int positionsToCheck)
         {
             LocalShardMetaData shard;
             //Check if shard exists, if not create it.
@@ -249,7 +249,6 @@ namespace ConsensusCore.Node.Services
             if (shard.SyncPos != 0)
             {
                 var isConsistent = false;
-                var positionsToCheck = 20;
                 while (!isConsistent)
                 {
                     if ((DateTime.Now - startTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
@@ -292,9 +291,10 @@ namespace ConsensusCore.Node.Services
                         }
                     }
 
+                    Logger.LogInformation("Checking operations " + lastOperation.Operations.First().Key + " to "+ lastOperation.Operations.Last());
                     foreach (var pos in lastOperation.Operations.OrderByDescending(o => o.Key))
                     {
-                        Logger.LogWarning("Checking operation " + pos.Key);
+                        Logger.LogDebug("Checking operation " + pos.Key);
                         var myCopyOfTheTransaction = _nodeStorage.GetShardOperation(shard.ShardId, pos.Key);
 
                         if (myCopyOfTheTransaction == null || myCopyOfTheTransaction.ObjectId != pos.Value.ObjectId || myCopyOfTheTransaction.Operation != pos.Value.Operation)
@@ -308,8 +308,6 @@ namespace ConsensusCore.Node.Services
                             }
                         }
                     }
-
-                    Logger.LogError("My current operation count is " + currentOperationCount + " the remote operation count is " + lastOperation.LatestPosition);
 
                     if (lowestPosition == null)
                     {
