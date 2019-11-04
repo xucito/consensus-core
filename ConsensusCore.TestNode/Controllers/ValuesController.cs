@@ -17,10 +17,10 @@ namespace ConsensusCore.TestNode.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        IConsensusCoreNode<TestState, IBaseRepository<TestState>> _node;
+        IConsensusCoreNode<TestState> _node;
         TestDataRouter _router;
 
-        public ValuesController(IConsensusCoreNode<TestState, IBaseRepository<TestState>> node, IDataRouter router)
+        public ValuesController(IConsensusCoreNode<TestState> node, IDataRouter router)
         {
             _node = node;
             _router = (TestDataRouter)router;

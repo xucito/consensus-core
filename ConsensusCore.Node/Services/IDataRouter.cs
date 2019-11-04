@@ -8,6 +8,11 @@ namespace ConsensusCore.Node.Services
 {
     public interface IDataRouter
     {
+        /// <summary>
+        /// When you insert data, safely ignore the insert if the data already exists.
+        /// </summary>
+        /// <param name="data"></param>
+        /// <returns></returns>
         Task<ShardData> InsertDataAsync(ShardData data);
         Task<ShardData> UpdateDataAsync(ShardData data);
         Task<bool> DeleteDataAsync(ShardData data);

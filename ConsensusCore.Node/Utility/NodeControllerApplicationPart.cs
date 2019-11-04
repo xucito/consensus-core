@@ -13,7 +13,7 @@ namespace ConsensusCore.Node.Utility
     {
         public NodeControllerApplicationPart(Type[] entityTypes)
         {
-            Types = new List<TypeInfo>() { typeof(NodeController<,>).MakeGenericType(entityTypes).GetTypeInfo() };
+            Types = new List<TypeInfo>() { typeof(NodeController<>).MakeGenericType(entityTypes).GetTypeInfo() };
         }
 
         public override string Name => "GenericController";

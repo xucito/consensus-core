@@ -33,7 +33,7 @@ namespace ConsensusCore.TestNode.Models
                 case TestData t1:
                     var addResult = _numberStore.TryAdd(t1.Id, t1);
                     if (!addResult)
-                        throw new Exception("Failed to insert data, there seems to be a concurrency issue!");
+                        Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id);
                     break;
             }
             return data;

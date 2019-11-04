@@ -17,4 +17,8 @@
     <ProjectReference Include="..\ConsensusCore.Node\ConsensusCore.Node.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Utilities\" />
+  </ItemGroup>
+
 </Project>

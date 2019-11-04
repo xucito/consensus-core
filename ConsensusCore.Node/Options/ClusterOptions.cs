@@ -23,6 +23,6 @@ namespace ConsensusCore.Node
         /// <summary>
         /// How many positions to validate when recovering a shard
         /// </summary>
-        public int ShardRecoveryValidationCount { get; set; } = 20;
+        public int ShardRecoveryValidationCount { get; set; } = 50;
     }
 }

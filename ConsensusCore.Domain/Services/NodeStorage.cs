@@ -35,12 +35,10 @@ namespace ConsensusCore.Domain.Services
         /// </summary>
         public State LastSnapshot { get; set; }
         public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
-        public ConcurrentBag<DataReversionRecord> RevertedOperations = new ConcurrentBag<DataReversionRecord>();
         [JsonIgnore]
         public object _locker = new object();
         [JsonIgnore]
         private IBaseRepository<State> _repository;
-        public ConcurrentDictionary<Guid, LocalShardMetaData> ShardMetaData { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
         [JsonIgnore]
         public bool RequireSave = false;
         [JsonIgnore]
@@ -56,11 +54,6 @@ namespace ConsensusCore.Domain.Services
         public NodeStorage(IBaseRepository<State> repository)
         {
             _repository = repository;
-            if (ShardMetaData == null)
-            {
-                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
-            }
-
 
             var loadedData = repository.LoadNodeData();
             if (loadedData != null)
@@ -71,8 +64,6 @@ namespace ConsensusCore.Domain.Services
                 CurrentTerm = loadedData.CurrentTerm;
                 VotedFor = loadedData.VotedFor;
                 Logs = loadedData.Logs;
-                ShardMetaData = loadedData.ShardMetaData;
-
                 SetLastSnapshot(loadedData.LastSnapshot, loadedData.LastSnapshotIncludedIndex, loadedData.LastSnapshotIncludedTerm);
             }
             else
@@ -105,16 +96,6 @@ namespace ConsensusCore.Domain.Services
             Save();
         }
 
-        public void AddNewShardMetaData(LocalShardMetaData metadata)
-        {
-            if (!ShardMetaData.TryAdd(metadata.ShardId, metadata))
-            {
-                throw new Exception("Failed to add new shard metadata");
-            }
-            //Console.WriteLine("Added new shard metadata");
-            Save();
-        }
-
         public void CreateSnapshot(int indexIncludedTo)
         {
             var stateMachine = new StateMachine<State>();
@@ -138,7 +119,7 @@ namespace ConsensusCore.Domain.Services
                 lock (_locker)
                 {
                     // Deleting logs from the index
-                    DeleteLogsFromIndex(indexIncludedTo);
+                    DeleteLogsFromIndex(1, indexIncludedTo);
                 }
             }
         }
@@ -166,58 +147,12 @@ namespace ConsensusCore.Domain.Services
             }
         }
 
-        /// <summary>
-        /// When you are adding a new shard, the index is created
-        /// </summary>
-        public int AddNewShardOperation(Guid shardId, ShardOperation operation)
-        {
-            var result = ShardMetaData[shardId].AddShardOperation(operation);
-
-            //Console.WriteLine("Added new shard operation");
-            Save();
-            return result;
-        }
-
-        public bool ReplicateShardOperation(Guid shardId, int pos, ShardOperation operation)
-        {
-            var result = ShardMetaData[shardId].ReplicateShardOperation(pos, operation);
-            if (result)
-            {
-                //Console.WriteLine("Replicate shard operation");
-                Save();
-            }
-            return result;
-        }
-
-        public bool CanApplyOperation(Guid shardId, int pos)
-        {
-            return ShardMetaData[shardId].CanApplyOperation(pos);
-        }
-
-        public void MarkOperationAsCommited(Guid shardId, int pos)
-        {
-            ShardMetaData[shardId].MarkShardAsApplied(pos);
-
-            //Console.WriteLine("MarkOperationAsCommited");
-            Save();
-            // ShardMetaData[shardId].UpdateSyncPosition(pos);
-        }
-
-        public bool RemoveOperation(Guid shardId, int pos)
-        {
-            var result = ShardMetaData[shardId].RemoveOperation(pos);
-
-            //Console.WriteLine("Remove operation");
-            Save();
-            return result;
-        }
-
         public int GetTotalLogCount()
         {
             if (Logs.Count() > 0)
-                return Logs.Last().Key;
-            else
-                return LastSnapshotIncludedIndex;
+                if (Logs.Last().Key > LastSnapshotIncludedIndex)
+                    return Logs.Last().Key;
+            return LastSnapshotIncludedIndex;
         }
 
         public int GetLastLogTerm()
@@ -337,11 +272,10 @@ namespace ConsensusCore.Domain.Services
                 }
                 else if (entry.Index > GetTotalLogCount() + 1)
                 {
-                    throw new Exception("Something has gone wrong with the concurrency of adding the logs!");
+                    throw new MissingLogEntryException("Something has gone wrong with the concurrency of adding the logs! Failed to add entry " + entry.Index + " as the current index is " + GetTotalLogCount());
                 }
             }
             Save();
-
         }
 
         public void AddLogs(List<LogEntry> entries)
@@ -352,7 +286,7 @@ namespace ConsensusCore.Domain.Services
                 foreach (var entry in entries)
                 {
                     //The entry should be the next log required
-                    if (entry.Index == GetTotalLogCount() + 1)
+                    if (entry.Index == GetTotalLogCount() + 1 || entry.Index == LastSnapshotIncludedIndex + 1)
                     {
                         Logs.Add(entry.Index, entry);
                     }
@@ -374,22 +308,21 @@ namespace ConsensusCore.Domain.Services
              }
          }*/
 
-        public void DeleteLogsFromIndex(int index)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="fromIndex"></param>
+        /// <param name="toIndex">If null it will delete all indexes from the fromIndex to the to index</param>
+        public void DeleteLogsFromIndex(int fromIndex, int? toIndex = null)
         {
             lock (_locker)
             {
                 List<int> markedForDeletion = new List<int>();
-                foreach (var pos in Logs)
+                foreach (var pos in Logs.Where(l => fromIndex >= l.Key && (toIndex == null || l.Key <= toIndex)))
                 {
-                    if (pos.Key <= index)
-                    {
-                        markedForDeletion.Add(pos.Key);
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    markedForDeletion.Add(pos.Key);
                 }
+
                 foreach (var delete in markedForDeletion)
                 {
                     Logs.Remove(delete);
@@ -398,84 +331,6 @@ namespace ConsensusCore.Domain.Services
                 //Console.WriteLine("Delete logs from index");
                 Save();
             }
-        }
-
-        public int GetCurrentShardPos(Guid shardId)
-        {
-            return ShardMetaData[shardId].SyncPos;
-        }
-
-        public int GetCurrentShardLatestCount(Guid shardId)
-        {
-            return ShardMetaData[shardId].ShardOperations.Count();
-        }
-
-        public LocalShardMetaData GetShardMetadata(Guid shardId)
-        {
-            if (ShardMetaData.ContainsKey(shardId))
-                return ShardMetaData[shardId];
-            return null;
-        }
-
-        public void UpdateShardSyncPosition(Guid shardId, int syncPos)
-        {
-            ShardMetaData[shardId].SyncPos = syncPos;
-        }
-
-        public ShardOperation GetOperation(Guid shardId, int pos)
-        {
-            if (ShardMetaData.ContainsKey(shardId) && ShardMetaData[shardId].ShardOperations.ContainsKey(pos))
-                return ShardMetaData[shardId].ShardOperations[pos];
-            return null;
-        }
-
-        public bool MarkShardForDeletion(Guid shardId, Guid objectId)
-        {
-            var result = false;
-            if (ShardMetaData.ContainsKey(shardId))
-            {
-                result = ShardMetaData[shardId].MarkObjectForDeletion(objectId);
-
-                //Console.WriteLine("marked shard for deletion");
-                Save();
-            }
-            return result;
-        }
-
-        public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)
-        {
-            if (ShardMetaData.ContainsKey(shardId))
-            {
-                return ShardMetaData[shardId].ObjectIsMarkedForDeletion(objectId);
-            }
-            return false;
-        }
-
-        public Dictionary<Guid, int> GetShardSyncPositions()
-        {
-            if (ShardMetaData == null)
-            {
-                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
-            }
-            var shardMetadata = ShardMetaData;
-            return shardMetadata.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
-        }
-        public Dictionary<Guid, int> GetShardOperationCounts()
-        {
-            if (ShardMetaData == null)
-            {
-                ShardMetaData = new ConcurrentDictionary<Guid, LocalShardMetaData>();
-            }
-            return ShardMetaData.ToDictionary(k => k.Key, v => v.Value.ShardOperations.Count);
-        }
-
-        public ShardOperation GetShardOperation(Guid shardId, int pos)
-        {
-            if (ShardMetaData.ContainsKey(shardId) && ShardMetaData[shardId].ShardOperations.ContainsKey(pos))
-            {
-                return ShardMetaData[shardId].ShardOperations[pos];
-            }
-            return null;
         }
 
         public void Save()
@@ -497,12 +352,6 @@ namespace ConsensusCore.Domain.Services
                     Thread.Sleep(500);
                 }
             }
-        }
-
-        public void AddDataReversionRecord(DataReversionRecord record)
-        {
-            RevertedOperations.Add(record);
-            Save();
         }
     }
 }

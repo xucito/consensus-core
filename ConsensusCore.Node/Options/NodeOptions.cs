@@ -11,5 +11,6 @@ namespace ConsensusCore.Node
         public Guid Id { get; set; }
         public string Name { get; set; }
         public bool EnableLeader { get; set; } = true;
+        public bool AlwaysPrimary { get; set; } = false;
     }
 }

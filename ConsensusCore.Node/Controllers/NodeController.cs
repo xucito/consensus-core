@@ -17,16 +17,17 @@ namespace ConsensusCore.Node.Controllers
 {
     [Route("api/node")]
     //[GenericController]
-    public class NodeController<State, Repository> : Controller
+    public class NodeController<State> : Controller
         where State : BaseState, new()
-        where Repository : IBaseRepository<State>
     {
-        private IConsensusCoreNode<State, IBaseRepository<State>> _node;
-        private ILogger<NodeController<State, Repository>> Logger;
+        private IConsensusCoreNode<State> _node;
+        private ILogger<NodeController<State>> Logger;
+        private ShardManager<State, IShardRepository> _shardManager;
 
-        public NodeController(IConsensusCoreNode<State, IBaseRepository<State>> manager, ILogger<NodeController<State, Repository>> logger)
+        public NodeController(IConsensusCoreNode<State> manager, ILogger<NodeController<State>> logger, ShardManager<State, IShardRepository> shardManager)
         {
             _node = manager;
+            _shardManager = shardManager;
             Logger = logger;
         }
 
@@ -36,11 +37,23 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_node.NodeInfo);
         }
 
-        [HttpGet("localShards")]
+        [HttpGet("shards/{shardId}/operations")]
+        public IActionResult GetShardOperations(Guid shardId)
+        {
+            return Ok(_shardManager.GetShardOperations(shardId));
+        }
+
+        [HttpGet("shards/{shardId}/local-metadata")]
+        public IActionResult GetShardLocalMetadata(Guid shardId)
+        {
+            return Ok(_shardManager.GetShardLocalMetadata(shardId));
+        }
+
+        /*[HttpGet("localShards")]
         public IActionResult GetLocalShards()
         {
             return Ok(_node.LocalShards);
-        }
+        }*/
 
         [HttpPost("RPC")]
         public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<BaseResponse> request)
@@ -64,11 +77,11 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_node.GetLogs());
         }
 
-        [HttpGet("reverted-operations")]
+     /*   [HttpGet("reverted-operations")]
         public IActionResult GetRevertedOperations()
         {
             return Ok(_node.RevertedOperations);
-        }
+        }*/
 
         //Locks
         [HttpPost("locks")]

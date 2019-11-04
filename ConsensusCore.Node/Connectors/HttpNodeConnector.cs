@@ -54,6 +54,15 @@ namespace ConsensusCore.Node.Connectors
                 case WriteData t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
+                case RequestShardOperations t1:
+                    result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
+                    break;
+                case RequestCreateIndex t1:
+                    result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
+                    break;
+                case ReplicateShardOperation t1:
+                    result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
+                    break;
                 default:
                     result = await PostAsJsonAsync(_httpClient, "/api/node/RPC", request);
                     break;

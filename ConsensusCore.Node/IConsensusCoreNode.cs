@@ -12,9 +12,8 @@ using Microsoft.Extensions.Logging;
 
 namespace ConsensusCore.Node
 {
-    public interface IConsensusCoreNode<State, Repository>
+    public interface IConsensusCoreNode<State>
         where State : BaseState, new()
-        where Repository : IBaseRepository<State>
     {
         /* StateMachine<State> _stateMachine { get; }
          int CommitIndex { get; }
@@ -40,7 +39,6 @@ namespace ConsensusCore.Node
          Guid? CreateNewShardRequestHandler(CreateDataShardRequest shard);
          bool UpdateShardCommand(Guid id,string type, object newData);
          object GetData(Guid id, string type);*/
-        ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards { get; }
         NodeInfo NodeInfo { get; }
         State GetState();
         Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
@@ -51,7 +49,6 @@ namespace ConsensusCore.Node
         SortedList<int, LogEntry> GetLogs();
         //Used for testing
         void SetNodeRole(NodeState newState);
-        List<DataReversionRecord> RevertedOperations { get; }
         List<ObjectLock> ObjectLocks { get; }
     }
 }

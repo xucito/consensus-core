@@ -26,9 +26,8 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node
 {
-    public class ConsensusCoreNode<State, Repository> : IConsensusCoreNode<State, Repository>
+    public class ConsensusCoreNode<State> : IConsensusCoreNode<State>
         where State : BaseState, new()
-        where Repository : IBaseRepository<State>
     {
         private Timer _heartbeatTimer;
         private Timer _electionTimeoutTimer;
@@ -49,7 +48,7 @@ namespace ConsensusCore.Node
         /// </summary>
         public NodeStorage<State> _nodeStorage { get; set; }
         public NodeState CurrentState { get; private set; }
-        public ILogger<ConsensusCoreNode<State, Repository>> Logger { get; }
+        public ILogger<ConsensusCoreNode<State>> Logger { get; }
         /// <summary>
         /// Next index based on the nodeId
         /// </summary>
@@ -81,7 +80,7 @@ namespace ConsensusCore.Node
         /// </summary>
         public int CommitIndex { get; private set; }
         public int LatestLeaderCommit { get; private set; }
-        public Repository _repository { get; private set; }
+        public IBaseRepository<State> _repository { get; private set; }
         public string[] NodeUrls;
 
         public NodeInfo NodeInfo
@@ -94,8 +93,6 @@ namespace ConsensusCore.Node
                     InCluster = InCluster,
                     Status = GetNodeStatus(),
                     CommitIndex = CommitIndex,
-                    ShardOperationCounts = _nodeStorage.GetShardOperationCounts(),
-                    ShardSyncPositions = _nodeStorage.GetShardSyncPositions(),
                     ThreadCounts = new
                     {
                         TaskThreads = _nodeTasks?.Where(t => !t.Value.Task.IsCompleted).Count(),
@@ -147,25 +144,20 @@ namespace ConsensusCore.Node
 
         public bool IsLeader => CurrentLeader.Key.HasValue && CurrentLeader.Key.Value == _nodeStorage.Id;
 
-        public List<DataReversionRecord> RevertedOperations { get => _nodeStorage.RevertedOperations.ToList(); }
-
-        public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShards => _nodeStorage.ShardMetaData;
-
         public List<ObjectLock> ObjectLocks => _stateMachine.GetObjectLocks().Select(ol => ol.Value).ToList();
 
-        ShardManager<State, Repository> _shardManager;
+        ShardManager<State, IShardRepository> _shardManager;
 
         public ConsensusCoreNode(
             IOptions<ClusterOptions> clusterOptions,
             IOptions<NodeOptions> nodeOptions,
             ILogger<ConsensusCoreNode<
-            State,
-            Repository>> logger,
+            State>> logger,
             IStateMachine<State> stateMachine,
-            Repository repository,
+            IBaseRepository<State> repository,
             ClusterConnector connector,
             IDataRouter dataRouter,
-            ShardManager<State, Repository> shardManager,
+            ShardManager<State, IShardRepository> shardManager,
             NodeStorage<State> nodeStorage
             )
         {
@@ -190,7 +182,8 @@ namespace ConsensusCore.Node
             _clusterConnector = connector;
             _shardManager = shardManager;
             SetNodeRole(NodeState.Follower);
-
+            //Set the id for the shard manager
+            _shardManager.SetNodeId(_nodeStorage.Id);
             if (!_clusterOptions.TestMode)
             {
                 NodeUrls = _clusterOptions.NodeUrls.Split(",");
@@ -363,7 +356,7 @@ namespace ConsensusCore.Node
                             //Recheck incase this is now changed.
                             if (reloadedShard.PrimaryAllocation == _nodeStorage.Id)
                             {
-                                int? latestPos = _nodeStorage.GetCurrentShardLatestCount(shard.Id);
+                                int? latestPos = _shardManager.GetTotalShardOperationCount(shard.Id);
                                 //Allow some time for transactions to be commited on the replica nodes
                                 Thread.Sleep(3000);
                                 ConcurrentBag<Guid> newStaleAllocations = new ConcurrentBag<Guid>();
@@ -394,7 +387,7 @@ namespace ConsensusCore.Node
                                                         newStaleAllocations.Add(allocation);
                                                     }
                                                     // Reload the shard count to make sure that it is ahead for the wrong reasons
-                                                    else if (result.LatestPosition > _nodeStorage.GetCurrentShardLatestCount(shard.Id))
+                                                    else if (result.LatestPosition > _shardManager.GetTotalShardOperationCount(shard.Id))
                                                     {
                                                         Logger.LogWarning(GetNodeId() + " found node " + allocation + " for shard " + shard.Id + " as being too far forwards, remarking as stale. " + result.LatestPosition + " vs " + latestPos);
                                                         newStaleAllocations.Add(allocation);
@@ -863,9 +856,9 @@ namespace ConsensusCore.Node
                     //Check object locks
                     var objectLocks = _stateMachine.GetObjectLocks();
 
-                    foreach(var objectLock in objectLocks)
+                    foreach (var objectLock in objectLocks)
                     {
-                        if(objectLock.Value.IsExpired)
+                        if (objectLock.Value.IsExpired)
                         {
                             Logger.LogWarning("Found expired lock on object " + objectLock.Key + ", releasing lock.");
                             nodeUpsertCommands.Add(new RemoveObjectLock()
@@ -1251,7 +1244,7 @@ namespace ConsensusCore.Node
         {
             try
             {
-                return await _shardManager.ReplicateShardOperation(request.ShardId, request.Operation, request.Payload, request.Pos, request.Type);
+                return await _shardManager.ReplicateShardOperation(request.Operation, request.Payload);
             }
             catch (Exception e)
             {
@@ -1567,9 +1560,11 @@ namespace ConsensusCore.Node
                     };
                 }
 
-                if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
+              /*  if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
                 {
-                    Logger.LogWarning(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    Logger.LogError(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist. Current entry has term " + previousEntry.Term);
+                    _nodeStorage.DeleteLogsFromIndex(previousEntry.Index);
+
                     var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
                     return new AppendEntryResponse()
                     {
@@ -1578,7 +1573,7 @@ namespace ConsensusCore.Node
                         ConflictingTerm = entry.PrevLogTerm,
                         FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
                     };
-                }
+                }*/
             }
             else
             {
@@ -1602,11 +1597,11 @@ namespace ConsensusCore.Node
                 var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
                 if (existingEnty != null && existingEnty.Term != log.Term)
                 {
+                    Logger.LogError("Found inconsistent logs in state, deleting logs from index " + log.Index);
                     _nodeStorage.DeleteLogsFromIndex(log.Index);
                     break;
                 }
             }
-
 
             if (!InCluster)
             {
@@ -1620,6 +1615,17 @@ namespace ConsensusCore.Node
                 try
                 {
                     _nodeStorage.AddLog(log);
+                }
+                catch (MissingLogEntryException e)
+                {
+                    return new AppendEntryResponse()
+                    {
+                        IsSuccessful = false,
+                        ConflictingTerm = null,
+                        ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
+                        FirstTermIndex = null,
+                        LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
+                    };
                 }
                 catch (Exception e)
                 {
@@ -1821,8 +1827,8 @@ namespace ConsensusCore.Node
                         }
                         else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
                         {
-                            Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + result.LastLogEntryIndex.Value + 1);
-                            NextIndex[node.Key] = result.LastLogEntryIndex.Value + 1;
+                            Logger.LogWarning(GetNodeId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
+                            NextIndex[node.Key] = (result.LastLogEntryIndex.Value + 1);
                         }
                         else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
                         {
@@ -2129,7 +2135,7 @@ namespace ConsensusCore.Node
                         Shards.Add(new SharedShardMetadata()
                         {
                             InsyncAllocations = eligbleNodes.Keys.ToHashSet(),
-                            PrimaryAllocation = eligbleNodes.ElementAt(rand.Next(0, eligbleNodes.Count())).Key,
+                            PrimaryAllocation = _nodeOptions.AlwaysPrimary ? _nodeStorage.Id : eligbleNodes.ElementAt(rand.Next(0, eligbleNodes.Count())).Key,
                             Id = Guid.NewGuid(),
                             Type = type
                         });

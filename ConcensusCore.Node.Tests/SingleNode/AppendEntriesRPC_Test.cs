@@ -21,7 +21,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
 {
     public class AppendEntriesRPC_Test
     {
-        public ConsensusCoreNode<TestState, IBaseRepository<TestState>> Node;
+        public ConsensusCoreNode<TestState> Node;
         public NodeStorage<TestState> NodeStorage;
 
         public AppendEntriesRPC_Test()
@@ -107,7 +107,7 @@ namespace ConcensusCore.Node.Tests.SingleNode
                     new LogEntry()
                     {
                         Index = 2,
-                        Term = 9
+                        Term = 5
                     }
                 },
                 Term = 5,

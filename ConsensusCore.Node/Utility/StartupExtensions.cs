@@ -36,17 +36,19 @@ namespace ConsensusCore.Node.Utility
 
         }*/
 
-        public static void AddConsensusCore<State, Repository>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
+        public static void AddConsensusCore<State, Repository, ShardRepository>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
+            Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
             Action<NodeOptions> nodeOptions,
             Action<ClusterOptions> clusterOptions)
                 where State : BaseState, new()
                 where Repository : class, IBaseRepository<State>
+        where ShardRepository : class, IShardRepository
         {
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository<State>>, ConsensusCoreNode<State, IBaseRepository<State>>>();
-            services.AddTransient<NodeController<State, IBaseRepository<State>>>();
+            services.AddSingleton<IConsensusCoreNode<State>, ConsensusCoreNode<State>>();
+            services.AddTransient<NodeController<State>>();
             services.Configure(nodeOptions);
             services.Configure(clusterOptions);
             services.AddSingleton<ClusterConnector>();
@@ -55,33 +57,36 @@ namespace ConsensusCore.Node.Utility
                 .ConfigureApplicationPartManager(apm =>
                     apm.ApplicationParts.Add(new NodeControllerApplicationPart(new Type[] {
                         typeof(State),
-                        typeof(Repository)
+                        typeof(Repository),
+                        typeof(ShardRepository)
                     })));
-
         }
 
-        public static void AddConsensusCore<State, Repository>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
-     IConfigurationSection nodeOptions,
-    IConfigurationSection clusterOptions)
-        where State : BaseState, new()
-        where Repository : class, IBaseRepository<State>
+        public static void AddConsensusCore<State, Repository, ShardRepository>(this IServiceCollection services, 
+            Func<IServiceProvider, Repository> implementationFactory,
+            Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
+            IConfigurationSection nodeOptions,
+            IConfigurationSection clusterOptions)
+                where State : BaseState, new()
+                where Repository : class, IBaseRepository<State>
+                where ShardRepository : class, IShardRepository
         {
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
+            services.AddSingleton<IShardRepository, ShardRepository>(shardRepositoryImplementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State, IBaseRepository<State>>, ConsensusCoreNode<State, IBaseRepository<State>>>();
-            services.AddTransient<NodeController<State, IBaseRepository<State>>>();
+            services.AddSingleton<IConsensusCoreNode<State>, ConsensusCoreNode<State>>();
+            services.AddTransient<NodeController<State>>();
             services.Configure<NodeOptions>(nodeOptions);
             services.Configure<ClusterOptions>(clusterOptions);
             services.AddSingleton<ClusterConnector>();
             services.AddSingleton<NodeStorage<State>>();
-            services.AddSingleton<ShardManager<State, IBaseRepository<State>>>();
+            services.AddSingleton<ShardManager<State, IShardRepository>>();
 
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
                 .ConfigureApplicationPartManager(apm =>
                     apm.ApplicationParts.Add(new NodeControllerApplicationPart(new Type[] {
-                        typeof(State),
-                        typeof(Repository)
+                        typeof(State)
                     })));
 
         }
