@@ -467,7 +467,8 @@ namespace ConsensusCore.Node.Services
                         Operation = operation.Value.Operation,
                         ObjectId = operation.Value.ObjectId,
                         ShardId = shard.ShardId,
-                        Pos = operation.Key
+                        Pos = operation.Key,
+                        Debug = _clusterOptions.DebugMode ? (ShardData)operation.Value.Payload : null
                     }, (ShardData)operation.Value.Payload);
 
                     if (!replicationResult.IsSuccessful)
@@ -576,13 +577,15 @@ namespace ConsensusCore.Node.Services
                 AddNewShardMetadata(data.ShardId.Value, data.ShardType);
             }
 
+            Logger.LogDebug("Running shard operation " + operation.ToString() + " on shard " + data.ShardId + " for data " + data.Id + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
             //Commit the sequence Number
             var submittedOperation = AddShardOperation(new ShardOperation()
             {
                 ObjectId = data.Id,
                 Operation = operation,
                 ShardId = data.ShardId.Value,
-                Applied = false
+                Applied = false,
+                Debug = _clusterOptions.DebugMode ? data : null
             });
 
             if (!await RunDataOperation(operation, data))
@@ -624,7 +627,8 @@ namespace ConsensusCore.Node.Services
                                 ObjectId = data.Id,
                                 Operation = operation,
                                 ShardId = shardMetadata.Id,
-                                Pos = submittedOperation.Pos
+                                Pos = submittedOperation.Pos,
+                                Debug = _clusterOptions.DebugMode ? data : null
                             },
                             Payload = data,
                             Type = data.ShardType

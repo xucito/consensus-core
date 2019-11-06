@@ -15,6 +15,10 @@ namespace ConsensusCore.Domain.BaseClasses
         public ShardOperationOptions Operation { get; set; }
         public Guid ObjectId { get; set; }
         public bool Applied { get; set; } = false;
+        /// <summary>
+        /// Only included if you turn on debug mode
+        /// </summary>
+        public ShardData Debug { get; set; }
 
         public override bool Equals(Object obj)
         {
