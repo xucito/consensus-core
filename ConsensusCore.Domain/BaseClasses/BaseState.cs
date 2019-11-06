@@ -245,7 +245,7 @@ namespace ConsensusCore.Domain.BaseClasses
             }
             catch(Exception e)
             {
-                Console.WriteLine("Failed to apply command " + command.CommandName + " to state.");
+                Console.WriteLine("Failed to apply command " + command.CommandName + " to state." + Environment.NewLine + JsonConvert.SerializeObject(command, Formatting.Indented));
             }
         }
 

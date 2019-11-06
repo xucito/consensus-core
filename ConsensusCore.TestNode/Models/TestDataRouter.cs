@@ -1,5 +1,6 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Node.Services;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -33,7 +34,10 @@ namespace ConsensusCore.TestNode.Models
                 case TestData t1:
                     var addResult = _numberStore.TryAdd(t1.Id, t1);
                     if (!addResult)
-                        Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id);
+                    {
+                        Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id + " replacing the existing data" + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
+                        await UpdateDataAsync(data);
+                    }
                     break;
             }
             return data;
@@ -69,6 +73,8 @@ namespace ConsensusCore.TestNode.Models
                         throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId);
                     }*/
                     break;
+                default:
+                    throw new Exception("Failed to match the data with a type");
             }
             return data;
         }

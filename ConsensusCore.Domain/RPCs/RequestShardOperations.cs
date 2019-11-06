@@ -33,5 +33,15 @@ namespace ConsensusCore.Domain.RPCs
         public int Position { get; set; }
         public ShardOperationOptions Operation { get; set; }
         public Guid ObjectId { get; set; }
+        public ShardOperation ShardOperation { get {
+                return new ShardOperation()
+                {
+                    Applied = true,
+                    ObjectId = ObjectId,
+                    Operation = Operation,
+                    Pos = Position,
+                    ShardId = Payload.ShardId.Value
+                };
+            } }
     }
 }

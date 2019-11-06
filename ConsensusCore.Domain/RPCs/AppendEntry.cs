@@ -15,7 +15,6 @@ namespace ConsensusCore.Domain.RPCs
         public int PrevLogTerm { get; set; }
         public List<LogEntry> Entries { get; set; } = new List<LogEntry>();
         public int LeaderCommit { get; set; }
-
         public override string RequestName => "AppendEntry";
     }
 

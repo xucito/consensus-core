@@ -107,6 +107,7 @@ namespace ConsensusCore.Domain.Services
 
             var logIncludedTo = GetLogAtIndex(indexIncludedTo);
             var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
+            Console.WriteLine("Getting logs " + logIncludedFrom.Index + " to " + logIncludedTo);
             if (logIncludedTo != null && logIncludedFrom != null)
             {
                 //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
@@ -210,7 +211,7 @@ namespace ConsensusCore.Domain.Services
 
         public LogEntry GetLogAtIndex(int logIndex)
         {
-            if (logIndex == 0 || GetTotalLogCount() < logIndex || logIndex <= LastSnapshotIncludedIndex)
+            if (logIndex == 0 || GetTotalLogCount() < logIndex || logIndex <= LastSnapshotIncludedIndex || !Logs.ContainsKey(logIndex))
             {
                 return null;
             }
@@ -318,7 +319,7 @@ namespace ConsensusCore.Domain.Services
             lock (_locker)
             {
                 List<int> markedForDeletion = new List<int>();
-                foreach (var pos in Logs.Where(l => fromIndex >= l.Key && (toIndex == null || l.Key <= toIndex)))
+                foreach (var pos in Logs.Where(l => fromIndex <= l.Key && (toIndex == null || l.Key <= toIndex)))
                 {
                     markedForDeletion.Add(pos.Key);
                 }

@@ -290,7 +290,7 @@ namespace ConsensusCore.Node
                         // If the number of logs that are commited but not included in the snapshot are not included in interval, create snapshot
                         if (_clusterOptions.SnapshottingInterval < (CommitIndex - _nodeStorage.LastSnapshotIncludedIndex) && _nodeStorage.LogExists(_nodeStorage.LastSnapshotIncludedIndex + 1))
                         {
-                            Logger.LogInformation("Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
+                            Logger.LogInformation(GetNodeId() + "Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
                             _nodeStorage.CreateSnapshot(snapshotTo);
                         }
                     }
@@ -332,7 +332,7 @@ namespace ConsensusCore.Node
             Interlocked.Increment(ref selfHealingThreads);
             while (true)
             {
-                if ((CurrentState == NodeState.Follower || CurrentState == NodeState.Leader) && IsUptoDate())
+                if ((CurrentState == NodeState.Follower || CurrentState == NodeState.Leader))// && IsUptoDate())
                 {
                     try
                     {
@@ -361,6 +361,7 @@ namespace ConsensusCore.Node
                                 Thread.Sleep(3000);
                                 ConcurrentBag<Guid> newStaleAllocations = new ConcurrentBag<Guid>();
 
+                                Logger.LogInformation(GetNodeId() + "Checking  insync allocations " + Environment.NewLine + JsonConvert.SerializeObject(reloadedShard.InsyncAllocations.Where(ia => ia != _nodeStorage.Id), Formatting.Indented));
                                 //For each insync allocation, search whether it is out of date
                                 var tasks = reloadedShard.InsyncAllocations.Where(ia => ia != _nodeStorage.Id).Select(async allocation =>
                                     {
@@ -414,6 +415,7 @@ namespace ConsensusCore.Node
                                 //Recheck that I am still the primary
                                 if ((newStaleAllocations.Count > 0 || latestPos != reloadedShard.LatestOperationPos) && _stateMachine.GetShard(shard.Type, shard.Id).PrimaryAllocation == _nodeStorage.Id)
                                 {
+                                    Logger.LogInformation("Found shard " + reloadedShard.Id + " metadata is out of date.");
                                     updates.Add(new UpdateShardMetadataAllocations()
                                     {
                                         ShardId = shard.Id,
@@ -519,11 +521,11 @@ namespace ConsensusCore.Node
 
                     Thread.Sleep(1000);
                 }
-                else if (!IsUptoDate())
+               /* else if (!IsUptoDate())
                 {
                     Logger.LogWarning("Awaiting for not to commit all logs..");
                     Thread.Sleep(1000);
-                }
+                }*/
                 else
                 {
                     Thread.Sleep(1000);
@@ -573,7 +575,7 @@ namespace ConsensusCore.Node
                     Logger.LogWarning(GetNodeId() + "Not enough of the nodes in the cluster are contactable, awaiting bootstrap");
                 }
             }
-
+            _shardManager.LogPrefix = GetNodeId();
             IsBootstrapped = true;
             return true;
         }
@@ -829,7 +831,7 @@ namespace ConsensusCore.Node
                         foreach (var nodeId in NodesToMarkAsStale)
                         {
                             //There could be already requests in queue marking the node as unreachable
-                            if (_stateMachine.IsNodeContactable(nodeId) && IsUptoDate())
+                            if (_stateMachine.IsNodeContactable(nodeId))
                             {
                                 nodeUpsertCommands.Add(new UpsertNodeInformation()
                                 {
@@ -1560,20 +1562,20 @@ namespace ConsensusCore.Node
                     };
                 }
 
-              /*  if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
-                {
-                    Logger.LogError(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist. Current entry has term " + previousEntry.Term);
-                    _nodeStorage.DeleteLogsFromIndex(previousEntry.Index);
+                /*  if (previousEntry != null && previousEntry.Term != entry.PrevLogTerm)
+                  {
+                      Logger.LogError(GetNodeId() + "Inconsistency found in the node logs and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist. Current entry has term " + previousEntry.Term);
+                      _nodeStorage.DeleteLogsFromIndex(previousEntry.Index);
 
-                    var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
-                    return new AppendEntryResponse()
-                    {
-                        ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
-                        IsSuccessful = false,
-                        ConflictingTerm = entry.PrevLogTerm,
-                        FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
-                    };
-                }*/
+                      var logs = _nodeStorage.Logs.Where(l => l.Value.Term == entry.PrevLogTerm).FirstOrDefault();
+                      return new AppendEntryResponse()
+                      {
+                          ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                          IsSuccessful = false,
+                          ConflictingTerm = entry.PrevLogTerm,
+                          FirstTermIndex = logs.Key != 0 ? logs.Value.Index : 0
+                      };
+                  }*/
             }
             else
             {
@@ -1597,7 +1599,7 @@ namespace ConsensusCore.Node
                 var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
                 if (existingEnty != null && existingEnty.Term != log.Term)
                 {
-                    Logger.LogError("Found inconsistent logs in state, deleting logs from index " + log.Index);
+                    Logger.LogError(GetNodeId() + "Found inconsistent logs in state, deleting logs from index " + log.Index);
                     _nodeStorage.DeleteLogsFromIndex(log.Index);
                     break;
                 }
@@ -1848,7 +1850,7 @@ namespace ConsensusCore.Node
                             Logger.LogError(GetNodeId() + "Append entry returned with undefined conflict name");
                             //Mark the node as uncontactable
 
-                            if (_stateMachine.IsNodeContactable(node.Key) && IsUptoDate())
+                            if (_stateMachine.IsNodeContactable(node.Key))
                             {
                                 await Handle(new ExecuteCommands()
                                 {
@@ -2213,9 +2215,9 @@ namespace ConsensusCore.Node
             return _nodeStorage.Logs;
         }
 
-        public bool IsUptoDate()
+        /*public bool IsUptoDate()
         {
             return CommitIndex == _nodeStorage.GetTotalLogCount();
-        }
+        }*/
     }
 }

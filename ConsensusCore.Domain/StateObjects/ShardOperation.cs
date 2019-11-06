@@ -15,5 +15,19 @@ namespace ConsensusCore.Domain.BaseClasses
         public ShardOperationOptions Operation { get; set; }
         public Guid ObjectId { get; set; }
         public bool Applied { get; set; } = false;
+
+        public override bool Equals(Object obj)
+        {
+            //Check for null and compare run-time types.
+            if ((obj == null) || !this.GetType().Equals(obj.GetType()))
+            {
+                return false;
+            }
+            else
+            {
+                ShardOperation p = (ShardOperation)obj;
+                return (ShardId == p.ShardId) && (Pos == p.Pos) && (Operation == p.Operation) && ObjectId == p.ObjectId && Applied == p.Applied;
+            }
+        }
     }
 }
