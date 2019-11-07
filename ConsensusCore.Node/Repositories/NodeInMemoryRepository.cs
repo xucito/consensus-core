@@ -14,8 +14,8 @@ namespace ConsensusCore.Node.Repositories
         where Z : BaseState, new()
     {
         public ConcurrentBag<DataReversionRecord> DataReversionRecords { get; set; } = new ConcurrentBag<DataReversionRecord>();
-        public SortedDictionary<Guid, LocalShardMetaData> LocalShardMetaDatas { get; set; } = new SortedDictionary<Guid, LocalShardMetaData>();
-        public SortedDictionary<string, ShardOperation> ShardOperations { get; set; } = new SortedDictionary<string, ShardOperation>();
+        public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShardMetaDatas { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
+        public ConcurrentDictionary<string, ShardOperation> ShardOperations { get; set; } = new ConcurrentDictionary<string, ShardOperation>();
         public ConcurrentBag<ObjectDeletionMarker> ObjectDeletionMarker { get; set; } = new ConcurrentBag<ObjectDeletionMarker>();
 
         public NodeInMemoryRepository()
@@ -96,7 +96,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool RemoveShardOperation(Guid shardId, int pos)
         {
-            return ShardOperations.Remove(shardId + ":" + pos);
+            return ShardOperations.TryRemove(shardId + ":" + pos, out _);
         }
 
         public void SaveNodeData(NodeStorage<Z> storage)
@@ -105,7 +105,7 @@ namespace ConsensusCore.Node.Repositories
 
         public void SaveShardOperation(ShardOperation operation)
         {
-            ShardOperations.Add(operation.ShardId + ":" + operation.Pos, operation);
+            ShardOperations.TryAdd(operation.ShardId + ":" + operation.Pos, operation);
         }
 
         public bool ShardMetadataExists(Guid shardId)

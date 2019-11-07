@@ -110,7 +110,7 @@ namespace ConsensusCore.Node.Services
                     {
                         if (operation.Operation == ShardOperationOptions.Delete || operation.Operation == ShardOperationOptions.Update)
                         {
-                            Logger.LogError("Failed to revert operation " + pos + " as the original record was not provided for object " + operation.ObjectId + ".");
+                            Logger.LogError(LogPrefix + "Failed to revert operation " + pos + " as the original record was not provided for object " + operation.ObjectId + ".");
                         }
                         originalData.Add(operation.ObjectId, null);
                     }
@@ -220,7 +220,7 @@ namespace ConsensusCore.Node.Services
                         }
                         else
                         {
-                            Console.WriteLine("OBJECT IS MARKED FOR DELETION");
+                            Logger.LogError("OBJECT " + data.Id + " IS MARKED FOR DELETION");
                         }
                         break;
                     case ShardOperationOptions.Delete:
@@ -235,7 +235,7 @@ namespace ConsensusCore.Node.Services
                         }
                         else
                         {
-                            Logger.LogError("Ran into error while deleting " + data.Id);
+                            Logger.LogError(LogPrefix + "Ran into error while deleting " + data.Id);
                             return false;
                         }
                         break;
@@ -323,7 +323,7 @@ namespace ConsensusCore.Node.Services
                 }
                 else
                 {
-                    Logger.LogWarning(" primary node " + randomlySelectedNode + " was not available for recovery, sleeping and will try again...");
+                    Logger.LogWarning(LogPrefix + " primary node " + randomlySelectedNode + " was not available for recovery, sleeping and will try again...");
                     Thread.Sleep(1000);
                 }
             }
@@ -389,6 +389,7 @@ namespace ConsensusCore.Node.Services
                     {
                         Logger.LogInformation(LogPrefix + "Checking operation " + pos.Key);
                         var myCopyOfTheTransaction = _shardRepository.GetShardOperation(shard.ShardId, pos.Key);
+
                         if (myCopyOfTheTransaction == null || !myCopyOfTheTransaction.Equals(pos.Value.ShardOperation))
                         {
                             Logger.LogWarning(LogPrefix + "Found my copy of the operation" + pos.Key + " was not equal to the primary. Marking operation " + pos.Key + " for reversion." + Environment.NewLine + JsonConvert.SerializeObject(myCopyOfTheTransaction) + Environment.NewLine + JsonConvert.SerializeObject(pos.Value.ShardOperation));
@@ -413,7 +414,7 @@ namespace ConsensusCore.Node.Services
                         for (var i = currentOperationCount; i >= lowestPosition; i--)
                         {
                             var operation = _shardRepository.GetShardOperation(shardId, i);
-                            if (!correctDataset.ContainsKey(operation.ObjectId))
+                            if (operation != null && !correctDataset.ContainsKey(operation.ObjectId))
                             {
                                 correctDataset.Add(operation.ObjectId, await GetOriginalDataForOperationReversal(operation.Operation, operation.ObjectId, shardId, type));
                             }
@@ -502,7 +503,7 @@ namespace ConsensusCore.Node.Services
 
         public async Task<ReplicateShardOperationResponse> ReplicateShardOperation(ShardOperation operation, ShardData payload)
         {
-            Logger.LogDebug(LogPrefix + "Recieved replication request for shard" + operation.ShardId + " for object " + operation.ObjectId + " for action " + operation.Operation.ToString() + " operation " + operation.Pos);
+            Logger.LogDebug(LogPrefix + "Recieved replication request for shard" + operation.ShardId + " for object " + operation.ObjectId + " for action " + operation.Operation.ToString() + " operation " + operation.Pos + Environment.NewLine + JsonConvert.SerializeObject(payload, Formatting.Indented));
             var startTime = DateTime.Now;
             operation.Applied = false;
 
@@ -525,7 +526,8 @@ namespace ConsensusCore.Node.Services
 
             if (successfullyAddedOperation)
             {
-                if (!await RunDataOperation(operation.Operation, payload))
+                operation.Applied = true;
+                if (!await RunDataOperation(operation.Operation, payload) || !IsShardOperationUpdateApplicable(operation))
                 {
                     Logger.LogError(LogPrefix + "Ran into error while running operation " + operation.Operation.ToString() + " on " + operation.ShardId);
                     if (!_shardRepository.RemoveShardOperation(operation.ShardId, operation.Pos))
@@ -539,7 +541,6 @@ namespace ConsensusCore.Node.Services
                 }
                 else
                 {
-                    operation.Applied = true;
                     _shardRepository.UpdateShardOperation(operation.ShardId, operation);
 
                     var shard = _shardRepository.GetShardMetadata(operation.ShardId);
@@ -549,12 +550,22 @@ namespace ConsensusCore.Node.Services
                     Logger.LogDebug(LogPrefix + "Marked operation " + operation.Pos + " on shard " + operation.ShardId + "as commited");
                 }
             }
+            else
+            {
+                Logger.LogError("Failed to add operation " + operation.Operation.ToString() + " on shard " + operation.ShardId + " for transaction " + operation.Pos + " for object " + operation.ObjectId);
+            }
 
             return new ReplicateShardOperationResponse()
             {
                 IsSuccessful = true,
                 LatestPosition = _shardRepository.GetTotalShardOperationsCount(operation.ShardId)
             };
+        }
+
+        public bool IsShardOperationUpdateApplicable(ShardOperation operation)
+        {
+            var operationInDb = _shardRepository.GetShardOperation(operation.ShardId, operation.Pos);
+            return operationInDb.ObjectId == operation.ObjectId && operationInDb.Operation == operation.Operation;
         }
 
         /// <summary>
@@ -577,7 +588,7 @@ namespace ConsensusCore.Node.Services
                 AddNewShardMetadata(data.ShardId.Value, data.ShardType);
             }
 
-            Logger.LogDebug("Running shard operation " + operation.ToString() + " on shard " + data.ShardId + " for data " + data.Id + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
+            Logger.LogDebug(LogPrefix + "Running shard operation " + operation.ToString() + " on shard " + data.ShardId + " for data " + data.Id + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
             //Commit the sequence Number
             var submittedOperation = AddShardOperation(new ShardOperation()
             {
@@ -602,16 +613,16 @@ namespace ConsensusCore.Node.Services
             }
             else
             {
-                //If the shard metadata is not synced upto date
-                if (_shardRepository.GetShardMetadata(data.ShardId.Value).SyncPos < submittedOperation.Pos - 1)
-                {
-                    //Logger.LogInformation("Detected delayed sync position, sending recovery command.");
-                    //AddShardSyncTask(data.Id, data.ShardType);
-                }
+                Logger.LogDebug(LogPrefix + "Successfully ran shard operation " + operation.ToString() + " on shard " + data.ShardId + " for data " + data.Id + " in position " + submittedOperation.Pos);
 
                 submittedOperation.Applied = true;
-                _shardRepository.UpdateShardOperation(submittedOperation.ShardId, submittedOperation);
 
+                if (!IsShardOperationUpdateApplicable(submittedOperation))
+                {
+                    Logger.LogError(LogPrefix + "Failed to apply shard operation " + submittedOperation.Pos + " update as the operation already exists but is not matching.");
+                    _shardRepository.UpdateShardOperation(submittedOperation.ShardId, submittedOperation);
+                    throw new ShardOperationConcurrencyException("Failed to apply shard operation " + submittedOperation.Pos + " update as the operation already exists but is not matching.");
+                }
                 var shard = _shardRepository.GetShardMetadata(submittedOperation.ShardId);
                 shard.SyncPos = submittedOperation.Pos;
                 _shardRepository.UpdateShardMetadata(shard);
@@ -620,16 +631,17 @@ namespace ConsensusCore.Node.Services
                 {
                     try
                     {
+                        var newShardOperation = new ShardOperation()
+                        {
+                            ObjectId = data.Id,
+                            Operation = operation,
+                            ShardId = shardMetadata.Id,
+                            Pos = submittedOperation.Pos,
+                            Debug = _clusterOptions.DebugMode ? data : null
+                        };
                         var result = await _clusterConnector.Send(allocation, new ReplicateShardOperation()
                         {
-                            Operation = new ShardOperation()
-                            {
-                                ObjectId = data.Id,
-                                Operation = operation,
-                                ShardId = shardMetadata.Id,
-                                Pos = submittedOperation.Pos,
-                                Debug = _clusterOptions.DebugMode ? data : null
-                            },
+                            Operation = newShardOperation,
                             Payload = data,
                             Type = data.ShardType
                         });
@@ -640,7 +652,7 @@ namespace ConsensusCore.Node.Services
                         }
                         else
                         {
-                            throw new Exception("Failed to replicate data to shard " + shardMetadata.Id + " to node " + allocation);
+                            throw new Exception("Failed to replicate data to shard " + shardMetadata.Id + " to node " + allocation + " for operation " + operation.ToString() + Environment.NewLine + JsonConvert.SerializeObject(newShardOperation, Formatting.Indented));
                         }
                     }
                     catch (TaskCanceledException e)

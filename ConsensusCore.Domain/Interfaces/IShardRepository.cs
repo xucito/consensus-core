@@ -18,6 +18,12 @@ namespace ConsensusCore.Domain.Interfaces
         bool MarkObjectForDeletion(ObjectDeletionMarker marker);
         bool AddNewShardMetadata(LocalShardMetaData shardMetadata);
         bool UpdateShardMetadata(LocalShardMetaData shardMetadata);
+        /// <summary>
+        /// You should update based on not only the operation pos but also check the objectid, type
+        /// </summary>
+        /// <param name="shardId"></param>
+        /// <param name="operation"></param>
+        /// <returns></returns>
         bool UpdateShardOperation(Guid shardId, ShardOperation operation);
         LocalShardMetaData GetShardMetadata(Guid shardId);
         bool ShardMetadataExists(Guid shardId);
