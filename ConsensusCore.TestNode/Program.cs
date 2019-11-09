@@ -14,15 +14,22 @@ namespace ConsensusCore.TestNode
 {
     public class Program
     {
+        static IConfigurationRoot config;
         public static void Main(string[] args)
         {
+            config = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddEnvironmentVariables()
+            .Build();
+
+
             CreateWebHostBuilder(args).Build().Run();
         }
 
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
                 .ConfigureLogging(builder => builder.AddFile(options => {
-                    options.FileName = "diagnostics-"; // The log file prefixes
+                    options.FileName = "diagnostics-" + config.GetValue<string>("Node:Name")+"_"; // The log file prefixes
                     options.LogDirectory = "LogFiles"; // The directory to write the logs
                     options.FileSizeLimit = 20 * 1024 * 1024; // The maximum log file size (20MB here)
                     options.Extension = "txt"; // The log file extension

@@ -67,7 +67,10 @@ namespace ConsensusCore.TestNode.Models
             switch (data)
             {
                 case TestData t1:
-                    _numberStore[data.Id] = t1;
+                    if(!_numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]))
+                    {
+                        throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
+                    }
                     /*if (!updateResult)
                     {
                         throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId);

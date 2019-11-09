@@ -211,6 +211,7 @@ namespace ConsensusCore.Node.Services
                             try
                             {
                                 await _dataRouter.UpdateDataAsync(data);
+                                Logger.LogDebug("Updated data " + data.Id + " data is now " + Environment.NewLine + JsonConvert.SerializeObject(await _dataRouter.GetDataAsync(data.ShardType, data.Id), Formatting.Indented));
                             }
                             catch (Exception e)
                             {

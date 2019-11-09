@@ -206,6 +206,51 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.Equal(101, ((TestData)result.Data).Data);
         }
 
+        /// <summary>
+        /// Test a create then replicate
+        /// </summary>
+        [Fact]
+        public async void ConsecutiveReplicationTest()
+        {
+            Guid recordId = Guid.NewGuid();
+
+            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            {
+                ObjectId = recordId,
+                Operation = ShardOperationOptions.Create,
+                Pos = 1,
+                ShardId = TestUtility.DefaultShardId
+            },
+                new TestData()
+                {
+                    ShardId = TestUtility.DefaultShardId,
+                    ShardType = "number",
+                    Data = 100,
+                    Id = recordId
+                });
+
+            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            {
+                ObjectId = recordId,
+                Operation = ShardOperationOptions.Update,
+                Pos = 2,
+                ShardId = TestUtility.DefaultShardId
+            },
+            new TestData()
+            {
+                ShardId = TestUtility.DefaultShardId,
+                ShardType = "number",
+                Data = 101,
+                Id = recordId
+            });
+
+            var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
+
+            Assert.True(result.IsSuccessful);
+            Assert.NotNull(result.Data);
+            Assert.Equal(101, ((TestData)result.Data).Data);
+        }
+
         [Fact]
         public async void RevertUpdateOperation()
         {

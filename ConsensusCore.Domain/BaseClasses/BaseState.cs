@@ -5,6 +5,7 @@ using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.SystemCommands.Tasks;
 using ConsensusCore.Domain.Utility;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -16,12 +17,21 @@ namespace ConsensusCore.Domain.BaseClasses
 {
     public abstract class BaseState
     {
-        public BaseState() { }
+        private ILogger _logger;
         public ConcurrentDictionary<Guid, NodeInformation> Nodes { get; set; } = new ConcurrentDictionary<Guid, NodeInformation>();
         public ConcurrentDictionary<string, Index> Indexes { get; set; } = new ConcurrentDictionary<string, Index>();
         public ConcurrentDictionary<Guid, BaseTask> ClusterTasks { get; set; } = new ConcurrentDictionary<Guid, BaseTask>();
         //object id and Shard id
         public ConcurrentDictionary<Guid, ObjectLock> ObjectLocks = new ConcurrentDictionary<Guid, ObjectLock>();
+
+        public BaseState()
+        {
+        }
+
+        public BaseState(ILogger logger)
+        {
+            _logger = logger;
+        }
 
         public BaseTask GetRunningTask(string uniqueTaskId)
         {
@@ -95,7 +105,10 @@ namespace ConsensusCore.Domain.BaseClasses
                                         //Can't add a task twice
                                         if (ClusterTasks.ContainsKey(task.Id))
                                         {
-                                            Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                            if (_logger == null)
+                                                Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                            else
+                                                _logger.LogError("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
                                         }
                                         else
                                         {
@@ -105,7 +118,10 @@ namespace ConsensusCore.Domain.BaseClasses
                                 }
                                 else
                                 {
-                                    Console.WriteLine("The task already exists and is running. Skipping addition of task " + task.Id);
+                                    if (_logger == null)
+                                        Console.WriteLine("The task already exists and is running. Skipping addition of task " + task.Id);
+                                    else
+                                        _logger.LogInformation("The task already exists and is running. Skipping addition of task " + task.Id);
                                 }
                             }
                         }
@@ -131,8 +147,7 @@ namespace ConsensusCore.Domain.BaseClasses
                                 }
                                 else
                                 {
-                                    throw new Exception("Critical error while trying to update cluster task " + task.TaskId + " task is not present in dictionary.");
-
+                                    Console.WriteLine("Critical error while trying to update cluster task " + task.TaskId + " task is not present in dictionary.");
                                 }
                             }
                         }
@@ -217,10 +232,10 @@ namespace ConsensusCore.Domain.BaseClasses
                         break;
                     case RemoveObjectLock t1:
                         Guid objectIdLocked = t1.ObjectId;
-                        if(t1.LockId.HasValue)
+                        if (t1.LockId.HasValue)
                         {
                             var objectLocksWithLockId = ObjectLocks.Where(ob => ob.Value.LockId == t1.LockId).Select(t => t.Value);
-                            if(objectLocksWithLockId.Count() == 0)
+                            if (objectLocksWithLockId.Count() == 0)
                             {
                                 throw new ConflictingObjectLockException("No lock with id " + t1.LockId.Value);
                             }
@@ -243,9 +258,9 @@ namespace ConsensusCore.Domain.BaseClasses
                         break;
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                Console.WriteLine("Failed to apply command " + command.CommandName + " to state." + Environment.NewLine + JsonConvert.SerializeObject(command, Formatting.Indented));
+                throw new Exception("Failed to apply command " + command.CommandName + " to state with exception \"" + e.Message + "\"." + Environment.NewLine + JsonConvert.SerializeObject(command, Formatting.Indented));
             }
         }
 
