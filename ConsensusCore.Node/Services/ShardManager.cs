@@ -252,7 +252,7 @@ namespace ConsensusCore.Node.Services
 
         public void AddNewShardMetadata(Guid shardId, string shardType)
         {
-            _shardRepository.AddNewShardMetadata(new LocalShardMetaData()
+            _shardRepository.AddShardMetadata(new LocalShardMetaData()
             {
                 ShardId = shardId,
                 Type = shardType
@@ -292,7 +292,7 @@ namespace ConsensusCore.Node.Services
             if (!_shardRepository.ShardMetadataExists(shardId))
             {
                 //Create local empty shard
-                _shardRepository.AddNewShardMetadata(new LocalShardMetaData()
+                _shardRepository.AddShardMetadata(new LocalShardMetaData()
                 {
                     ShardId = shardId,
                     Type = type
@@ -466,6 +466,7 @@ namespace ConsensusCore.Node.Services
 
                     var replicationResult = await ReplicateShardOperation(new ShardOperation()
                     {
+                        Id = shard.ShardId + ":" + operation.Key,
                         Operation = operation.Value.Operation,
                         ObjectId = operation.Value.ObjectId,
                         ShardId = shard.ShardId,
@@ -634,6 +635,7 @@ namespace ConsensusCore.Node.Services
                     {
                         var newShardOperation = new ShardOperation()
                         {
+                            Id = shardMetadata.Id + ":" + submittedOperation.Pos,
                             ObjectId = data.Id,
                             Operation = operation,
                             ShardId = shardMetadata.Id,
@@ -814,6 +816,11 @@ namespace ConsensusCore.Node.Services
             }
         }
 
+        /// <summary>
+        /// Ommit Id when sending the operation as this will be overwritten with the real Id
+        /// </summary>
+        /// <param name="operation"></param>
+        /// <returns></returns>
         public ShardOperation AddShardOperation(ShardOperation operation)
         {
             int newOperationId;
@@ -822,6 +829,7 @@ namespace ConsensusCore.Node.Services
             {
                 newOperationId = _shardRepository.GetTotalShardOperationsCount(operation.ShardId) + 1;
                 operation.Pos = newOperationId;
+                operation.Id = operation.ShardId + ":" + newOperationId;
                 bool addResult = _shardRepository.AddShardOperation(operation);
                 if (!addResult)
                 {

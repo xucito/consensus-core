@@ -8,7 +8,6 @@ namespace ConsensusCore.Domain.Interfaces
 {
     public interface IShardRepository
     {
-        void SaveShardOperation(ShardOperation operation);
         int GetTotalShardOperationsCount(Guid shardId);
         bool AddShardOperation(ShardOperation operation);
         bool RemoveShardOperation(Guid shardId, int pos);
@@ -16,7 +15,7 @@ namespace ConsensusCore.Domain.Interfaces
         bool AddDataReversionRecord(DataReversionRecord record);
         bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId);
         bool MarkObjectForDeletion(ObjectDeletionMarker marker);
-        bool AddNewShardMetadata(LocalShardMetaData shardMetadata);
+        bool AddShardMetadata(LocalShardMetaData shardMetadata);
         bool UpdateShardMetadata(LocalShardMetaData shardMetadata);
         /// <summary>
         /// You should update based on not only the operation pos but also check the objectid, type

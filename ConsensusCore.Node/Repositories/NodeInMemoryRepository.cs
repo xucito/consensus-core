@@ -3,6 +3,7 @@ using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Node.Utility;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -28,7 +29,7 @@ namespace ConsensusCore.Node.Repositories
             return true;
         }
 
-        public bool AddNewShardMetadata(LocalShardMetaData shardMetadata)
+        public bool AddShardMetadata(LocalShardMetaData shardMetadata)
         {
             LocalShardMetaDatas.TryAdd(shardMetadata.ShardId, shardMetadata);
             return true;
@@ -36,7 +37,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool AddShardOperation(ShardOperation operation)
         {
-            ShardOperations.TryAdd(operation.ShardId + ":" + operation.Pos, operation);
+            ShardOperations.TryAdd(operation.Id, operation);
             return true;
         }
 
@@ -101,11 +102,6 @@ namespace ConsensusCore.Node.Repositories
 
         public void SaveNodeData(NodeStorage<Z> storage)
         {
-        }
-
-        public void SaveShardOperation(ShardOperation operation)
-        {
-            ShardOperations.TryAdd(operation.ShardId + ":" + operation.Pos, operation);
         }
 
         public bool ShardMetadataExists(Guid shardId)

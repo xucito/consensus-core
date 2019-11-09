@@ -33,7 +33,14 @@ namespace ConsensusCore.Domain.Services
         {
             foreach (var command in entry.DeepCopy().Commands)
             {
-                CurrentState.ApplyCommand(command);
+                try
+                {
+                    CurrentState.ApplyCommand(command);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.Message);
+                }
             }
         }
 
@@ -47,7 +54,14 @@ namespace ConsensusCore.Domain.Services
                 {
                     foreach (var command in entry.Commands)
                     {
-                        CurrentState.ApplyCommand(command);
+                        try
+                        {
+                            CurrentState.ApplyCommand(command);
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine(e.Message);
+                        }
                     }
                 }
             }

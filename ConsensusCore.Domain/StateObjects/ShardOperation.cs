@@ -7,6 +7,10 @@ namespace ConsensusCore.Domain.BaseClasses
 {
     public class ShardOperation
     {
+        /// <summary>
+        /// This is set to <shardId>:<position>
+        /// </summary>
+        public string Id { get; set; }
         public Guid ShardId { get; set; }
         /// <summary>
         /// Position of the operation

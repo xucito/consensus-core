@@ -361,7 +361,7 @@ namespace ConsensusCore.Node
                                 Thread.Sleep(3000);
                                 ConcurrentBag<Guid> newStaleAllocations = new ConcurrentBag<Guid>();
 
-                                Logger.LogInformation(GetNodeId() + "Checking  insync allocations " + Environment.NewLine + JsonConvert.SerializeObject(reloadedShard.InsyncAllocations.Where(ia => ia != _nodeStorage.Id), Formatting.Indented));
+                                Logger.LogDebug(GetNodeId() + "Checking insync allocations " + Environment.NewLine + JsonConvert.SerializeObject(reloadedShard.InsyncAllocations.Where(ia => ia != _nodeStorage.Id), Formatting.Indented));
                                 //For each insync allocation, search whether it is out of date
                                 var tasks = reloadedShard.InsyncAllocations.Where(ia => ia != _nodeStorage.Id).Select(async allocation =>
                                     {
@@ -788,8 +788,8 @@ namespace ConsensusCore.Node
                                     var invalidInsyncAllocations = shard.InsyncAllocations.Where(ia => NodesToRemove.Contains(ia) || NodesToMarkAsStale.Contains(ia));
                                     //Get node with the highest shard
                                     var insyncAllocations = shard.InsyncAllocations.Where(ia => !invalidInsyncAllocations.Contains(ia));
-                                    Logger.LogInformation("NEW INVALID: " + JsonConvert.SerializeObject(invalidInsyncAllocations));
-                                    Logger.LogInformation("INSYNC: " + JsonConvert.SerializeObject(shard.InsyncAllocations));
+                                    //Logger.LogInformation("NEW INVALID: " + JsonConvert.SerializeObject(invalidInsyncAllocations));
+                                    //Logger.LogInformation("INSYNC: " + JsonConvert.SerializeObject(shard.InsyncAllocations));
 
                                     if (insyncAllocations.Count() > 0)
                                     {
