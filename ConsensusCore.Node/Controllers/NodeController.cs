@@ -1,0 +1,213 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.SystemCommands;
+using ConsensusCore.Node.Services;
+using ConsensusCore.Node.ViewModels;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+
+// For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+
+namespace ConsensusCore.Node.Controllers
+{
+    [Route("api/node")]
+    //[GenericController]
+    public class NodeController<State> : Controller
+        where State : BaseState, new()
+    {
+        private IConsensusCoreNode<State> _node;
+        private ILogger<NodeController<State>> Logger;
+        private ShardManager<State, IShardRepository> _shardManager;
+
+        public NodeController(IConsensusCoreNode<State> manager, ILogger<NodeController<State>> logger, ShardManager<State, IShardRepository> shardManager)
+        {
+            _node = manager;
+            _shardManager = shardManager;
+            Logger = logger;
+        }
+
+        [HttpGet]
+        public IActionResult Get()
+        {
+            return Ok(_node.NodeInfo);
+        }
+
+        [HttpGet("shards/{shardId}/operations")]
+        public IActionResult GetShardOperations(Guid shardId)
+        {
+            return Ok(_shardManager.GetShardOperations(shardId));
+        }
+
+        [HttpGet("shards/{shardId}/local-metadata")]
+        public IActionResult GetShardLocalMetadata(Guid shardId)
+        {
+            return Ok(_shardManager.GetShardLocalMetadata(shardId));
+        }
+
+        /*[HttpGet("localShards")]
+        public IActionResult GetLocalShards()
+        {
+            return Ok(_node.LocalShards);
+        }*/
+
+        [HttpPost("RPC")]
+        public async Task<IActionResult> PostRPC([FromBody]IClusterRequest<BaseResponse> request)
+        {
+            if (request == null)
+            {
+                Logger.LogError("FOR SOME REASON THE REQUEST IS NULL");
+            }
+            return Ok(await _node.Handle(request));
+        }
+
+        [HttpGet("Tasks")]
+        public async Task<IActionResult> GetTasks()
+        {
+            return Ok(_node.GetClusterTasks());
+        }
+
+        [HttpGet("logs")]
+        public IActionResult GetLogs()
+        {
+            return Ok(_node.GetLogs());
+        }
+
+     /*   [HttpGet("reverted-operations")]
+        public IActionResult GetRevertedOperations()
+        {
+            return Ok(_node.RevertedOperations);
+        }*/
+
+        //Locks
+        [HttpPost("locks")]
+        public async Task<IActionResult> CreateLock(PostLockRequest request)
+        {
+            return Ok(await _node.Handle(new RequestDataShard()
+            {
+                ObjectId = request.Id,
+                Type = request.Type,
+                CreateLock = true,
+                LockTimeoutMs = request.LockTimeoutMs
+            }));
+        }
+
+        [HttpDelete("locks/{lockId}")]
+        public async Task<IActionResult> RemoveLock(Guid lockId)
+        {
+            await _node.Handle(new ExecuteCommands()
+            {
+                Commands = new List<BaseCommand>() {
+                new RemoveObjectLock()
+            {
+                LockId = lockId
+            } },
+                WaitForCommits = true
+            });
+            return Ok();
+        }
+
+        [HttpGet("locks")]
+        public IActionResult GetLocks()
+        {
+            return Ok(_node.ObjectLocks);
+        }
+
+        /*
+        [HttpPost("request-vote")]
+        public IActionResult PostRequestVote([FromBody] RequestVote vote)
+        {
+            return Ok(new VoteReply
+            {
+                Success = _node.RequestVote(vote)
+            });
+        }
+
+        [HttpPost("append-entry")]
+        public IActionResult PostAppendEntry([FromBody]AppendEntry entry)
+        {
+            try
+            {
+                var isSuccess = _node.AppendEntry(entry);
+                return Ok();
+            }
+            catch (ConflictingLogEntryException e)
+            {
+                return BadRequest(new InvalidAppendEntryResponse()
+                {
+                    ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                    ConflictingTerm = e.ConflictingTerm,
+                    FirstTermIndex = e.FirstTermIndex
+                });
+            }
+            catch (MissingLogEntryException e)
+            {
+                return BadRequest(new InvalidAppendEntryResponse()
+                {
+                    ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
+                    ConflictingTerm = null,
+                    LastLogEntryIndex = e.LastLogEntryIndex,
+                    FirstTermIndex = null
+                });
+            }
+        }
+        
+
+
+        /// <summary>
+        /// Allocate a shard to this noce
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="type"></param>
+        /// <param name="shardId"></param>
+        /// <returns></returns>
+        [HttpPost("assign-shard-command/{type}/{id}")]
+        public IActionResult Post([FromBody] AssignDataShard shard)
+        {
+            _node.AssignDataShard(shard);
+            return Ok();
+        }
+
+        [HttpPost("routed-request")]
+        public IActionResult HandleRouteDataShardRequest([FromBody] BaseRequest request)
+        {
+            switch (request)
+            {
+                case ProcessCommandsRequest t1:
+                    return Ok(_node.Send((ProcessCommandsRequest) request));
+                case CreateDataShardRequest t1:
+                    return Ok(_node.CreateNewShardRequestHandler((CreateDataShardRequest)request));
+            }
+            return BadRequest("Request did not match a valid routed-request");
+        }
+
+        [HttpPut("{id}")]
+        public void Put(int id, [FromBody]string value)
+        {
+        }
+
+        [HttpGet("state")]
+        public IActionResult GetState()
+        {
+            return Ok(_node.GetState());
+        }
+
+        [HttpGet("shards/{type}/{id}")]
+        public IActionResult GetData(string type, Guid id)
+        {
+            return Ok(_node.GetData(id, type));
+        }
+    }
+    */
+
+        [HttpGet("state")]
+        public IActionResult GetState()
+        {
+            return Ok(_node.GetState());
+        }
+    }
+}
