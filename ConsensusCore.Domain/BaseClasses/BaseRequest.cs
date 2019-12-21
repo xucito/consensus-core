@@ -10,17 +10,20 @@ namespace ConsensusCore.Domain.BaseClasses
     public interface IClusterRequest<out TResponse> where TResponse: BaseResponse
     {
         string RequestName { get; }
+        bool Metric { get; }
     }
 
     [JsonConverter(typeof(BaseRequestConverter))]
     public abstract class BaseRequest<T> : BaseRequest, IClusterRequest<T> where T:BaseResponse
     {
         public override abstract string RequestName { get; }
+        public bool Metric { get; set; } = true;
     }
 
     [JsonConverter(typeof(BaseRequestConverter))]
     public abstract class BaseRequest
     {
         public abstract string RequestName { get; }
+        public bool Metric { get; set; } = true;
     }
 }

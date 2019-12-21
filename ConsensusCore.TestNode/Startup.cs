@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.Models;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using Swashbuckle.AspNetCore.Swagger;
 
 namespace ConsensusCore.TestNode
@@ -66,6 +68,8 @@ namespace ConsensusCore.TestNode
                 app.UseHsts();
             }
 
+          //  node.MetricGenerated += metricGenerated;
+
             app.Use(async (context, next) =>
             {
                 if (context.Request.Path == "/api/kill" && context.Request.Method == "POST")
@@ -98,5 +102,10 @@ namespace ConsensusCore.TestNode
             app.UseHttpsRedirection();
             app.UseMvc();
         }
+
+        /*static void metricGenerated(object sender, Metric e)
+        {
+            Console.WriteLine(JsonConvert.SerializeObject(e, Formatting.Indented));
+        }*/
     }
 }

@@ -50,5 +50,6 @@ namespace ConsensusCore.Node
         //Used for testing
         void SetNodeRole(NodeState newState);
         List<ObjectLock> ObjectLocks { get; }
+        event EventHandler<Metric> MetricGenerated;
     }
 }

@@ -13,6 +13,7 @@ namespace ConsensusCore.Domain.RPCs
         public bool WaitForSafeWrite { get; set; }
         public override string RequestName => "WriteData";
         public bool RemoveLock { get; set; } = false;//Remove any lock that may exist on the object
+        public bool Metric = true;
     }
 
     public class WriteDataResponse: BaseResponse

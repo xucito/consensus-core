@@ -49,3 +49,8 @@ public class CindiClusterState : BaseState
 - All nodes should be able to respond to requests from clients
 - Follower nodes will forward requests to the leader
 - Candidate nodes will cache requests until a timeout is reached or the node becomes a leader or follower
+
+
+## Metrics
+- Metrics are pushed by the Event handler. 
+- If you write back the metric back to the cluster make sure you set Metric = false in the WriteData request to prevent circular record generation

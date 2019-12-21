@@ -19,6 +19,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Threading;
@@ -69,6 +70,7 @@ namespace ConsensusCore.Node
         ConcurrentQueue<string> IndexCreationQueue { get; set; } = new ConcurrentQueue<string>();
         public bool CompletedFirstLeaderDiscovery = false;
         private Random rand = new Random();
+        public event EventHandler<Metric> MetricGenerated;
 
         /// <summary>
         /// Ids of all threads syncing a shard
@@ -521,11 +523,11 @@ namespace ConsensusCore.Node
 
                     Thread.Sleep(1000);
                 }
-               /* else if (!IsUptoDate())
-                {
-                    Logger.LogWarning("Awaiting for not to commit all logs..");
-                    Thread.Sleep(1000);
-                }*/
+                /* else if (!IsUptoDate())
+                 {
+                     Logger.LogWarning("Awaiting for not to commit all logs..");
+                     Thread.Sleep(1000);
+                 }*/
                 else
                 {
                     Thread.Sleep(1000);
@@ -717,11 +719,16 @@ namespace ConsensusCore.Node
                         Logger.LogDebug(GetNodeId() + "Rediscovering nodes...");
                         ConcurrentBag<Guid> NodesToMarkAsStale = new ConcurrentBag<Guid>();
                         ConcurrentBag<Guid> NodesToRemove = new ConcurrentBag<Guid>();
+                        // Do not contact yourself
                         var nodeUrlTasks = NodeUrls.Select(async url =>
                         {
                             try
                             {
-                                Guid? nodeId = (await new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(_clusterOptions.DataTransferTimeoutMs)).GetNodeInfoAsync()).Id;
+                                Guid? nodeId = null;
+                                if (url != MyUrl)
+                                    nodeId = (await new HttpNodeConnector(url, TimeSpan.FromMilliseconds(_clusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(_clusterOptions.DataTransferTimeoutMs)).GetNodeInfoAsync()).Id;
+                                else
+                                    nodeId = _nodeStorage.Id;
 
                                 var possibleNodeUpdate = new NodeInformation()
                                 {
@@ -1098,6 +1105,12 @@ namespace ConsensusCore.Node
         {
             try
             {
+                if (request == null)
+                {
+                    Console.WriteLine("CRITICAL ERROR, null request found!");
+                    throw new Exception("Received null request.");
+                }
+
                 Logger.LogDebug(GetNodeId() + "Detected RPC " + request.GetType().Name + ".");
                 if (!IsBootstrapped)
                 {
@@ -1118,7 +1131,7 @@ namespace ConsensusCore.Node
                     //throw new Exception("Not apart of cluster yet...");
                 }
 
-                DateTime startCommand = DateTime.Now;
+                DateTime commandStartTime = DateTime.Now;
                 TResponse response;
                 switch (request)
                 {
@@ -1155,6 +1168,18 @@ namespace ConsensusCore.Node
                     default:
                         throw new Exception("Request is not implemented");
                 }
+
+                if (MetricGenerated != null && CurrentState == NodeState.Leader && request.Metric)
+                {
+                    MetricGenerated.Invoke(this, new Metric()
+                    {
+                        Date = DateTime.Now,
+                        IntervalMs = 0,
+                        Type = MetricTypes.ClusterCommandElapsed(request.RequestName),
+                        Value = (DateTime.Now - commandStartTime).TotalMilliseconds
+                    });
+                }
+
                 return response;
             }
             catch (TaskCanceledException e)
