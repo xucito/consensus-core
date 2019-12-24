@@ -19,7 +19,13 @@ namespace ConcensusCore.Node.Tests
 {
     public static class TestUtility
     {
-        public static Guid DefaultShardId = Guid.NewGuid();
+        private static Guid defaultShardId;
+        public static Guid DefaultShardId { get { if (defaultShardId == default(Guid))
+                {
+                    defaultShardId = Guid.NewGuid();
+                }
+                return defaultShardId;
+            } }
 
         public static ConsensusCoreNode<TestState> GetTestConsensusCoreNode()
         {

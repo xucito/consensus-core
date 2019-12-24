@@ -400,7 +400,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 Type = "number",
                 ObjectId = objectId
             });
-
+            
 
             Assert.True(dataResult.IsSuccessful);
             Assert.NotNull(dataResult.Data);

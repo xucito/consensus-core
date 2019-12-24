@@ -417,7 +417,7 @@ namespace ConsensusCore.Node
                                 //Recheck that I am still the primary
                                 if ((newStaleAllocations.Count > 0 || latestPos != reloadedShard.LatestOperationPos) && _stateMachine.GetShard(shard.Type, shard.Id).PrimaryAllocation == _nodeStorage.Id)
                                 {
-                                    Logger.LogInformation("Found shard " + reloadedShard.Id + " metadata is out of date.");
+                                    Logger.LogDebug("Found shard " + reloadedShard.Id + " metadata is out of date.");
                                     updates.Add(new UpdateShardMetadataAllocations()
                                     {
                                         ShardId = shard.Id,

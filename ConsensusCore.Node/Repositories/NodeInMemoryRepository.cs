@@ -25,19 +25,19 @@ namespace ConsensusCore.Node.Repositories
 
         public bool AddDataReversionRecord(DataReversionRecord record)
         {
-            DataReversionRecords.Add(record);
+            DataReversionRecords.Add(SystemExtension.Clone(record));
             return true;
         }
 
         public bool AddShardMetadata(LocalShardMetaData shardMetadata)
         {
-            LocalShardMetaDatas.TryAdd(shardMetadata.ShardId, shardMetadata);
+            LocalShardMetaDatas.TryAdd(shardMetadata.ShardId, SystemExtension.Clone(shardMetadata));
             return true;
         }
 
         public bool AddShardOperation(ShardOperation operation)
         {
-            ShardOperations.TryAdd(operation.Id, operation);
+            ShardOperations.TryAdd(operation.ShardId + ":" + operation.Pos, SystemExtension.Clone(operation));
             return true;
         }
 
@@ -73,7 +73,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool MarkObjectForDeletion(ObjectDeletionMarker marker)
         {
-            ObjectDeletionMarker.Add(marker);
+            ObjectDeletionMarker.Add(SystemExtension.Clone(marker));
             return true;
         }
 
@@ -111,7 +111,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool UpdateShardMetadata(LocalShardMetaData shardMetadata)
         {
-            LocalShardMetaDatas[shardMetadata.ShardId] = shardMetadata;
+            LocalShardMetaDatas[shardMetadata.ShardId] = SystemExtension.Clone(shardMetadata);
             return true;
         }
 
@@ -127,7 +127,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool UpdateShardOperation(Guid shardId, ShardOperation operation)
         {
-            ShardOperations[shardId + ":" + operation.Pos] = operation;
+            ShardOperations[shardId + ":" + operation.Pos] = SystemExtension.Clone(operation);
             return true;
         }
     }
