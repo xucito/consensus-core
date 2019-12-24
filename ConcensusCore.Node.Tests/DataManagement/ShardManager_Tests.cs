@@ -7,6 +7,7 @@ using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Xunit;
 
@@ -38,6 +39,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             Assert.True(result.IsSuccessful);
             Assert.NotNull(result.Data);
+            Assert.True(_shardManager.GetShardOperations(result.ShardId.Value).ToList()[0].Applied);
             Assert.Equal(100, ((TestData)result.Data).Data);
         }
 
@@ -48,6 +50,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             await _shardManager.ReplicateShardOperation(new ShardOperation()
             {
+                Id = Guid.NewGuid().ToString(),
                 ObjectId = recordId,
                 Operation = ShardOperationOptions.Create,
                 Pos = 1,
@@ -75,6 +78,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             var replicationResult = await _shardManager.ReplicateShardOperation(new ShardOperation()
             {
+                Id = Guid.NewGuid().ToString(),
                 ObjectId = recordId,
                 Operation = ShardOperationOptions.Create,
                 Pos = 1,
@@ -186,6 +190,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             await _shardManager.ReplicateShardOperation(new ShardOperation()
             {
+                Id = Guid.NewGuid().ToString(),
                 ObjectId = recordId,
                 Operation = ShardOperationOptions.Update,
                 Pos = 2,

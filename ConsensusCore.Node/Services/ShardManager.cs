@@ -622,9 +622,9 @@ namespace ConsensusCore.Node.Services
                 if (!IsShardOperationUpdateApplicable(submittedOperation))
                 {
                     Logger.LogError(LogPrefix + "Failed to apply shard operation " + submittedOperation.Pos + " update as the operation already exists but is not matching.");
-                    _shardRepository.UpdateShardOperation(submittedOperation.ShardId, submittedOperation);
                     throw new ShardOperationConcurrencyException("Failed to apply shard operation " + submittedOperation.Pos + " update as the operation already exists but is not matching.");
                 }
+                _shardRepository.UpdateShardOperation(submittedOperation.ShardId, submittedOperation);
                 var shard = _shardRepository.GetShardMetadata(submittedOperation.ShardId);
                 shard.SyncPos = submittedOperation.Pos;
                 _shardRepository.UpdateShardMetadata(shard);
@@ -796,6 +796,8 @@ namespace ConsensusCore.Node.Services
 
                 return new RequestDataShardResponse()
                 {
+                    Type = type,
+                    ShardId = FoundShard,
                     IsSuccessful = true,
                     Data = finalObject,
                     SearchMessage = finalObject != null ? null : "Object " + objectId + " could not be found in shards.",
