@@ -12,46 +12,40 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Options;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
+using ConsensusCore.Node.Communication.Clients;
+using ConsensusCore.Node.Services.Raft;
+using ConsensusCore.Node.Communication.Controllers;
 
 namespace ConsensusCore.Node.Utility
 {
     public static class StartupExtensions
     {
-        /*public static void AddConsensusCore<State, Repository>(this IServiceCollection services)
-            where State : BaseState, new()
-            where Repository : class, IBaseRepository
-        {
-            services.AddSingleton<IBaseRepository, Repository>();
-            //services.AddSingleton<NodeStorage>();
-            services.AddSingleton<StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State, Repository>, ConsensusCoreNode<State, Repository>>();
-            services.AddTransient<NodeController<State, Repository>>();
 
-            services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
-                .ConfigureApplicationPartManager(apm =>
-                    apm.ApplicationParts.Add(new NodeControllerApplicationPart(new Type[] {
-                        typeof(State),
-                        typeof(Repository)
-                    })));
-
-        }*/
-
-        public static void AddConsensusCore<State, Repository, ShardRepository>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
+        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
             Action<NodeOptions> nodeOptions,
-            Action<ClusterOptions> clusterOptions)
+            Action<ClusterOptions> clusterOptions
+            )
                 where State : BaseState, new()
                 where Repository : class, IBaseRepository<State>
         where ShardRepository : class, IShardRepository
+            where operationCache : class, IOperationCacheRepository
         {
+            services.AddSingleton<IOperationCacheRepository,operationCache>();
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State>, ConsensusCoreNode<State>>();
+            services.AddSingleton<INodeStorage<State>, NodeStorage<State>>();
+            services.AddSingleton<NodeStateService>();
+            services.AddSingleton<ClusterConnectionPool>();
+            services.AddSingleton<ClusterClient>();
+            services.AddSingleton<IRaftService, RaftService<State>>();
             services.AddTransient<NodeController<State>>();
             services.Configure(nodeOptions);
             services.Configure(clusterOptions);
-            services.AddSingleton<ClusterConnector>();
+            services.AddSingleton<ClusterClient>();
+            services.AddSingleton<WriteCache>();
+            services.AddTransient<ClusterRequestHandler<State>>();
 
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
                 .ConfigureApplicationPartManager(apm =>
@@ -62,7 +56,7 @@ namespace ConsensusCore.Node.Utility
                     })));
         }
 
-        public static void AddConsensusCore<State, Repository, ShardRepository>(this IServiceCollection services, 
+        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(this IServiceCollection services, 
             Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
             IConfigurationSection nodeOptions,
@@ -70,17 +64,25 @@ namespace ConsensusCore.Node.Utility
                 where State : BaseState, new()
                 where Repository : class, IBaseRepository<State>
                 where ShardRepository : class, IShardRepository
+            where operationCache : class, IOperationCacheRepository
         {
+            services.AddSingleton<IOperationCacheRepository, operationCache>();
+            services.AddSingleton<WriteCache>();
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             services.AddSingleton<IShardRepository, ShardRepository>(shardRepositoryImplementationFactory);
-            // services.AddSingleton<NodeStorage>();
+            // services.AddSingleton<NodeStorage
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<IConsensusCoreNode<State>, ConsensusCoreNode<State>>();
+            services.AddSingleton<ClusterConnectionPool>();
+            services.AddSingleton<NodeStateService>();
+            services.AddSingleton<ClusterClient>();
+            services.AddSingleton<INodeStorage<State>, NodeStorage<State>>();
+            services.AddSingleton<IRaftService, RaftService<State>>();
             services.AddTransient<NodeController<State>>();
             services.Configure<NodeOptions>(nodeOptions);
             services.Configure<ClusterOptions>(clusterOptions);
-            services.AddSingleton<ClusterConnector>();
+            services.AddSingleton<ClusterClient>();
             services.AddSingleton<NodeStorage<State>>();
+            services.AddTransient<ClusterRequestHandler<State>>();
             services.AddSingleton<ShardManager<State, IShardRepository>>();
 
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)

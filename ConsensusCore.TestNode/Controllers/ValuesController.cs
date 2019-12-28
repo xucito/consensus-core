@@ -1,10 +1,11 @@
-﻿using System;
+﻿/*using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
@@ -20,7 +21,7 @@ namespace ConsensusCore.TestNode.Controllers
         IConsensusCoreNode<TestState> _node;
         TestDataRouter _router;
 
-        public ValuesController(IConsensusCoreNode<TestState> node, IDataRouter router)
+        public ValuesController(IDataRouter router)
         {
             _node = node;
             _router = (TestDataRouter)router;
@@ -32,7 +33,7 @@ namespace ConsensusCore.TestNode.Controllers
             if (_node.InCluster)
             {
                 var newId = Guid.NewGuid();
-                var result = await (_node.Handle(new WriteData()
+                var result = await (_node.Handle(new AddShardWriteOperation()
                 {
                     Data = new TestData()
                     {
@@ -131,7 +132,7 @@ namespace ConsensusCore.TestNode.Controllers
                     var updatedObject = (TestData)number.Data;
                     updatedObject.Data = value;
 
-                    var result = _node.Handle(new WriteData()
+                    var result = _node.Handle(new AddShardWriteOperation()
                     {
                         Data = new TestData()
                         {
@@ -153,3 +154,4 @@ namespace ConsensusCore.TestNode.Controllers
         }
     }
 }
+*/

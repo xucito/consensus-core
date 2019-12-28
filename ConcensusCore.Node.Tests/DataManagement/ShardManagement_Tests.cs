@@ -39,7 +39,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void WriteNewDataType()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -63,7 +63,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void ReleaseLockOnUpdate()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -82,7 +82,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 CreateLock = true
             });
 
-            Assert.True((await Node.Handle(new WriteData()
+            Assert.True((await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -108,7 +108,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void RemoveLockCommand()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -151,7 +151,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var objectId = Guid.NewGuid();
             var tasks = new List<Task>();
             tasks.Add(
-                Node.Handle(new WriteData()
+                Node.Handle(new AddShardWriteOperation()
                 {
                     Data = new TestData
                     {
@@ -163,7 +163,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             );
 
             tasks.Add(
-                Node.Handle(new WriteData()
+                Node.Handle(new AddShardWriteOperation()
                 {
                     Data = new TestData
                     {
@@ -182,7 +182,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void GetData()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -222,7 +222,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.Equal("The type number does not exist.", dataResult.SearchMessage);
 
             //Write a a new operation to create the index
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -247,7 +247,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void LockDataOnGet()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -288,7 +288,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             var objectId = Guid.NewGuid();
 
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -346,10 +346,10 @@ namespace ConcensusCore.Node.Tests.DataManagement
         }
 
         [Fact]
-        public async void RequestShardOperationsHandler()
+        public async void RequestShardWriteOperationsHandler()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -359,7 +359,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 }
             });
 
-            var requestShardResult = await Node.Handle(new RequestShardOperations()
+            var requestShardResult = await Node.Handle(new RequestShardWriteOperations()
             {
                 From = 0,
                 To = 1,
@@ -374,7 +374,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void UpdateData()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -384,7 +384,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 }
             });
 
-            var updateResult = await Node.Handle(new WriteData()
+            var updateResult = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData()
                 {

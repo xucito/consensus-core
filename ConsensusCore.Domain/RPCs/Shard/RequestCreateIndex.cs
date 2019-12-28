@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace ConsensusCore.Domain.RPCs
+namespace ConsensusCore.Domain.RPCs.Shard
 {
     public class RequestCreateIndex : BaseRequest<RequestCreateIndexResponse>
     {

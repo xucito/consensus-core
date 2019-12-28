@@ -14,10 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Interfaces\" />
+    <Folder Include="Services\NewFolder\" />
     <Folder Include="Utility\ClusterTasks\" />
     <Folder Include="Utility\RoutedRequests\" />
-    <Folder Include="ValueObjects\" />
   </ItemGroup>
 
   <ItemGroup>

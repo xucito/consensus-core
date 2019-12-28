@@ -7,6 +7,7 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Raft;
 using ConsensusCore.Node.Utility;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Builder;
@@ -39,7 +40,7 @@ namespace ConsensusCore.TestNode
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
+            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
@@ -56,7 +57,7 @@ namespace ConsensusCore.TestNode
         public void Configure(IApplicationBuilder app, IHostingEnvironment env,
             IBaseRepository<TestState> repository,
             ShardManager<TestState, IShardRepository> shardManager,
-            IConsensusCoreNode<TestState> node)
+            IRaftService raftService)
         {
             if (env.IsDevelopment())
             {
@@ -75,13 +76,13 @@ namespace ConsensusCore.TestNode
                 if (context.Request.Path == "/api/kill" && context.Request.Method == "POST")
                 {
                     Killed = true;
-                    node.SetNodeRole(Domain.Enums.NodeState.Disabled);
+                    raftService.SetNodeRole(Domain.Enums.NodeState.Disabled);
                 }
 
                 if (context.Request.Path == "/api/revive" && context.Request.Method == "POST")
                 {
                     Killed = false;
-                    node.SetNodeRole(Domain.Enums.NodeState.Follower);
+                    raftService.SetNodeRole(Domain.Enums.NodeState.Follower);
                 }
 
                 if (Killed == false)

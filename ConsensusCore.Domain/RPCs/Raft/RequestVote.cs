@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace ConsensusCore.Domain.RPCs
+namespace ConsensusCore.Domain.RPCs.Raft
 {
     public class RequestVote : BaseRequest<RequestVoteResponse>
     {

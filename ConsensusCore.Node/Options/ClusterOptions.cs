@@ -25,5 +25,9 @@ namespace ConsensusCore.Node
         /// </summary>
         public int ShardRecoveryValidationCount { get; set; } = 50;
         public bool DebugMode { get; set; } = false;
+        public string[] GetClusterUrls()
+        {
+            return NodeUrls.Split(',');
+        }
     }
 }

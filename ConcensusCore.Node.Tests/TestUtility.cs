@@ -56,7 +56,7 @@ namespace ConcensusCore.Node.Tests
             var NodeStorage = new NodeStorage<TestState>(inMemoryRepository) { };
             var _dataRouter = new TestDataRouter();
             var _stateMachine = new StateMachine<TestState>();
-            var _connector = new ClusterConnector(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
+            var _connector = new ClusterClient(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
 
             return new ConsensusCoreNode<TestState>(moqClusterOptions.Object,
             moqNodeOptions.Object,
@@ -86,7 +86,7 @@ namespace ConcensusCore.Node.Tests
             };
             var factory = serviceProvider.GetService<ILoggerFactory>();
             NodeInMemoryRepository<TestState> inMemoryRepository = new NodeInMemoryRepository<TestState>();
-            var _connector = new ClusterConnector(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
+            var _connector = new ClusterClient(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
             var _dataRouter = new TestDataRouter();
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
 
@@ -140,8 +140,6 @@ namespace ConcensusCore.Node.Tests
             _dataRouter,
             moqClusterOptions.Object,
                 inMemoryRepository);
-
-            manager.AddNewShardMetadata(TestUtility.DefaultShardId, "number");
             manager.SetNodeId(nodeStorageId);
             return manager;
         }

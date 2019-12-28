@@ -21,6 +21,10 @@ namespace ConsensusCore.Domain.Services
     {
         public Z DefaultState { get; set; }
         public Z CurrentState { get; private set; }
+        public int CommitIndex { get; set; }
+        public int CurrentTerm { get; set; }
+        public Guid Id { get; set; }
+
         private object currentStateLock = new object();
 
         public StateMachine()

@@ -14,7 +14,7 @@ using System.Threading;
 
 namespace ConsensusCore.Domain.Services
 {
-    public class NodeStorage<State> where State : BaseState, new()
+    public class NodeStorage<State> : INodeStorage<State> where State : BaseState, new()
     {
         public Guid Id { get; set; }
         public string Name { get; set; }
@@ -202,8 +202,6 @@ namespace ConsensusCore.Domain.Services
         {
             if (newTerm != CurrentTerm)
             {
-
-                //Console.WriteLine("Set term for");
                 CurrentTerm = newTerm;
                 Save();
             }

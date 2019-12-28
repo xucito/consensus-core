@@ -2,6 +2,7 @@
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.Utility;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
 using ConsensusCore.TestNode.Models;
@@ -27,19 +28,22 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
 
-            await _shardManager.WriteData(new TestData()
+            await _shardManager.AddShardWriteOperation(new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
                 Data = 100,
                 Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+            },
+                    ConsensusCore.Domain.Enums.ShardOperationOptions.Create,
+                    Guid.NewGuid().ToString(),
+                     DateTime.Now
+                );
 
             var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
             Assert.True(result.IsSuccessful);
             Assert.NotNull(result.Data);
-            Assert.True(_shardManager.GetShardOperations(result.ShardId.Value).ToList()[0].Applied);
             Assert.Equal(100, ((TestData)result.Data).Data);
         }
 
@@ -48,20 +52,18 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
 
-            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
                 Id = Guid.NewGuid().ToString(),
-                ObjectId = recordId,
                 Operation = ShardOperationOptions.Create,
                 Pos = 1,
-                ShardId = TestUtility.DefaultShardId
-            },
-                new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
+                Data = new TestData()
+                {
+                    ShardId = TestUtility.DefaultShardId,
+                    ShardType = "number",
+                    Data = 100,
+                    Id = recordId
+                }
             });
 
             var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
@@ -76,19 +78,18 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
 
-            var replicationResult = await _shardManager.ReplicateShardOperation(new ShardOperation()
+            var replicationResult = await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
                 Id = Guid.NewGuid().ToString(),
-                ObjectId = recordId,
                 Operation = ShardOperationOptions.Create,
                 Pos = 1,
-                ShardId = TestUtility.DefaultShardId
-            }, new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
+                Data = new TestData()
+                {
+                    ShardId = TestUtility.DefaultShardId,
+                    ShardType = "number",
+                    Data = 100,
+                    Id = recordId
+                }
             });
 
             Assert.True(replicationResult.IsSuccessful);
@@ -102,18 +103,17 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.Equal(100, ((TestData)result.Data).Data);
 
             Guid record2 = Guid.NewGuid();
-            var replicationResult2 = await _shardManager.ReplicateShardOperation(new ShardOperation()
+            var replicationResult2 = await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
-                ObjectId = record2,
                 Operation = ShardOperationOptions.Create,
                 Pos = 2,
-                ShardId = TestUtility.DefaultShardId
-            }, new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 300,
-                Id = record2
+                Data = new TestData()
+                {
+                    ShardId = TestUtility.DefaultShardId,
+                    ShardType = "number",
+                    Data = 300,
+                    Id = record2
+                }
             });
 
 
@@ -129,21 +129,22 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
 
-            var writeResult = await _shardManager.WriteData(new TestData()
+            var writeResult = await _shardManager.AddShardWriteOperation(new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
                 Data = 100,
                 Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+            },
+                    ConsensusCore.Domain.Enums.ShardOperationOptions.Create,
+                    Guid.NewGuid().ToString(),
+                     DateTime.Now
+                )
+            ;
 
-            var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
-
-            var oldSyncPos = _shardManager.GetShardLocalMetadata(writeResult.ShardId).SyncPos;
-            _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", writeResult.Pos.Value, new Dictionary<Guid, ShardData> { });
+            var result = await _shardManager.RequestShardWriteOperations(TestUtility.DefaultShardId, 1, 1, "number");
+            _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", result.Operations.First().Value);
             var newResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-
-            Assert.Equal(oldSyncPos - 1, _shardManager.GetShardLocalMetadata(writeResult.ShardId).SyncPos);
             Assert.Null(newResult.Data);
         }
 
@@ -152,23 +153,31 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
 
-            await _shardManager.WriteData(new TestData()
+            await _shardManager.AddShardWriteOperation(new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
                 Data = 100,
                 Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+            },
+                    ConsensusCore.Domain.Enums.ShardOperationOptions.Create,
+                    Guid.NewGuid().ToString(),
+                     DateTime.Now
+                );
 
             var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
-            await _shardManager.WriteData(new TestData()
+            await _shardManager.AddShardWriteOperation(new TestData()
             {
-                Id = recordId,
+                ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
-                Data = 200,
-                ShardId = TestUtility.DefaultShardId
-            }, ShardOperationOptions.Update, true);
+                Data = 100,
+                Id = recordId
+            },
+                    ConsensusCore.Domain.Enums.ShardOperationOptions.Create,
+                    Guid.NewGuid().ToString(),
+                     DateTime.Now
+                );
 
             var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
@@ -179,29 +188,34 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void ReplicateUpdateOperation()
         {
             Guid recordId = Guid.NewGuid();
+            string firstTransactionId = Guid.NewGuid().ToString();
 
-            await _shardManager.WriteData(new TestData()
+            await _shardManager.AddShardWriteOperation(new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
                 Data = 100,
                 Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+            },
+                    ConsensusCore.Domain.Enums.ShardOperationOptions.Create,
+                    firstTransactionId,
+                        DateTime.Now
+                );
 
-            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            var secondId = Guid.NewGuid().ToString();
+            await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
-                Id = Guid.NewGuid().ToString(),
-                ObjectId = recordId,
+                Id = secondId,
                 Operation = ShardOperationOptions.Update,
                 Pos = 2,
-                ShardId = TestUtility.DefaultShardId
-            },
-            new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 101,
-                Id = recordId
+                Data = new TestData()
+                {
+                    ShardId = TestUtility.DefaultShardId,
+                    ShardType = "number",
+                    Data = 101,
+                    Id = Guid.NewGuid()
+                },
+                ShardHash = ObjectUtility.HashStrings(firstTransactionId, secondId)
             });
 
             var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
@@ -218,73 +232,75 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void ConsecutiveReplicationTest()
         {
             Guid recordId = Guid.NewGuid();
-
-            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            string transactionId = Guid.NewGuid().ToString();
+            await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
-                ObjectId = recordId,
+                Id = transactionId,
                 Operation = ShardOperationOptions.Create,
                 Pos = 1,
-                ShardId = TestUtility.DefaultShardId
-            },
-                new TestData()
+                Data = new TestData()
                 {
                     ShardId = TestUtility.DefaultShardId,
                     ShardType = "number",
                     Data = 100,
                     Id = recordId
-                });
+                },
+                ShardHash = ObjectUtility.HashStrings("", transactionId)
+            });
 
-            await _shardManager.ReplicateShardOperation(new ShardOperation()
+            var secondTransactionId = Guid.NewGuid().ToString();
+            await _shardManager.ReplicateShardWriteOperation(new ShardWriteOperation()
             {
-                ObjectId = recordId,
+                Id = secondTransactionId,
                 Operation = ShardOperationOptions.Update,
                 Pos = 2,
-                ShardId = TestUtility.DefaultShardId
-            },
+                Data =
             new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
                 ShardType = "number",
                 Data = 101,
                 Id = recordId
-            });
+            },
+                ShardHash = ObjectUtility.HashStrings(transactionId, secondTransactionId)
+        }
+            );
 
             var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
-            Assert.True(result.IsSuccessful);
+        Assert.True(result.IsSuccessful);
             Assert.NotNull(result.Data);
-            Assert.Equal(101, ((TestData)result.Data).Data);
+            Assert.Equal(101, ((TestData) result.Data).Data);
         }
 
-        [Fact]
-        public async void RevertUpdateOperation()
+    [Fact]
+    public async void RevertUpdateOperation()
+    {
+        Guid recordId = Guid.NewGuid();
+
+        await _shardManager.AddShardWriteOperation(new TestData()
         {
-            Guid recordId = Guid.NewGuid();
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 100,
+            Id = recordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, );
 
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+        var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
-            var result = await _shardManager.RequestDataShard(recordId, "number", 3000);
+        var updateWriteResult = await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            Id = recordId,
+            ShardType = "number",
+            Data = 200,
+            ShardId = TestUtility.DefaultShardId
+        }, ShardOperationOptions.Update, true);
 
-            var updateWriteResult = await _shardManager.WriteData(new TestData()
-            {
-                Id = recordId,
-                ShardType = "number",
-                Data = 200,
-                ShardId = TestUtility.DefaultShardId
-            }, ShardOperationOptions.Update, true);
+        var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
 
-            var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-            var oldSyncPos = _shardManager.GetShardLocalMetadata(updateWriteResult.ShardId).SyncPos;
+        Assert.Equal(200, ((TestData)updatedResult.Data).Data);
 
-            Assert.Equal(200, ((TestData)updatedResult.Data).Data);
-
-            _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", updateWriteResult.Pos.Value, new Dictionary<Guid, ShardData>() {
+        _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", updateWriteResult.Pos.Value, new Dictionary<Guid, ShardData>() {
                 { recordId,  new TestData()
             {
                 ShardId = TestUtility.DefaultShardId,
@@ -292,115 +308,115 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 Data = 100,
                 Id = recordId
             } } });
-            Assert.Equal(oldSyncPos - 1, _shardManager.GetShardLocalMetadata(updateWriteResult.ShardId).SyncPos);
-            var revertedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-            Assert.Equal(100, ((TestData)revertedResult.Data).Data);
-        }
-
-        [Fact]
-        public async void DeleteOperation()
-        {
-            Guid recordId = Guid.NewGuid();
-
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-
-            await _shardManager.WriteData(new TestData() { Id = recordId, ShardId = TestUtility.DefaultShardId, ShardType = "number" }, ShardOperationOptions.Delete, true);
-
-            var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-
-            Assert.Null(updatedResult.Data);
-
-        }
-        [Fact]
-        public async void RevertDeleteOperation()
-        {
-            Guid recordId = Guid.NewGuid();
-
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-
-            var deleteDataResponse = await _shardManager.WriteData(new TestData() { Id = recordId, ShardId = TestUtility.DefaultShardId, ShardType = "number" }, ShardOperationOptions.Delete, true);
-            var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-
-            Assert.True(updatedResult.IsSuccessful);
-            var oldSyncPos = _shardManager.GetShardLocalMetadata(deleteDataResponse.ShardId).SyncPos;
-            _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", deleteDataResponse.Pos.Value, new Dictionary<Guid, ShardData>() {
-                { recordId,  new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = recordId
-            } } });
-            Assert.Equal(oldSyncPos - 1, _shardManager.GetShardLocalMetadata(deleteDataResponse.ShardId).SyncPos);
-            var revertedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
-            Assert.Equal(100, ((TestData)revertedResult.Data).Data);
-        }
-
-        [Fact]
-        public async void RevertBadTransaction()
-        {
-            Guid firstRecordId = Guid.NewGuid();
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = firstRecordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-
-            Guid secondRecordId = Guid.NewGuid();
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 101,
-                Id = firstRecordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-        }
-
-        [Fact]
-        public async void RequestOperations()
-        {
-            Guid firstRecordId = Guid.NewGuid();
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 100,
-                Id = firstRecordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-
-            Guid secondRecordId = Guid.NewGuid();
-            await _shardManager.WriteData(new TestData()
-            {
-                ShardId = TestUtility.DefaultShardId,
-                ShardType = "number",
-                Data = 101,
-                Id = firstRecordId
-            }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
-
-            var operations = await _shardManager.RequestShardOperations(TestUtility.DefaultShardId, 1, 2, "number", true);
-
-            Assert.Equal(2, operations.Operations.Count);
-            //Check ascending
-            Assert.Equal(1, operations.Operations[1].Position);
-            Assert.Equal(2, operations.Operations[2].Position);
-
-            var limitOperations = await _shardManager.RequestShardOperations(TestUtility.DefaultShardId, 1, 1, "number", true);
-
-            Assert.Single(limitOperations.Operations);
-        }
+        Assert.Equal(oldSyncPos - 1, _shardManager.GetShardLocalMetadata(updateWriteResult.ShardId).SyncPos);
+        var revertedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
+        Assert.Equal(100, ((TestData)revertedResult.Data).Data);
     }
+
+    [Fact]
+    public async void DeleteOperation()
+    {
+        Guid recordId = Guid.NewGuid();
+
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 100,
+            Id = recordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+
+        await _shardManager.AddShardWriteOperation(new TestData() { Id = recordId, ShardId = TestUtility.DefaultShardId, ShardType = "number" }, ShardOperationOptions.Delete, true);
+
+        var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
+
+        Assert.Null(updatedResult.Data);
+
+    }
+    [Fact]
+    public async void RevertDeleteOperation()
+    {
+        Guid recordId = Guid.NewGuid();
+
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 100,
+            Id = recordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+
+        var deleteDataResponse = await _shardManager.AddShardWriteOperation(new TestData() { Id = recordId, ShardId = TestUtility.DefaultShardId, ShardType = "number" }, ShardOperationOptions.Delete, true);
+        var updatedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
+
+        Assert.True(updatedResult.IsSuccessful);
+        var oldSyncPos = _shardManager.GetShardLocalMetadata(deleteDataResponse.ShardId).SyncPos;
+        _shardManager.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", deleteDataResponse.Pos.Value, new Dictionary<Guid, ShardData>() {
+                { recordId,  new TestData()
+            {
+                ShardId = TestUtility.DefaultShardId,
+                ShardType = "number",
+                Data = 100,
+                Id = recordId
+            } } });
+        Assert.Equal(oldSyncPos - 1, _shardManager.GetShardLocalMetadata(deleteDataResponse.ShardId).SyncPos);
+        var revertedResult = await _shardManager.RequestDataShard(recordId, "number", 3000);
+        Assert.Equal(100, ((TestData)revertedResult.Data).Data);
+    }
+
+    [Fact]
+    public async void RevertBadTransaction()
+    {
+        Guid firstRecordId = Guid.NewGuid();
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 100,
+            Id = firstRecordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+
+        Guid secondRecordId = Guid.NewGuid();
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 101,
+            Id = firstRecordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+    }
+
+    [Fact]
+    public async void RequestOperations()
+    {
+        Guid firstRecordId = Guid.NewGuid();
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 100,
+            Id = firstRecordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+
+        Guid secondRecordId = Guid.NewGuid();
+        await _shardManager.AddShardWriteOperation(new TestData()
+        {
+            ShardId = TestUtility.DefaultShardId,
+            ShardType = "number",
+            Data = 101,
+            Id = firstRecordId
+        }, ConsensusCore.Domain.Enums.ShardOperationOptions.Create, true);
+
+        var operations = await _shardManager.RequestShardWriteOperations(TestUtility.DefaultShardId, 1, 2, "number", true);
+
+        Assert.Equal(2, operations.Operations.Count);
+        //Check ascending
+        Assert.Equal(1, operations.Operations[1].Position);
+        Assert.Equal(2, operations.Operations[2].Position);
+
+        var limitOperations = await _shardManager.RequestShardWriteOperations(TestUtility.DefaultShardId, 1, 1, "number", true);
+
+        Assert.Single(limitOperations.Operations);
+    }
+}
 }

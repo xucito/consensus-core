@@ -9,14 +9,18 @@ using Newtonsoft.Json.Linq;
 using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Node.Connectors;
+using ConsensusCore.Domain.RPCs.Shard;
 
-namespace ConsensusCore.Node.Connectors
+namespace ConsensusCore.Node.Communication.Clients
 {
-    public class HttpNodeConnector : IConnector
+    public class HttpNodeConnector : INodeClient
     {
         private HttpClient _httpClient;
         private HttpClient _dataClient;
         public string Url { get; set; }
+
+        public string Address => Url;
 
         public HttpNodeConnector(string baseUrl, TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval)
         {
@@ -51,16 +55,16 @@ namespace ConsensusCore.Node.Connectors
 
             switch (request)
             {
-                case WriteData t1:
+                case AddShardWriteOperation t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
-                case RequestShardOperations t1:
+                case RequestShardWriteOperations t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
                 case RequestCreateIndex t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
-                case ReplicateShardOperation t1:
+                case ReplicateShardWriteOperation t1:
                     result = await PostAsJsonAsync(_dataClient, "/api/node/RPC", request);
                     break;
                 default:

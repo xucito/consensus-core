@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Node.Utility;
 using Newtonsoft.Json;
@@ -11,13 +12,16 @@ using System.Linq;
 
 namespace ConsensusCore.Node.Repositories
 {
-    public class NodeInMemoryRepository<Z> : IBaseRepository<Z>, IShardRepository
+    public class NodeInMemoryRepository<Z> : IBaseRepository<Z>, IShardRepository, IOperationCacheRepository
         where Z : BaseState, new()
     {
         public ConcurrentBag<DataReversionRecord> DataReversionRecords { get; set; } = new ConcurrentBag<DataReversionRecord>();
-        public ConcurrentDictionary<Guid, LocalShardMetaData> LocalShardMetaDatas { get; set; } = new ConcurrentDictionary<Guid, LocalShardMetaData>();
-        public ConcurrentDictionary<string, ShardOperation> ShardOperations { get; set; } = new ConcurrentDictionary<string, ShardOperation>();
+        public ConcurrentDictionary<string, ShardWriteOperation> ShardWriteOperations { get; set; } = new ConcurrentDictionary<string, ShardWriteOperation>();
         public ConcurrentBag<ObjectDeletionMarker> ObjectDeletionMarker { get; set; } = new ConcurrentBag<ObjectDeletionMarker>();
+        public List<ShardWriteOperation> OperationQueue { get; set; } = new List<ShardWriteOperation>();
+        public Dictionary<string, ShardWriteOperation> TransitQueue { get; set; } = new Dictionary<string, ShardWriteOperation>();
+        public object queueLock = new object();
+
 
         public NodeInMemoryRepository()
         {
@@ -29,33 +33,22 @@ namespace ConsensusCore.Node.Repositories
             return true;
         }
 
-        public bool AddShardMetadata(LocalShardMetaData shardMetadata)
+        public bool AddShardWriteOperation(ShardWriteOperation operation)
         {
-            LocalShardMetaDatas.TryAdd(shardMetadata.ShardId, SystemExtension.Clone(shardMetadata));
+            ShardWriteOperations.TryAdd(operation.Data.ShardId + ":" + operation.Pos, SystemExtension.Clone(operation));
             return true;
         }
 
-        public bool AddShardOperation(ShardOperation operation)
+        public ShardWriteOperation GetShardWriteOperation(Guid shardId, int pos)
         {
-            ShardOperations.TryAdd(operation.ShardId + ":" + operation.Pos, SystemExtension.Clone(operation));
-            return true;
-        }
-
-        public ShardOperation GetShardOperation(Guid shardId, int pos)
-        {
-            if (ShardOperations.ContainsKey(shardId + ":" + pos))
-                return SystemExtension.Clone(ShardOperations[shardId + ":" + pos]);
+            if (ShardWriteOperations.ContainsKey(shardId + ":" + pos))
+                return SystemExtension.Clone(ShardWriteOperations[shardId + ":" + pos]);
             return null;
         }
 
-        public LocalShardMetaData GetShardMetadata(Guid shardId)
+        public int GetTotalShardWriteOperationsCount(Guid shardId)
         {
-            return SystemExtension.Clone(LocalShardMetaDatas[shardId]);
-        }
-
-        public int GetTotalShardOperationsCount(Guid shardId)
-        {
-            return ShardOperations.Count();
+            return ShardWriteOperations.Count();
         }
 
         public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)
@@ -77,9 +70,9 @@ namespace ConsensusCore.Node.Repositories
             return true;
         }
 
-        /* public bool MarkShardOperationAsApplied(Guid shardId, int pos)
+        /* public bool MarkShardWriteOperationAsApplied(Guid shardId, int pos)
          {
-             var shardOperation = ShardOperations.Where(lsm => lsm.ShardId == shardId && lsm.Pos == pos).FirstOrDefault();
+             var shardOperation = ShardWriteOperations.Where(lsm => lsm.ShardId == shardId && lsm.Pos == pos).FirstOrDefault();
              if(shardOperation == null)
              {
                  throw new Exception("Failed to mark shard operation as applied as shard is missing");
@@ -88,47 +81,92 @@ namespace ConsensusCore.Node.Repositories
              return true;
          }
 
-         public bool MarkShardOperationAsCommited(Guid shardId, int syncPos)
+         public bool MarkShardWriteOperationAsCommited(Guid shardId, int syncPos)
          {
              LocalShardMetaDatas.Where(lsm => lsm.ShardId == shardId).First().SyncPos = syncPos;
              return true;
          }*/
 
 
-        public bool RemoveShardOperation(Guid shardId, int pos)
+        public bool RemoveShardWriteOperation(Guid shardId, int pos)
         {
-            return ShardOperations.TryRemove(shardId + ":" + pos, out _);
+            return ShardWriteOperations.TryRemove(shardId + ":" + pos, out _);
         }
 
         public void SaveNodeData(NodeStorage<Z> storage)
         {
         }
 
-        public bool ShardMetadataExists(Guid shardId)
+        public IEnumerable<ShardWriteOperation> GetAllShardWriteOperations(Guid shardId)
         {
-            return LocalShardMetaDatas.ContainsKey(shardId);
+            return SystemExtension.Clone(ShardWriteOperations.Select(so => so.Value));
         }
 
-        public bool UpdateShardMetadata(LocalShardMetaData shardMetadata)
+        public bool UpdateShardWriteOperation(Guid shardId, ShardWriteOperation operation)
         {
-            LocalShardMetaDatas[shardMetadata.ShardId] = SystemExtension.Clone(shardMetadata);
+            ShardWriteOperations[shardId + ":" + operation.Pos] = SystemExtension.Clone(operation);
             return true;
         }
 
-        public IEnumerable<ShardOperation> GetAllUncommitedOperations(Guid shardId)
+        public bool EnqueueOperation(ShardWriteOperation data)
         {
-            return SystemExtension.Clone(ShardOperations.Where(so => so.Value.Applied == false && so.Value.ShardId == shardId).Select(s => s.Value));
-        }
-
-        public IEnumerable<ShardOperation> GetAllShardOperations(Guid shardId)
-        {
-            return SystemExtension.Clone(ShardOperations.Select(so => so.Value));
-        }
-
-        public bool UpdateShardOperation(Guid shardId, ShardOperation operation)
-        {
-            ShardOperations[shardId + ":" + operation.Pos] = SystemExtension.Clone(operation);
+            OperationQueue.Add(data);
             return true;
+        }
+
+        public ShardWriteOperation GetNextOperation()
+        {
+            var result = OperationQueue.Take(1);
+            if (result.Count() > 0)
+            {
+                return result.First();
+            }
+            return null;
+        }
+
+        public bool DeleteOperationFromTransit(string transactionId)
+        {
+            return TransitQueue.Remove(transactionId);
+        }
+
+        public int CountOperationsInQueue()
+        {
+            return OperationQueue.Count();
+        }
+
+        public int CountOperationsInTransit()
+        {
+            return TransitQueue.Count();
+        }
+
+        public bool DeleteOperationFromQueue(ShardWriteOperation operation)
+        {
+            lock (queueLock)
+            {
+                OperationQueue.Remove(operation);
+            }
+
+            return true;
+        }
+
+        public bool AddOperationToTransit(ShardWriteOperation operation)
+        {
+            return TransitQueue.TryAdd(operation.Id, operation);
+        }
+
+        public bool IsOperationInTransit(string operationId)
+        {
+            return TransitQueue.ContainsKey(operationId);
+        }
+
+        public SortedDictionary<int, ShardWriteOperation> GetAllObjectShardWriteOperation(Guid shardId, Guid objectId)
+        {
+            var result = new SortedDictionary<int, ShardWriteOperation>();
+            foreach (var operation in ShardWriteOperations.Where(so => so.Value.Data.Id == objectId && so.Value.Data.ShardId == shardId))
+            {
+                result.Add(operation.Value.Pos, operation.Value);
+            }
+            return result;
         }
     }
 }

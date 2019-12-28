@@ -7,7 +7,7 @@ namespace ConsensusCore.Domain.Models
 {
     public class DataReversionRecord
     {
-        public ShardOperation OriginalOperation { get; set; }
+        public ShardWriteOperation OriginalOperation { get; set; }
         public ShardData OriginalData { get; set; }
         public ShardData NewData { get; set; }
         public string DebugMessage { get; set; }

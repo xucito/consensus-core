@@ -8,9 +8,10 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Connectors
 {
-    public interface IConnector
+    public interface INodeClient
     {
         Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse;
         Task<NodeInfo> GetNodeInfoAsync();
+        string Address { get; }
     }
 }

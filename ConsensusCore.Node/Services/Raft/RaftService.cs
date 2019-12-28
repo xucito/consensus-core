@@ -1,0 +1,761 @@
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.Exceptions;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.RPCs.Raft;
+using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.SystemCommands;
+using ConsensusCore.Node.Communication.Clients;
+using ConsensusCore.Node.Connectors;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ConsensusCore.Node.Services.Raft
+{
+    public class RaftService<State> : BaseService<State>, IRaftService where State : BaseState, new()
+    {
+        private Timer _heartbeatTimer;
+        private Timer _electionTimeoutTimer;
+        private Task _commitTask;
+        private Task _bootstrapTask;
+        private Task _nodeDiscoveryTask;
+
+        private BootstrapService<State> _bootstrapService;
+        private DiscoveryService<State> _discoveryService;
+        private ElectionService<State> _electionService;
+        private CommitService<State> _commitService;
+
+
+        private ClusterConnectionPool _clusterConnectionPool;
+        //Used to track whether you are currently already sending logs to a particular node to not double send
+        public ConcurrentDictionary<Guid, bool> LogsSent = new ConcurrentDictionary<Guid, bool>();
+        public ClusterClient _clusterClient;
+
+        private INodeStorage<State> _nodeStorage;
+        SnapshotService<State> _snapshotService;
+        object VoteLock = new object();
+
+        public RaftService(
+            ILoggerFactory logger,
+            IOptions<ClusterOptions> clusterOptions,
+            IOptions<NodeOptions> nodeOptions,
+            ClusterConnectionPool clusterConnectionPool,
+            INodeStorage<State> nodeStorage,
+            IStateMachine<State> stateMachine,
+            NodeStateService nodeStateService,
+            ClusterClient clusterClient
+            ) : base(logger.CreateLogger<RaftService<State>>(), clusterOptions.Value, nodeOptions.Value, stateMachine, nodeStateService)
+        {
+            _nodeStorage = nodeStorage;
+            //Bootstrap the node
+            _snapshotService = new SnapshotService<State>(logger.CreateLogger<SnapshotService<State>>(), nodeStorage, stateMachine, nodeStateService);
+            _electionService = new ElectionService<State>(logger.CreateLogger<ElectionService<State>>(), clusterConnectionPool, clusterOptions.Value, nodeOptions.Value, StateMachine, nodeStorage, NodeStateService);
+            _bootstrapService = new BootstrapService<State>(logger.CreateLogger<BootstrapService<State>>(), clusterConnectionPool, clusterOptions.Value, nodeOptions.Value, nodeStorage, StateMachine, NodeStateService);
+            _commitService = new CommitService<State>(logger.CreateLogger<CommitService<State>>(), clusterConnectionPool, clusterOptions.Value, nodeOptions.Value, nodeStorage, StateMachine, NodeStateService);
+            _discoveryService = new DiscoveryService<State>(logger.CreateLogger<DiscoveryService<State>>(), clusterConnectionPool, clusterOptions.Value, nodeOptions.Value, StateMachine, NodeStateService);
+            _clusterClient = clusterClient;
+            _clusterConnectionPool = clusterConnectionPool;
+            NodeStateService.Id = _nodeStorage.Id;
+            if (!ClusterOptions.TestMode)
+            {
+                _bootstrapTask = Task.Run(() =>
+                {
+                    //Wait for the rest of the node to bootup
+                    Thread.Sleep(3000);
+                    _bootstrapService.BootstrapNode().GetAwaiter().GetResult();
+                    NodeStateService.IsBootstrapped = true;
+                });
+            }
+
+            _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
+            _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+
+            if (ClusterOptions.TestMode)
+            {
+                Logger.LogInformation("Running in test mode...");
+                SetNodeRole(NodeState.Leader);
+            }
+            else
+            {
+                SetNodeRole(NodeState.Follower);
+            }
+        }
+
+        public void HeartbeatTimeoutEventHandler(object args)
+        {
+            if (NodeStateService.IsBootstrapped)
+            {
+                Logger.LogDebug("Detected heartbeat timeout event.");
+                SendHeartbeats();
+            }
+        }
+
+        public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
+        {
+            try
+            {
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + ".");
+                if (!NodeStateService.IsBootstrapped)
+                {
+                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Node is not ready...");
+
+                    return new TResponse()
+                    {
+                        IsSuccessful = false,
+                        ErrorMessage = "Node is not ready..."
+                    };
+                }
+
+                if (IsClusterRequest<TResponse>(request) && !NodeStateService.InCluster)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Reqeuest rejected, node is not apart of cluster...");
+                    return new TResponse()
+                    {
+                        IsSuccessful = false,
+                        ErrorMessage = "Node is not apart of cluster..."
+                    };
+                }
+
+                DateTime commandStartTime = DateTime.Now;
+                TResponse response;
+                switch (request)
+                {
+                    case ExecuteCommands t1:
+                        response = await HandleIfLeaderOrReroute(request, () => (TResponse)(object)ExecuteCommandsRPCHandler(t1));
+                        break;
+                    case RequestVote t1:
+                        response = (TResponse)(object)RequestVoteRPCHandler(t1);
+                        break;
+                    case AppendEntry t1:
+                        response = (TResponse)(object)AppendEntryRPCHandler(t1);
+                        break;
+                    case InstallSnapshot t1:
+                        response = (TResponse)(object)_snapshotService.InstallSnapshotHandler(t1);
+                        break;
+                    default:
+                        throw new Exception("Request is not implemented");
+                }
+
+                return response;
+            }
+            catch (TaskCanceledException e)
+            {
+                Logger.LogWarning(NodeStateService.GetNodeLogId() + "Request " + request.RequestName + " timed out...");
+                return new TResponse()
+                {
+                    IsSuccessful = false
+                };
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(NodeStateService.GetNodeLogId() + "Failed to handle request " + request.RequestName + " with error " + e.Message + Environment.StackTrace + e.StackTrace);
+                return new TResponse()
+                {
+                    IsSuccessful = false
+                };
+            }
+        }
+
+        public bool IsClusterRequest<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse
+        {
+            switch (request)
+            {
+                case ExecuteCommands t1:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle) where TResponse : BaseResponse, new()
+        {
+            var CurrentTime = DateTime.Now;
+            // if you change and become a leader, just handle this yourself.
+            while (NodeStateService.Role != NodeState.Leader)
+            {
+                if (NodeStateService.Role == NodeState.Candidate)
+                {
+                    if ((DateTime.Now - CurrentTime).TotalMilliseconds < ClusterOptions.LatencyToleranceMs)
+                    {
+                        Logger.LogWarning(NodeStateService.GetNodeLogId() + "Currently a candidate during routing, will sleep thread and try again.");
+                        Thread.Sleep(1000);
+                    }
+                    else
+                    {
+                        return new TResponse()
+                        {
+                            IsSuccessful = false
+                        };
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected routing of command " + request.GetType().Name + " to leader.");
+                        return (TResponse)(object)await _clusterClient.Send(NodeStateService.CurrentLeader.Value, request);
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogError(NodeStateService.GetNodeLogId() + "Encountered " + e.Message + " while trying to route " + request.GetType().Name + " to leader.");
+                        return new TResponse()
+                        {
+                            IsSuccessful = false
+                        };
+                    }
+                }
+            }
+            return Handle();
+        }
+
+        public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
+        {
+            int index = _nodeStorage.AddCommands(request.Commands.ToList(), _nodeStorage.CurrentTerm);
+            var startDate = DateTime.Now;
+            while (request.WaitForCommits)
+            {
+                if ((DateTime.Now - startDate).TotalMilliseconds > ClusterOptions.CommitsTimeout)
+                {
+                    return new ExecuteCommandsResponse()
+                    {
+                        EntryNo = index,
+                        IsSuccessful = false
+                    };
+                }
+
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Waiting for " + request.RequestName + " to complete.");
+                if (NodeStateService.CommitIndex >= index)
+                {
+                    return new ExecuteCommandsResponse()
+                    {
+                        EntryNo = index,
+                        IsSuccessful = true
+                    };
+                }
+                else
+                {
+                    Thread.Sleep(100);
+                }
+            }
+            return new ExecuteCommandsResponse()
+            {
+                EntryNo = index,
+                IsSuccessful = true
+            };
+        }
+
+        public RequestVoteResponse RequestVoteRPCHandler(RequestVote requestVoteRPC)
+        {
+            var successful = false;
+            if (NodeStateService.IsBootstrapped)
+            {
+                //To requests might come in at the same time causing the VotedFor to not match
+                lock (VoteLock)
+                {
+                    //Ref1 $5.2, $5.4
+                    if (_nodeStorage.CurrentTerm <= requestVoteRPC.Term && ((_nodeStorage.VotedFor == null || _nodeStorage.VotedFor == requestVoteRPC.CandidateId) &&
+                    (requestVoteRPC.LastLogIndex >= _nodeStorage.GetTotalLogCount() && requestVoteRPC.LastLogTerm >= _nodeStorage.GetLastLogTerm())))
+                    {
+                        _nodeStorage.SetVotedFor(requestVoteRPC.CandidateId);
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Voting for " + requestVoteRPC.CandidateId + " for term " + requestVoteRPC.Term);
+                        SetNodeRole(NodeState.Follower);
+                        _nodeStorage.SetCurrentTerm(requestVoteRPC.Term);
+                        successful = true;
+                    }
+                    else if (_nodeStorage.CurrentTerm > requestVoteRPC.Term)
+                    {
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as current term is greater (" + requestVoteRPC.Term + "<" + _nodeStorage.CurrentTerm + ")");
+                    }
+                    else if (requestVoteRPC.LastLogIndex < _nodeStorage.GetTotalLogCount() - 1)
+                    {
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as last log index is less then local index (" + requestVoteRPC.LastLogIndex + "<" + (_nodeStorage.GetTotalLogCount() - 1) + ")");
+                    }
+                    else if (requestVoteRPC.LastLogTerm < _nodeStorage.GetLastLogTerm())
+                    {
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as last log term is less then local term (" + requestVoteRPC.LastLogTerm + "<" + _nodeStorage.GetLastLogTerm() + ")");
+                    }
+                    else if ((_nodeStorage.VotedFor != null && _nodeStorage.VotedFor != requestVoteRPC.CandidateId))
+                    {
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Rejected vote from " + requestVoteRPC.CandidateId + " as I have already voted for " + _nodeStorage.VotedFor + " | ");
+                    }
+                    else if (!successful)
+                    {
+                        Logger.LogError("Rejected vote from " + requestVoteRPC.CandidateId + " due to unknown reason.");
+                    }
+                }
+            }
+            return new RequestVoteResponse()
+            {
+                NodeId = _nodeStorage.Id,
+                IsSuccessful = successful
+            };
+        }
+
+        public AppendEntryResponse AppendEntryRPCHandler(AppendEntry entry)
+        {
+            //Check the log check to prevent a intermittent term increase with no back tracking, TODO check whether this causes potentially concurrency issues
+            if (entry.Term < _nodeStorage.CurrentTerm && entry.LeaderCommit <= NodeStateService.CommitIndex)
+            {
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Rejected RPC from " + entry.LeaderId + " due to lower term " + entry.Term + "<" + _nodeStorage.CurrentTerm);
+                return new AppendEntryResponse()
+                {
+                    ConflictName = AppendEntriesExceptionNames.OldTermException,
+                    IsSuccessful = false
+                };
+            }
+
+            //Reset the timer if the append is from a valid term
+            ResetTimer(_electionTimeoutTimer, ClusterOptions.ElectionTimeoutMs, ClusterOptions.ElectionTimeoutMs);
+
+            //If you are a leader or candidate, swap to a follower
+            if (NodeStateService.Role == NodeState.Candidate || NodeStateService.Role == NodeState.Leader)
+            {
+                Logger.LogWarning(NodeStateService.GetNodeLogId() + " detected node " + entry.LeaderId + " is further ahead. Changing to follower");
+                SetNodeRole(NodeState.Follower);
+            }
+
+            if (NodeStateService.CurrentLeader != entry.LeaderId)
+            {
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected uncontacted leader, discovering leader now.");
+                //Reset the current leader
+                NodeStateService.CurrentLeader = entry.LeaderId;
+            }
+
+            if (entry.LeaderCommit > NodeStateService.LatestLeaderCommit)
+            {
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected leader commit of " + entry.LeaderCommit + " commiting data on node.");
+                NodeStateService.LatestLeaderCommit = entry.LeaderCommit;
+            }
+
+            // If your log entry is not within the last snapshot, then check the validity of the previous log index
+            if (_nodeStorage.LastSnapshotIncludedIndex < entry.PrevLogIndex)
+            {
+                var previousEntry = _nodeStorage.GetLogAtIndex(entry.PrevLogIndex);
+
+                if (previousEntry == null && entry.PrevLogIndex != 0)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+
+                    return new AppendEntryResponse()
+                    {
+                        IsSuccessful = false,
+                        ConflictingTerm = null,
+                        ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
+                        FirstTermIndex = null,
+                        LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
+                    };
+                }
+            }
+            else
+            {
+                if (_nodeStorage.LastSnapshotIncludedTerm != entry.PrevLogTerm)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Inconsistency found in the node snapshot and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    return new AppendEntryResponse()
+                    {
+                        ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                        IsSuccessful = false,
+                        ConflictingTerm = entry.PrevLogTerm,
+                        FirstTermIndex = 0 //always set to 0 as snapshots are assumed to be from 0 > n
+                    };
+                }
+            }
+
+            _nodeStorage.SetCurrentTerm(entry.Term);
+
+            foreach (var log in entry.Entries.OrderBy(e => e.Index))
+            {
+                var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
+                if (existingEnty != null && existingEnty.Term != log.Term)
+                {
+                    Logger.LogError(NodeStateService.GetNodeLogId() + "Found inconsistent logs in state, deleting logs from index " + log.Index);
+                    _nodeStorage.DeleteLogsFromIndex(log.Index);
+                    break;
+                }
+            }
+
+            NodeStateService.InCluster = true;
+
+            DateTime time = DateTime.Now;
+
+            foreach (var log in entry.Entries)
+            {
+                try
+                {
+                    _nodeStorage.AddLog(log);
+                }
+                catch (MissingLogEntryException e)
+                {
+                    return new AppendEntryResponse()
+                    {
+                        IsSuccessful = false,
+                        ConflictingTerm = null,
+                        ConflictName = AppendEntriesExceptionNames.MissingLogEntryException,
+                        FirstTermIndex = null,
+                        LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
+                    };
+                }
+                catch (Exception e)
+                {
+                    Logger.LogError(NodeStateService.GetNodeLogId() + " failed to add log " + log.Index + " with exception " + e.Message + Environment.NewLine + e.StackTrace);
+                    return new AppendEntryResponse()
+                    {
+                        IsSuccessful = false,
+                        ConflictingTerm = null,
+                        ConflictName = AppendEntriesExceptionNames.LogAppendingException,
+                        FirstTermIndex = null,
+                        LastLogEntryIndex = _nodeStorage.GetTotalLogCount()
+                    };
+                }
+            }
+
+            return new AppendEntryResponse()
+            {
+                IsSuccessful = true
+            };
+        }
+
+        public InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request)
+        {
+            if (request.Term < _nodeStorage.CurrentTerm)
+            {
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = false,
+                    Term = request.Term
+                };
+            }
+
+            if (_nodeStorage.GetTotalLogCount() < request.LastIncludedIndex)
+            {
+                _nodeStorage.SetLastSnapshot(((JObject)request.Snapshot).ToObject<State>(), request.LastIncludedIndex, request.LastIncludedTerm);
+                StateMachine.ApplySnapshotToStateMachine(((JObject)request.Snapshot).ToObject<State>());
+                NodeStateService.CommitIndex = request.LastIncludedIndex;
+                _nodeStorage.SetCurrentTerm(request.LastIncludedTerm);
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = true,
+                    Term = request.Term
+                };
+            }
+            else
+            {
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = true,
+                    Term = request.Term
+                };
+            }
+        }
+
+
+        private void ResetTimer(Timer timer, int dueTime, int period)
+        {
+            timer.Change(dueTime, period);
+        }
+
+        private void StopTimer(Timer timer)
+        {
+            ResetTimer(timer, Timeout.Infinite, Timeout.Infinite);
+        }
+
+        public void SetNodeRole(NodeState newState)
+        {
+            if (newState == NodeState.Candidate && !NodeOptions.EnableLeader)
+            {
+                Logger.LogWarning(NodeStateService.GetNodeLogId() + "Tried to promote to candidate but node has been disabled.");
+                return;
+            }
+
+            if (newState != NodeStateService.Role)
+            {
+                Logger.LogInformation(NodeStateService.GetNodeLogId() + "Node's role changed to " + newState.ToString());
+                NodeStateService.SetRole(newState);
+
+                switch (newState)
+                {
+                    case NodeState.Candidate:
+                        ResetTimer(_electionTimeoutTimer, ClusterOptions.ElectionTimeoutMs, ClusterOptions.ElectionTimeoutMs);
+                        StopTimer(_heartbeatTimer);
+                        NodeStateService.InCluster = false;
+                        StartElection();
+                        break;
+                    case NodeState.Follower:
+                        Random rand = new Random();
+                        //On becoming a follower, wait 5 seconds to allow any other nodes to send out election time outs
+                        ResetTimer(_electionTimeoutTimer, rand.Next(ClusterOptions.ElectionTimeoutMs, ClusterOptions.ElectionTimeoutMs * 2), ClusterOptions.ElectionTimeoutMs);
+                        StopTimer(_heartbeatTimer);
+                        RestartTask(ref _commitTask, () => MonitorCommits());
+                        break;
+                    case NodeState.Leader:
+                        NodeStateService.CurrentLeader = _nodeStorage.Id;
+                        NodeStateService.ResetLeaderState();
+                        ResetTimer(_heartbeatTimer, 0, ClusterOptions.ElectionTimeoutMs / 4);
+                        StopTimer(_electionTimeoutTimer);
+                        RestartTask(ref _commitTask, () => MonitorCommits());
+                        NodeStateService.InCluster = true;
+                        RestartTask(ref _nodeDiscoveryTask, () => NodeDiscoveryLoop());
+                        break;
+                    case NodeState.Disabled:
+                        StopTimer(_electionTimeoutTimer);
+                        StopTimer(_heartbeatTimer);
+                        break;
+                }
+            }
+        }
+
+        public async Task NodeDiscoveryLoop()
+        {
+            while (NodeStateService.Role == NodeState.Leader)
+            {
+                try
+                {
+                    var updates = await _discoveryService.DiscoverNodes();
+                    if (updates.Count > 0)
+                    {
+                        await Handle(new ExecuteCommands()
+                        {
+                            Commands = updates,
+                            WaitForCommits = true
+                        });
+                    }
+                }
+                catch (Exception e)
+                {
+                    Logger.LogError("Failed to run Cluster Info Timeout Handler with error " + e.StackTrace);
+                }
+            }
+        }
+
+        public async void ElectionTimeoutEventHandler(object args)
+        {
+            SetNodeRole(NodeState.Candidate);
+        }
+
+        public async void StartElection()
+        {
+            try
+            {
+                var totalVotes = await _electionService.CollectVotes();
+                if (totalVotes >= ClusterOptions.MinimumNodes)
+                {
+                    Logger.LogInformation(NodeStateService.GetNodeLogId() + "Recieved enough votes to be promoted, promoting to leader. Registered nodes: " + totalVotes);
+                    SetNodeRole(NodeState.Leader);
+                }
+                else
+                {
+                    NodeStateService.CurrentLeader = null;
+                    _nodeStorage.SetVotedFor(null);
+                    SetNodeRole(NodeState.Follower);
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Failed to run election with error " + e.StackTrace);
+            }
+        }
+
+        private void RestartTask(ref Task task, Func<Task> threadFunction)
+        {
+            if (task == null || task.IsCompleted)
+            {
+                task = Task.Run(() => threadFunction());
+            }
+        }
+
+        public async Task MonitorCommits()
+        {
+            while (true)
+            {
+                try
+                {
+                    _commitService.ApplyCommits();
+                    Thread.Sleep(500);
+                }
+                catch (Exception e)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + " encountered error " + e.Message + " with stacktrace " + e.StackTrace);
+                }
+
+            }
+        }
+
+        public async void SendHeartbeats()
+        {
+            if (NodeStateService.Role != NodeState.Leader)
+            {
+                Logger.LogWarning("Detected request to send hearbeat as non-leader");
+                return;
+            }
+
+            var startTime = DateTime.Now;
+
+            var recognizedhosts = 1;
+
+            var tasks = _clusterConnectionPool.GetAllNodeClients().Where(nc => nc.Key != _nodeStorage.Id).Select(async node =>
+            {
+                try
+                {
+                    //Add the match index if required
+                    if (!NodeStateService.NextIndex.ContainsKey(node.Key))
+                        NodeStateService.NextIndex.Add(node.Key, _nodeStorage.GetTotalLogCount() + 1);
+                    if (!NodeStateService.MatchIndex.ContainsKey(node.Key))
+                        NodeStateService.MatchIndex.TryAdd(node.Key, 0);
+
+                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Sending heartbeat to " + node.Key);
+                    var entriesToSend = new List<LogEntry>();
+
+                    var prevLogIndex = Math.Max(0, NodeStateService.NextIndex[node.Key] - 1);
+                    var startingLogsToSend = NodeStateService.NextIndex[node.Key] == 0 ? 1 : NodeStateService.NextIndex[node.Key];
+                    var unsentLogs = (_nodeStorage.GetTotalLogCount() - NodeStateService.NextIndex[node.Key] + 1);
+                    var quantityToSend = unsentLogs;
+                    var endingLogsToSend = startingLogsToSend + (quantityToSend < ClusterOptions.MaxLogsToSend ? quantityToSend : ClusterOptions.MaxLogsToSend) - 1;
+
+                    //If the logs still exist in the state then get the logs to be sent
+                    if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
+                    {
+                        int prevLogTerm = 0;
+                        if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
+                        {
+                            prevLogTerm = _nodeStorage.LastSnapshotIncludedTerm;
+                        }
+                        else
+                        {
+                            prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+                        }
+                        if (NodeStateService.NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, false))
+                        {
+                            entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).ToList();
+                            // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
+                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+
+                        }
+
+                        // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
+                        LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
+                        {
+                            return true;
+                        });
+                        var result = await _clusterClient.Send(node.Key, new AppendEntry()
+                        {
+                            Term = _nodeStorage.CurrentTerm,
+                            Entries = entriesToSend,
+                            LeaderCommit = NodeStateService.CommitIndex,
+                            LeaderId = _nodeStorage.Id,
+                            PrevLogIndex = prevLogIndex,
+                            PrevLogTerm = prevLogTerm
+                        });
+
+                        LogsSent.TryUpdate(node.Key, false, true);
+
+                        if (result != null && result.IsSuccessful)
+                        {
+                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Successfully updated logs on " + node.Key);
+                            if (entriesToSend.Count() > 0)
+                            {
+                                var lastIndexToSend = entriesToSend.Last().Index;
+                                NodeStateService.NextIndex[node.Key] = lastIndexToSend + 1;
+
+                                int previousValue;
+                                bool SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
+                                if (!SuccessfullyGotValue)
+                                {
+                                    Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
+                                }
+                                var updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                //If the updated did not execute, there hs been a concurrency issue
+                                while (!updateWorked)
+                                {
+                                    SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
+                                    // If the match index has already exceeded the previous value, dont bother updating it
+                                    if (previousValue > lastIndexToSend && SuccessfullyGotValue)
+                                    {
+                                        updateWorked = true;
+                                    }
+                                    else
+                                    {
+                                        updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                    }
+                                }
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Updated match index to " + NodeStateService.MatchIndex);
+                            }
+                        }
+                        else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
+                        {
+                            Logger.LogWarning(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
+                            NodeStateService.NextIndex[node.Key] = (result.LastLogEntryIndex.Value + 1);
+                        }
+                        else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
+                        {
+                            var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
+                            var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
+                            Logger.LogWarning(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
+
+                            //Revert back to the first index of that term
+                            NodeStateService.NextIndex[node.Key] = revertedIndex;
+                        }
+                        else if (result.ConflictName == AppendEntriesExceptionNames.OldTermException)
+                        {
+                            Logger.LogError(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
+                        }
+                    }
+                    else
+                    {
+                        Logger.LogInformation("Detected pending snapshot to send, sending snapshot with included index " + _nodeStorage.LastSnapshotIncludedIndex);
+
+                        //Mark that you have send the logs to this node
+                        LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
+                        {
+                            return true;
+                        });
+                        var lastIndex = _nodeStorage.LastSnapshotIncludedIndex;
+                        var result = await _clusterClient.Send(node.Key, new InstallSnapshot()
+                        {
+                            Term = _nodeStorage.CurrentTerm,
+                            LastIncludedIndex = lastIndex,
+                            LastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
+                            LeaderId = _nodeStorage.Id,
+                            Snapshot = _nodeStorage.LastSnapshot
+                        });
+
+                        if (result.IsSuccessful)
+                        {
+                            //mark the node has successfully received the logs
+                            LogsSent.TryUpdate(node.Key, false, true);
+                            NodeStateService.NextIndex[node.Key] = lastIndex + 1;
+                        }
+
+                    }
+
+                    Interlocked.Increment(ref recognizedhosts);
+                }
+                catch (TaskCanceledException e)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Heartbeat to node " + node.Key + " timed out");
+                }
+                catch (Exception e)
+                {
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Encountered error while sending heartbeat to node " + node.Key + ", request failed with error \"" + e.Message + Environment.NewLine + " STACK TRACE:" + e.StackTrace);//+ "\"" + e.StackTrace);
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            //If less then the required number recognize the request, go back to being a candidate
+            if (recognizedhosts < ClusterOptions.MinimumNodes)
+            {
+                SetNodeRole(NodeState.Candidate);
+            }
+        }
+
+    }
+}
