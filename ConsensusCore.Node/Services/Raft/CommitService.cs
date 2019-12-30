@@ -14,7 +14,7 @@ namespace ConsensusCore.Node.Services.Raft
     public class CommitService<State>: BaseService<State> where State: BaseState, new()
     {
         public INodeStorage<State> _nodeStorage;
-        public CommitService(ILogger<CommitService<State>> logger, ClusterConnectionPool clusterConnectionPool, ClusterOptions clusterOptions, NodeOptions nodeOptions, INodeStorage<State> nodeStorage, IStateMachine<State> stateMachine, NodeStateService nodeStateService) : base(logger, clusterOptions, nodeOptions, stateMachine, nodeStateService)
+        public CommitService(ILogger<CommitService<State>> logger, ClusterOptions clusterOptions, NodeOptions nodeOptions, INodeStorage<State> nodeStorage, IStateMachine<State> stateMachine, NodeStateService nodeStateService) : base(logger, clusterOptions, nodeOptions, stateMachine, nodeStateService)
         {
             _nodeStorage = nodeStorage;
         }
@@ -77,17 +77,6 @@ namespace ConsensusCore.Node.Services.Raft
                         {
                             Logger.LogWarning("Waiting for log " + (NodeStateService.CommitIndex + 1));
                         }
-                    }
-                }
-
-                if (NodeStateService.Role == NodeState.Leader || NodeStateService.Role == NodeState.Follower)
-                {
-                    var snapshotTo = NodeStateService.CommitIndex - ClusterOptions.SnapshottingTrailingLogCount;
-                    // If the number of logs that are commited but not included in the snapshot are not included in interval, create snapshot
-                    if (ClusterOptions.SnapshottingInterval < (NodeStateService.CommitIndex - _nodeStorage.LastSnapshotIncludedIndex) && _nodeStorage.LogExists(_nodeStorage.LastSnapshotIncludedIndex + 1))
-                    {
-                        Logger.LogInformation("Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
-                        _nodeStorage.CreateSnapshot(snapshotTo);
                     }
                 }
             }

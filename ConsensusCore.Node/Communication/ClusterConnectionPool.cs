@@ -1,4 +1,6 @@
-﻿using ConsensusCore.Node.Connectors;
+﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Node.Connectors;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
@@ -7,30 +9,36 @@ using System.Text;
 
 namespace ConsensusCore.Node.Communication.Clients
 {
-    public class ClusterConnectionPool
+    public class ClusterConnectionPool<State> : IClusterConnectionPool where State : BaseState, new()
     {
         private Dictionary<Guid, INodeClient> _nodeConnectors = new Dictionary<Guid, INodeClient>();
         private Dictionary<Guid, INodeClient> NodeConnectors
         {
             get
             {
-                return _nodeConnectors.ToDictionary(entry => entry.Key, entry => entry.Value);
+                lock (_nodeConnectors)
+                {
+                    return _nodeConnectors.ToDictionary(entry => entry.Key, entry => entry.Value);
+                }
             }
         }
         private TimeSpan _timeoutInterval { get; set; }
         private TimeSpan _dataTimeoutInterval { get; set; }
+        IStateMachine<State> _stateMachine { get; set; }
         public int TotalClients { get { return _nodeConnectors.Count(); } }
 
         object _connectorLock = new object();
 
-        public ClusterConnectionPool(TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval)
+        public ClusterConnectionPool(IStateMachine<State> stateMachine, TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval)
         {
             _timeoutInterval = timeoutInterval;
             _dataTimeoutInterval = dataTimeoutInterval;
+            _stateMachine = stateMachine;
         }
 
-        public ClusterConnectionPool(IOptions<ClusterOptions> clusterOptions)
+        public ClusterConnectionPool(IStateMachine<State> stateMachine, IOptions<ClusterOptions> clusterOptions)
         {
+            _stateMachine = stateMachine;
             _timeoutInterval = TimeSpan.FromMilliseconds(clusterOptions.Value.CommitsTimeout);
             _dataTimeoutInterval = TimeSpan.FromMilliseconds(clusterOptions.Value.DataTransferTimeoutMs);
         }
@@ -68,7 +76,7 @@ namespace ConsensusCore.Node.Communication.Clients
         public Guid? NodeAtUrl(string url)
         {
             var clients = _nodeConnectors.Where(nc => nc.Value.Address == url);
-            if(clients.Count() > 0)
+            if (clients.Count() > 0)
             {
                 return clients.First().Key;
             }
@@ -77,17 +85,54 @@ namespace ConsensusCore.Node.Communication.Clients
 
         public INodeClient GetNodeClient(Guid nodeId)
         {
+            CheckAndAddFromState(nodeId);
             return _nodeConnectors[nodeId];
         }
 
         public string GetNodeClientAddress(Guid nodeId)
         {
+            CheckAndAddFromState(nodeId);
             return _nodeConnectors[nodeId].Address;
         }
 
         public Dictionary<Guid, INodeClient> GetAllNodeClients()
         {
             return NodeConnectors;
+        }
+
+        public void RemoveClient(Guid nodeId)
+        {
+            _nodeConnectors.Remove(nodeId);
+        }
+
+        private void CheckAndAddFromState(Guid nodeId)
+        {
+            if (!_nodeConnectors.ContainsKey(nodeId))
+            {
+                var node = _stateMachine.GetNode(nodeId);
+                if (node != null)
+                {
+                    AddClient(nodeId, node.TransportAddress);
+                }
+            }
+        }
+
+        public void CheckClusterConnectionPool()
+        {
+            if (_stateMachine != null)
+            {
+                var nodes = _stateMachine.GetNodes();
+                foreach (var node in nodes)
+                {
+                    if (!_nodeConnectors.ContainsKey(node.Id))
+                    {
+                        lock (_nodeConnectors)
+                        {
+                            AddClient(node.Id, node.TransportAddress);
+                        }
+                    }
+                }
+            }
         }
     }
 }

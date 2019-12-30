@@ -13,9 +13,9 @@ namespace ConsensusCore.Node.Connectors
 {
     public class ClusterClient
     {
-        private ClusterConnectionPool _clusterConnectionPool { get; set; }
+        private IClusterConnectionPool _clusterConnectionPool { get; set; }
 
-        public ClusterClient(ClusterConnectionPool connectionPool)
+        public ClusterClient(IClusterConnectionPool connectionPool)
         {
             _clusterConnectionPool = connectionPool;
         }

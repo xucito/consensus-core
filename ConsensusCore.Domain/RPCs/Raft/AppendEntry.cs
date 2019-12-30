@@ -24,5 +24,6 @@ namespace ConsensusCore.Domain.RPCs.Raft
         public int? ConflictingTerm { get; set; }
         public int? FirstTermIndex { get; set; }
         public int? LastLogEntryIndex { get; set; }
+        public Guid NodeId { get; set; }
     }
 }

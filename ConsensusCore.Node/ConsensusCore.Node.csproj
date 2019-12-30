@@ -14,7 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Services\NewFolder\" />
     <Folder Include="Utility\ClusterTasks\" />
     <Folder Include="Utility\RoutedRequests\" />
   </ItemGroup>

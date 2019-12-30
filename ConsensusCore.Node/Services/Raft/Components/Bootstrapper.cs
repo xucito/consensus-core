@@ -11,18 +11,20 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Services.Raft
 {
-    public class BootstrapService<State> : BaseService<State> where State : BaseState, new()
+    public class Bootstrapper<State> where State : BaseState, new()
     {
-        ClusterConnectionPool _clusterConnectionPool;
         INodeStorage<State> _nodeStorage;
+        ILogger Logger;
 
-        public BootstrapService(ILogger<BootstrapService<State>> logger,
-            ClusterConnectionPool clusterConnectionPool, 
-            ClusterOptions clusterOptions, NodeOptions nodeOptions, INodeStorage<State> nodeStorage, IStateMachine<State> stateMachine,
-            NodeStateService nodeStateService) : base(logger, clusterOptions, nodeOptions, stateMachine, nodeStateService)
+        public Bootstrapper(ILogger<Bootstrapper<State>> logger,
+            ClusterOptions clusterOptions,
+            NodeOptions nodeOptions,
+            INodeStorage<State> nodeStorage,
+            IStateMachine<State> stateMachine,
+            NodeStateService nodeStateService)
         {
-            _clusterConnectionPool = clusterConnectionPool;
             _nodeStorage = nodeStorage;
+            Logger = logger;
 
             //Load the last snapshot
             if (_nodeStorage.LastSnapshot != null)
@@ -35,19 +37,15 @@ namespace ConsensusCore.Node.Services.Raft
             }
         }
 
-        public async Task<bool> BootstrapNode()
+        public async Task<string> GetMyUrl(IEnumerable<string> urls, TimeSpan latencyMs)
         {
-            Logger.LogInformation("Bootstrapping Node!");
-
-            // The node cannot bootstrap unless at least a majority of nodes are present
-            _clusterConnectionPool.Reset();
             string myUrl = null;
             while (myUrl == null)
             {
-                foreach (var url in ClusterOptions.NodeUrls.Split(','))
+                foreach (var url in urls)
                 {
                     //Create a test controller temporarily
-                    var testConnector = new HttpNodeConnector(url, TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs), TimeSpan.FromMilliseconds(ClusterOptions.DataTransferTimeoutMs));
+                    var testConnector = new HttpNodeConnector(url, latencyMs, TimeSpan.FromMilliseconds(-1));
 
                     Guid? nodeId = null;
                     try
@@ -56,10 +54,6 @@ namespace ConsensusCore.Node.Services.Raft
                         if (nodeId == _nodeStorage.Id)
                         {
                             myUrl = url;
-                        }
-                        else
-                        {
-                            _clusterConnectionPool.AddClient(nodeId.Value, url);
                         }
                     }
                     catch (Exception e)
@@ -72,13 +66,8 @@ namespace ConsensusCore.Node.Services.Raft
                 {
                     Logger.LogWarning("Node is not discoverable from the given node urls!");
                 }
-
-                if (_clusterConnectionPool.TotalClients < ClusterOptions.MinimumNodes - 1)
-                {
-                    Logger.LogWarning("Not enough of the nodes in the cluster are contactable, awaiting bootstrap");
-                }
             }
-            return true;
+            return myUrl;
         }
     }
 }

@@ -99,6 +99,12 @@ namespace ConsensusCore.Domain.Services
         public void CreateSnapshot(int indexIncludedTo)
         {
             var stateMachine = new StateMachine<State>();
+
+            if(!LogExists(LastSnapshotIncludedIndex + 1))
+            {
+                return;
+            }
+
             //Find the log position of the commit index
             if (LastSnapshot != null)
             {

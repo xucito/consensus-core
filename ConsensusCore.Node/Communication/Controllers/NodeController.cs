@@ -7,6 +7,7 @@ using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Domain.SystemCommands;
+using ConsensusCore.Node.Communication.Clients;
 using ConsensusCore.Node.Communication.Controllers;
 using ConsensusCore.Node.Services;
 using ConsensusCore.Node.Services.Raft;
@@ -28,18 +29,21 @@ namespace ConsensusCore.Node.Controllers
         private NodeStateService _nodeStateService;
         private IStateMachine<State> _stateMachine;
         private INodeStorage<State> _nodeStorage;
+        private IClusterConnectionPool _clusterConnectionPool;
 
         public NodeController(ClusterRequestHandler<State> handler, 
             ILogger<NodeController<State>> logger, 
             ShardManager<State, IShardRepository> shardManager, NodeStateService nodeStateService,
              IStateMachine<State> stateMachine,
-             INodeStorage<State> nodeStorage)
+             INodeStorage<State> nodeStorage,
+             IClusterConnectionPool clusterConnectionPool)
         {
             _handler = handler;
             Logger = logger;
             _nodeStateService = nodeStateService;
             _stateMachine = stateMachine;
             _nodeStorage = nodeStorage;
+            _clusterConnectionPool = clusterConnectionPool;
         }
 
         [HttpPost("RPC")]
@@ -70,5 +74,10 @@ namespace ConsensusCore.Node.Controllers
             return Ok(_nodeStorage.Logs);
         }
 
+        [HttpGet("clients")]
+        public IActionResult GetClients()
+        {
+            return Ok(_clusterConnectionPool.GetAllNodeClients());
+        }
     }
 }

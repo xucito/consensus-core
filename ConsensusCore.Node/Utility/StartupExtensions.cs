@@ -37,7 +37,7 @@ namespace ConsensusCore.Node.Utility
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
             services.AddSingleton<INodeStorage<State>, NodeStorage<State>>();
             services.AddSingleton<NodeStateService>();
-            services.AddSingleton<ClusterConnectionPool>();
+            services.AddSingleton<IClusterConnectionPool, ClusterConnectionPool<State>>();
             services.AddSingleton<ClusterClient>();
             services.AddSingleton<IRaftService, RaftService<State>>();
             services.AddTransient<NodeController<State>>();
@@ -72,7 +72,7 @@ namespace ConsensusCore.Node.Utility
             services.AddSingleton<IShardRepository, ShardRepository>(shardRepositoryImplementationFactory);
             // services.AddSingleton<NodeStorage
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
-            services.AddSingleton<ClusterConnectionPool>();
+            services.AddSingleton<IClusterConnectionPool, ClusterConnectionPool<State>>();
             services.AddSingleton<NodeStateService>();
             services.AddSingleton<ClusterClient>();
             services.AddSingleton<INodeStorage<State>, NodeStorage<State>>();
