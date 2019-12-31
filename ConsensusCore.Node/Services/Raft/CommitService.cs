@@ -75,7 +75,7 @@ namespace ConsensusCore.Node.Services.Raft
                         }
                         else
                         {
-                            Logger.LogWarning("Waiting for log " + (NodeStateService.CommitIndex + 1));
+                            Logger.LogDebug("Waiting for log " + (NodeStateService.CommitIndex + 1));
                         }
                     }
                 }

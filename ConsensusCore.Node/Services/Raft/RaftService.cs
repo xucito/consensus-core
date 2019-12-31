@@ -9,6 +9,7 @@ using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Node.Communication.Clients;
 using ConsensusCore.Node.Connectors;
+using ConsensusCore.Node.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
@@ -16,6 +17,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -103,79 +105,31 @@ namespace ConsensusCore.Node.Services.Raft
 
         public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
         {
-            try
-            {
-                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + ".");
-                if (!NodeStateService.IsBootstrapped)
-                {
-                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Node is not ready...");
-
-                    return new TResponse()
-                    {
-                        IsSuccessful = false,
-                        ErrorMessage = "Node is not ready..."
-                    };
-                }
-
-                if (IsClusterRequest<TResponse>(request) && !NodeStateService.InCluster)
-                {
-                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Reqeuest rejected, node is not apart of cluster...");
-                    return new TResponse()
-                    {
-                        IsSuccessful = false,
-                        ErrorMessage = "Node is not apart of cluster..."
-                    };
-                }
-
-                DateTime commandStartTime = DateTime.Now;
-                TResponse response;
-                switch (request)
-                {
-                    case ExecuteCommands t1:
-                        response = await HandleIfLeaderOrReroute(request, () => (TResponse)(object)ExecuteCommandsRPCHandler(t1));
-                        break;
-                    case RequestVote t1:
-                        response = (TResponse)(object)RequestVoteRPCHandler(t1);
-                        break;
-                    case AppendEntry t1:
-                        response = (TResponse)(object)AppendEntryRPCHandler(t1);
-                        break;
-                    case InstallSnapshot t1:
-                        response = (TResponse)(object)InstallSnapshotHandler(t1);
-                        break;
-                    default:
-                        throw new Exception("Request is not implemented");
-                }
-
-                return response;
-            }
-            catch (TaskCanceledException e)
-            {
-                Logger.LogWarning(NodeStateService.GetNodeLogId() + "Request " + request.RequestName + " timed out...");
-                return new TResponse()
-                {
-                    IsSuccessful = false
-                };
-            }
-            catch (Exception e)
-            {
-                Logger.LogError(NodeStateService.GetNodeLogId() + "Failed to handle request " + request.RequestName + " with error " + e.Message + Environment.StackTrace + e.StackTrace);
-                return new TResponse()
-                {
-                    IsSuccessful = false
-                };
-            }
-        }
-
-        public bool IsClusterRequest<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse
-        {
+            DateTime commandStartTime = DateTime.Now;
+            TResponse response;
             switch (request)
             {
                 case ExecuteCommands t1:
-                    return true;
+                    response = (TResponse)(object)ExecuteCommandsRPCHandler(t1);
+                    break;
+                case RequestVote t1:
+                    response = (TResponse)(object)RequestVoteRPCHandler(t1);
+                    break;
+                case AppendEntry t1:
+                    response = (TResponse)(object)AppendEntryRPCHandler(t1);
+                    break;
+                case InstallSnapshot t1:
+                    response = (TResponse)(object)InstallSnapshotHandler(t1);
+                    break;
                 default:
-                    return false;
+                    throw new Exception("Request is not implemented");
             }
+
+            return response != null ? response : new TResponse()
+            {
+                IsSuccessful = false,
+                ErrorMessage = "Response is null"
+            };
         }
 
         public InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request)
@@ -193,47 +147,6 @@ namespace ConsensusCore.Node.Services.Raft
                 IsSuccessful = _snapshotService.InstallSnapshot(request.Snapshot, request.LastIncludedIndex, request.LastIncludedTerm),
                 Term = request.Term
             };
-        }
-
-        public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle) where TResponse : BaseResponse, new()
-        {
-            var CurrentTime = DateTime.Now;
-            // if you change and become a leader, just handle this yourself.
-            while (NodeStateService.Role != NodeState.Leader)
-            {
-                if (NodeStateService.Role == NodeState.Candidate)
-                {
-                    if ((DateTime.Now - CurrentTime).TotalMilliseconds < ClusterOptions.LatencyToleranceMs)
-                    {
-                        Logger.LogWarning(NodeStateService.GetNodeLogId() + "Currently a candidate during routing, will sleep thread and try again.");
-                        Thread.Sleep(1000);
-                    }
-                    else
-                    {
-                        return new TResponse()
-                        {
-                            IsSuccessful = false
-                        };
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected routing of command " + request.GetType().Name + " to leader.");
-                        return (TResponse)(object)await _clusterClient.Send(NodeStateService.CurrentLeader.Value, request);
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.LogError(NodeStateService.GetNodeLogId() + "Encountered " + e.Message + " while trying to route " + request.GetType().Name + " to leader.");
-                        return new TResponse()
-                        {
-                            IsSuccessful = false
-                        };
-                    }
-                }
-            }
-            return Handle();
         }
 
         public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
@@ -339,7 +252,7 @@ namespace ConsensusCore.Node.Services.Raft
             //If you are a leader or candidate, swap to a follower
             if (NodeStateService.Role == NodeState.Candidate || NodeStateService.Role == NodeState.Leader)
             {
-                Logger.LogWarning(NodeStateService.GetNodeLogId() + " detected node " + entry.LeaderId + " is further ahead. Changing to follower");
+                Logger.LogDebug(NodeStateService.GetNodeLogId() + " detected node " + entry.LeaderId + " is further ahead. Changing to follower");
                 SetNodeRole(NodeState.Follower);
             }
 
@@ -363,7 +276,7 @@ namespace ConsensusCore.Node.Services.Raft
 
                 if (previousEntry == null && entry.PrevLogIndex != 0)
                 {
-                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Missing previous entry at index " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
 
                     return new AppendEntryResponse()
                     {
@@ -380,7 +293,7 @@ namespace ConsensusCore.Node.Services.Raft
             {
                 if (_nodeStorage.LastSnapshotIncludedTerm != entry.PrevLogTerm)
                 {
-                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Inconsistency found in the node snapshot and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Inconsistency found in the node snapshot and leaders logs, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
                     return new AppendEntryResponse()
                     {
                         ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
@@ -399,7 +312,7 @@ namespace ConsensusCore.Node.Services.Raft
                 var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
                 if (existingEnty != null && existingEnty.Term != log.Term)
                 {
-                    Logger.LogError(NodeStateService.GetNodeLogId() + "Found inconsistent logs in state, deleting logs from index " + log.Index);
+                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Found inconsistent logs in state, deleting logs from index " + log.Index);
                     _nodeStorage.DeleteLogsFromIndex(log.Index);
                     break;
                 }
@@ -485,16 +398,16 @@ namespace ConsensusCore.Node.Services.Raft
                         //On becoming a follower, wait 5 seconds to allow any other nodes to send out election time outs
                         ResetTimer(_electionTimeoutTimer, rand.Next(ClusterOptions.ElectionTimeoutMs, ClusterOptions.ElectionTimeoutMs * 2), ClusterOptions.ElectionTimeoutMs);
                         StopTimer(_heartbeatTimer);
-                        RestartTask(ref _commitTask, () => MonitorCommits());
+                        TaskUtility.RestartTask(ref _commitTask, () => MonitorCommits());
                         break;
                     case NodeState.Leader:
                         NodeStateService.CurrentLeader = _nodeStorage.Id;
                         NodeStateService.ResetLeaderState();
                         ResetTimer(_heartbeatTimer, 0, ClusterOptions.ElectionTimeoutMs / 4);
                         StopTimer(_electionTimeoutTimer);
-                        RestartTask(ref _commitTask, () => MonitorCommits());
+                        TaskUtility.RestartTask(ref _commitTask, () => MonitorCommits());
                         NodeStateService.InCluster = true;
-                        RestartTask(ref _nodeDiscoveryTask, () => NodeDiscoveryLoop());
+                        TaskUtility.RestartTask(ref _nodeDiscoveryTask, () => NodeDiscoveryLoop());
                         _clusterConnectionPool.CheckClusterConnectionPool();
                         break;
                     case NodeState.Disabled:
@@ -592,14 +505,6 @@ namespace ConsensusCore.Node.Services.Raft
             }
         }
 
-        private void RestartTask(ref Task task, Func<Task> threadFunction)
-        {
-            if (task == null || task.IsCompleted)
-            {
-                task = Task.Run(() => threadFunction());
-            }
-        }
-
         public async Task MonitorCommits()
         {
             while (true)
@@ -644,7 +549,6 @@ namespace ConsensusCore.Node.Services.Raft
             {
                 try
                 {
-                    Logger.LogInformation(NodeStateService.GetNodeLogId() + "Sending heartbeat to " + node.Value.Address);
                     //Add the match index if required
                     if (!NodeStateService.NextIndex.ContainsKey(node.Key))
                         NodeStateService.NextIndex.Add(node.Key, _nodeStorage.GetTotalLogCount() + 1);
@@ -699,7 +603,7 @@ namespace ConsensusCore.Node.Services.Raft
 
                         LogsSent.TryUpdate(node.Key, false, true);
 
-                        if (node.Key != result.NodeId && result.NodeId != default(Guid))
+                        if (result != null && node.Key != result.NodeId && result.NodeId != default(Guid))
                         {
                             Logger.LogInformation("Detected change of client");
                             RemoveNodesFromCluster(new Guid[] { node.Key });
@@ -711,7 +615,11 @@ namespace ConsensusCore.Node.Services.Raft
                             } });
                         }
 
-                        if (result != null && result.IsSuccessful)
+                        if (result == null)
+                        {
+                            Logger.LogError(NodeStateService.GetNodeLogId() + "The node " + node.Key + " has returned a empty response");
+                        }
+                        else if (result != null && result.IsSuccessful)
                         {
                             Logger.LogDebug(NodeStateService.GetNodeLogId() + "Successfully updated logs on " + node.Key);
                             if (entriesToSend.Count() > 0)
@@ -745,21 +653,21 @@ namespace ConsensusCore.Node.Services.Raft
                         }
                         else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
                         {
-                            Logger.LogWarning(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
+                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
                             NodeStateService.NextIndex[node.Key] = (result.LastLogEntryIndex.Value + 1);
                         }
                         else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
                         {
                             var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
                             var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
-                            Logger.LogWarning(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
+                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
 
                             //Revert back to the first index of that term
                             NodeStateService.NextIndex[node.Key] = revertedIndex;
                         }
                         else if (result.ConflictName == AppendEntriesExceptionNames.OldTermException)
                         {
-                            Logger.LogError(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
+                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
                         }
                     }
                     else
@@ -792,6 +700,11 @@ namespace ConsensusCore.Node.Services.Raft
 
                     Interlocked.Increment(ref recognizedhosts);
                 }
+                catch (HttpRequestException e)
+                {
+                    unreachableNodes.Add(node.Key);
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Heartbeat to node " + node.Key + " had a connection issue.");
+                }
                 catch (TaskCanceledException e)
                 {
                     unreachableNodes.Add(node.Key);
@@ -800,7 +713,7 @@ namespace ConsensusCore.Node.Services.Raft
                 catch (Exception e)
                 {
                     unreachableNodes.Add(node.Key);
-                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Encountered error while sending heartbeat to node " + node.Key + ", request failed with error \"" + e.Message + Environment.NewLine + e.StackTrace);//+ "\"" + e.StackTrace);
+                    Logger.LogWarning(NodeStateService.GetNodeLogId() + "Encountered error while sending heartbeat to node " + node.Key + ", request failed with error \"" + e.GetType().Name + e.Message + Environment.NewLine + e.StackTrace);//+ "\"" + e.StackTrace);
                 }
             });
 

@@ -84,10 +84,14 @@ namespace ConsensusCore.TestNode
                     Killed = false;
                     raftService.SetNodeRole(Domain.Enums.NodeState.Follower);
                 }
-
+                
                 if (Killed == false)
                 {
                     await next();
+                }
+                else
+                {
+                    context.Abort();
                 }
             });
 

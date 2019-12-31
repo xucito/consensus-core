@@ -5,7 +5,7 @@ using System.Text;
 
 namespace ConsensusCore.Domain.BaseClasses
 {
-    public class SharedShardMetadata
+    public class ShardAllocationMetadata
     {
         public Guid Id { get; set; }
         public string Type { get; set; }

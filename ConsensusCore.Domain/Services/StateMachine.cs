@@ -210,5 +210,10 @@ namespace ConsensusCore.Domain.Services
         {
             return new ConcurrentDictionary<Guid, ObjectLock>(CurrentState.ObjectLocks);
         }
+
+        public void ApplySnapshotToStateMachine(BaseState state)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

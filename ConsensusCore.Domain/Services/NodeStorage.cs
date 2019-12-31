@@ -2,6 +2,7 @@
 using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -16,6 +17,7 @@ namespace ConsensusCore.Domain.Services
 {
     public class NodeStorage<State> : INodeStorage<State> where State : BaseState, new()
     {
+        private ILogger Logger { get; set; }
         public Guid Id { get; set; }
         public string Name { get; set; }
         public double Version { get; set; } = 1.0;
@@ -51,8 +53,9 @@ namespace ConsensusCore.Domain.Services
         }
 
 
-        public NodeStorage(IBaseRepository<State> repository)
+        public NodeStorage(ILogger<NodeStorage<State>> logger, IBaseRepository<State> repository)
         {
+            Logger = logger;
             _repository = repository;
 
             var loadedData = repository.LoadNodeData();
@@ -69,7 +72,7 @@ namespace ConsensusCore.Domain.Services
             else
             {
                 Id = Guid.NewGuid();
-                Console.WriteLine("Failed to load local node storage from store, creating new node storage");
+                Logger.LogInformation("Failed to load local node storage from store, creating new node storage");
                 Save();
             }
 
@@ -113,7 +116,7 @@ namespace ConsensusCore.Domain.Services
 
             var logIncludedTo = GetLogAtIndex(indexIncludedTo);
             var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
-            Console.WriteLine("Getting logs " + logIncludedFrom.Index + " to " + logIncludedTo);
+            Logger.LogInformation("Getting logs " + logIncludedFrom.Index + " to " + logIncludedTo);
             if (logIncludedTo != null && logIncludedFrom != null)
             {
                 //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
@@ -197,9 +200,6 @@ namespace ConsensusCore.Domain.Services
             if (id != VotedFor)
             {
                 VotedFor = id;
-
-
-                //Console.WriteLine("Set voted for");
                 Save();
             }
         }
@@ -258,7 +258,6 @@ namespace ConsensusCore.Domain.Services
                         Index = index
                     });
                 }
-                //Console.WriteLine("Add commands");
                 Save();
                 return index;
             }
@@ -332,8 +331,6 @@ namespace ConsensusCore.Domain.Services
                 {
                     Logs.Remove(delete);
                 }
-
-                //Console.WriteLine("Delete logs from index");
                 Save();
             }
         }

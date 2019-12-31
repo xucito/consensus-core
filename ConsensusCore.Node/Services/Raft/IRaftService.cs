@@ -12,10 +12,7 @@ namespace ConsensusCore.Node.Services.Raft
         void ElectionTimeoutEventHandler(object args);
         ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request);
         Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
-        Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle) where TResponse : BaseResponse, new();
-        void HeartbeatTimeoutEventHandler(object args);
         InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request);
-        bool IsClusterRequest<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse;
         Task MonitorCommits();
         RequestVoteResponse RequestVoteRPCHandler(RequestVote requestVoteRPC);
         void SendHeartbeats();
