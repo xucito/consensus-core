@@ -7,7 +7,9 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Data;
 using ConsensusCore.Node.Services.Raft;
+using ConsensusCore.Node.Services.Tasks;
 using ConsensusCore.Node.Utility;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Builder;
@@ -56,8 +58,9 @@ namespace ConsensusCore.TestNode
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env,
             IBaseRepository<TestState> repository,
-            ShardManager<TestState, IShardRepository> shardManager,
-            IRaftService raftService)
+            IRaftService raftService,
+            IDataService dataService,
+            ITaskService taskService)
         {
             if (env.IsDevelopment())
             {

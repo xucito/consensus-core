@@ -21,6 +21,7 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Services
 {
+    /*
     public class ShardManager<State, ShardRepository>
         where State : BaseState, new()
         where ShardRepository : IShardRepository
@@ -425,7 +426,7 @@ namespace ConsensusCore.Node.Services
                 ShardWriteOperation lastObjectOperation = null;
                 if (operation.Operation == ShardOperationOptions.Update || operation.Operation == ShardOperationOptions.Delete)
                 {
-                    allOperations = _shardRepository.GetAllObjectShardWriteOperation(data.ShardId.Value, data.Id);
+                    allOperations = await _shardRepository.GetAllObjectShardWriteOperationAsync(data.ShardId.Value, data.Id);
                     lastObjectOperation = allOperations.Where(ao => ao.Key < operation.Pos).Last().Value;
                 }
 
@@ -452,5 +453,5 @@ namespace ConsensusCore.Node.Services
                 _shardRepository.RemoveShardWriteOperation(shardId, operation.Pos);
             }
         }
-    }
+    }*/
 }

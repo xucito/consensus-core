@@ -23,7 +23,7 @@ namespace TestConsole
         static int RandomFailures = 0;
         static int TotalTimeDown = 0;
         static int AverageTimeForRecoveries = 0;
-        static bool DataConsistencyCheck = false;
+        static bool DataConsistencyCheck = true;
         static int[] ports = new int[]
         {
             5021,
@@ -68,35 +68,39 @@ namespace TestConsole
                 });
                 chaosMonkey.Start();
             }
-            /*while (true)
-            {
-                List<Task> allThreads = new List<Task>();
-                int numberOfConcurrentThreads = 10;
-                lock (DataLock)
-                {
-                    for (var i = 0; i < numberOfConcurrentThreads; i++)
-                    {
-                        allThreads.Add(new Task(async () =>
-                        {
-                            try
-                            {
-                                Interlocked.Increment(ref TestLoops);
-                                await RunTest();
-                            }
-                            catch (Exception e)
-                            {
-                                logger.LogError("Critical error while running test...");
-                            }
-                        }));
-                    }
-                    Parallel.ForEach(allThreads, thread =>
-                             {
-                                 thread.Start();
-                             });
 
-                    Task.WhenAll(allThreads).GetAwaiter().GetResult();
+            if (DataConsistencyCheck)
+            {
+                while (true)
+                {
+                    List<Task> allThreads = new List<Task>();
+                    int numberOfConcurrentThreads = 10;
+                    lock (DataLock)
+                    {
+                        for (var i = 0; i < numberOfConcurrentThreads; i++)
+                        {
+                            allThreads.Add(new Task(async () =>
+                            {
+                                try
+                                {
+                                    Interlocked.Increment(ref TestLoops);
+                                    await RunTest();
+                                }
+                                catch (Exception e)
+                                {
+                                    logger.LogError("Critical error while running test...");
+                                }
+                            }));
+                        }
+                        Parallel.ForEach(allThreads, thread =>
+                                 {
+                                     thread.Start();
+                                 });
+
+                        Task.WhenAll(allThreads).GetAwaiter().GetResult();
+                    }
                 }
-            }*/
+            }
             Console.ReadLine();
         }
 
@@ -223,7 +227,7 @@ namespace TestConsole
                     Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
                     logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
 
-                    while(!client.IsClusterStateConsistent(Urls.ToList()).GetAwaiter().GetResult())
+                    while (!client.IsClusterStateConsistent(Urls.ToList()).GetAwaiter().GetResult())
                     {
                         Console.WriteLine("State is still not consistent");
                     }

@@ -17,9 +17,9 @@ namespace ConsensusCore.Domain.BaseClasses
         /// </summary>
         public int LatestOperationPos { get; set; }
 
-        public SharedShardMetadata DeepCopy()
+        public ShardAllocationMetadata DeepCopy()
         {
-            SharedShardMetadata other = (SharedShardMetadata)this.MemberwiseClone();
+            ShardAllocationMetadata other = (ShardAllocationMetadata)this.MemberwiseClone();
             return other;
         }
     }

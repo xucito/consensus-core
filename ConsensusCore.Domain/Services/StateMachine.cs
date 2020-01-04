@@ -91,7 +91,7 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes.ContainsKey(type);
         }
 
-        public SharedShardMetadata[] GetShards(string type = null)
+        public ShardAllocationMetadata[] GetShards(string type = null)
         {
             if (type == null)
             {
@@ -100,17 +100,17 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes[type].Shards.ToArray();
         }
 
-        public SharedShardMetadata[] GetShards(Guid nodeId)
+        public ShardAllocationMetadata[] GetShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(n => n.InsyncAllocations.Contains(nodeId) || n.StaleAllocations.Contains(nodeId))).ToArray();
         }
 
-        public SharedShardMetadata GetShard(string type, Guid shardId)
+        public ShardAllocationMetadata GetShard(string type, Guid shardId)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();
         }
 
-        public List<SharedShardMetadata> GetAllPrimaryShards(Guid nodeId)
+        public List<ShardAllocationMetadata> GetAllPrimaryShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.PrimaryAllocation == nodeId)).ToList();
         }
@@ -157,7 +157,7 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes[type].Shards.ToDictionary(k => k.Id, v => v.PrimaryAllocation);
         }
 
-        public SharedShardMetadata GetShardMetadata(Guid shardId, string type)
+        public ShardAllocationMetadata GetShardMetadata(Guid shardId, string type)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();
         }
@@ -196,7 +196,7 @@ namespace ConsensusCore.Domain.Services
         /// <summary>
         /// List of shard ids and types that are out of sync for the given node
         /// </summary>
-        public IEnumerable<SharedShardMetadata> GetAllOutOfSyncShards(Guid nodeId)
+        public IEnumerable<ShardAllocationMetadata> GetAllOutOfSyncShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.StaleAllocations.Contains(nodeId)));
         }

@@ -77,21 +77,18 @@ namespace ConsensusCore.Node.Services.Raft
                     Thread.Sleep(3000);
                     nodeStateService.Url = _bootstrapService.GetMyUrl(ClusterOptions.GetClusterUrls(), TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs)).GetAwaiter().GetResult();
                     NodeStateService.IsBootstrapped = true;
+
+                    _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
+                    _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+                    SetNodeRole(NodeState.Follower);
                 });
             }
-
-            _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
-            _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
-
-            if (ClusterOptions.TestMode)
+            else
             {
                 Logger.LogInformation("Running in test mode...");
                 SetNodeRole(NodeState.Leader);
             }
-            else
-            {
-                SetNodeRole(NodeState.Follower);
-            }
+
         }
 
         public void HeartbeatTimeoutEventHandler(object args)
@@ -125,7 +122,12 @@ namespace ConsensusCore.Node.Services.Raft
                     throw new Exception("Request is not implemented");
             }
 
-            return response != null ? response : new TResponse()
+            if (response != null)
+            {
+                return response;
+            }
+
+            return new TResponse()
             {
                 IsSuccessful = false,
                 ErrorMessage = "Response is null"
@@ -391,7 +393,14 @@ namespace ConsensusCore.Node.Services.Raft
                         ResetTimer(_electionTimeoutTimer, ClusterOptions.ElectionTimeoutMs, ClusterOptions.ElectionTimeoutMs);
                         StopTimer(_heartbeatTimer);
                         NodeStateService.InCluster = false;
-                        StartElection();
+                        if (NodeStateService.IsBootstrapped)
+                        {
+                            StartElection();
+                        }
+                        else
+                        {
+                            Logger.LogWarning("Node could not start election as bootstrapping was not complete");
+                        }
                         break;
                     case NodeState.Follower:
                         Random rand = new Random();
@@ -480,9 +489,11 @@ namespace ConsensusCore.Node.Services.Raft
                     _nodeStorage.Id,
                     _nodeStorage.GetLastLogIndex(),
                     _nodeStorage.GetLastLogTerm());
-                if (collectedNodes.Count() >= ClusterOptions.MinimumNodes)
+                if (collectedNodes.Count() >= ClusterOptions.MinimumNodes - 1)
                 {
-                    Logger.LogInformation(NodeStateService.GetNodeLogId() + "Recieved enough votes to be promoted, promoting to leader. Registered nodes: " + collectedNodes.Count());
+                    Logger.LogInformation(NodeStateService.GetNodeLogId() + "Recieved enough votes to be promoted, promoting to leader. Registered nodes: " + (collectedNodes.Count() + 1) + " collection nodes " + ClusterOptions.MinimumNodes);
+                    StopTimer(_electionTimeoutTimer);
+                    SetNodeRole(NodeState.Leader);
                     AddNodesToCluster(collectedNodes.Select(cn => new NodeInformation()
                     {
                         Id = cn.Key,
@@ -490,7 +501,6 @@ namespace ConsensusCore.Node.Services.Raft
                         IsContactable = true,
                         Name = ""
                     }));
-                    SetNodeRole(NodeState.Leader);
                 }
                 else
                 {

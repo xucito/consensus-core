@@ -1,7 +1,9 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.RPCs.Raft;
+using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Node.Connectors;
+using ConsensusCore.Node.Services.Data;
 using ConsensusCore.Node.Services.Raft;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,26 +15,29 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Communication.Controllers
 {
-    public class ClusterRequestHandler<State> where State : BaseState, new()
+    public class ClusterRequestHandler<State> : IClusterRequestHandler where State : BaseState, new()
     {
         private readonly ILogger _logger;
         private readonly IRaftService _raftService;
         private readonly NodeStateService _nodeStateService;
         private readonly ClusterOptions _clusterOptions;
         private readonly ClusterClient _clusterClient;
+        private readonly IDataService _dataService;
 
         public ClusterRequestHandler(
             IOptions<ClusterOptions> clusterOptions,
             ILogger<ClusterRequestHandler<State>> logger,
             IRaftService raftService,
             NodeStateService nodeStateService,
-            ClusterClient clusterClient)
+            ClusterClient clusterClient,
+            IDataService dataService)
         {
             _clusterClient = clusterClient;
             _clusterOptions = clusterOptions.Value;
             _nodeStateService = nodeStateService;
             _logger = logger;
             _raftService = raftService;
+            _dataService = dataService;
         }
 
         public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
@@ -66,7 +71,7 @@ namespace ConsensusCore.Node.Communication.Controllers
                 switch (request)
                 {
                     case ExecuteCommands t1:
-                        response = (TResponse)(object)await _raftService.Handle(t1);
+                        response = await HandleIfLeaderOrReroute(request, async () => (TResponse)(object)await _raftService.Handle(t1));
                         break;
                     case RequestVote t1:
                         response = (TResponse)(object)await _raftService.Handle(t1);
@@ -76,6 +81,24 @@ namespace ConsensusCore.Node.Communication.Controllers
                         break;
                     case InstallSnapshot t1:
                         response = (TResponse)(object)await _raftService.Handle(t1);
+                        break;
+                    case RequestCreateIndex t1:
+                        response = await HandleIfLeaderOrReroute(request, async () => (TResponse)(object)await _dataService.Handle(t1));
+                        break;
+                    case AddShardWriteOperation t1:
+                        response = (TResponse)(object)await _dataService.Handle(t1);
+                        break;
+                    case RequestDataShard t1:
+                        response = (TResponse)(object)await _dataService.Handle(t1);
+                        break;
+                    case AllocateShard t1:
+                        response = (TResponse)(object)await _dataService.Handle(t1);
+                        break;
+                    case ReplicateShardWriteOperation t1:
+                        response = (TResponse)(object)await _dataService.Handle(t1);
+                        break;
+                    case RequestShardWriteOperations t1:
+                        response = (TResponse)(object)await _dataService.Handle(t1);
                         break;
                     default:
                         throw new Exception("Request is not implemented");
@@ -103,7 +126,7 @@ namespace ConsensusCore.Node.Communication.Controllers
 
         }
 
-        public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<TResponse> Handle) where TResponse : BaseResponse, new()
+        public async Task<TResponse> HandleIfLeaderOrReroute<TResponse>(IClusterRequest<TResponse> request, Func<Task<TResponse>> Handle) where TResponse : BaseResponse, new()
         {
             var CurrentTime = DateTime.Now;
             // if you change and become a leader, just handle this yourself.
@@ -141,7 +164,7 @@ namespace ConsensusCore.Node.Communication.Controllers
                     }
                 }
             }
-            return Handle();
+            return await Handle();
         }
 
 

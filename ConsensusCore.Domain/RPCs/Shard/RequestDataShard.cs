@@ -14,7 +14,7 @@ namespace ConsensusCore.Domain.RPCs.Shard
         /// </summary>
         public Guid? ShardId { get; set; }
 
-        public override string RequestName => "GetDataShard";
+        public override string RequestName => "RequestDataShard";
         public int TimeoutMs = 3000;
         public bool CreateLock { get; set; }
         public int LockTimeoutMs { get; set; } = 30000;

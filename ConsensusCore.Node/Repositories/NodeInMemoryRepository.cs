@@ -9,6 +9,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Repositories
 {
@@ -20,6 +21,7 @@ namespace ConsensusCore.Node.Repositories
         public ConcurrentBag<ObjectDeletionMarker> ObjectDeletionMarker { get; set; } = new ConcurrentBag<ObjectDeletionMarker>();
         public List<ShardWriteOperation> OperationQueue { get; set; } = new List<ShardWriteOperation>();
         public Dictionary<string, ShardWriteOperation> TransitQueue { get; set; } = new Dictionary<string, ShardWriteOperation>();
+        public Dictionary<Guid, ShardMetadata> ShardMetadata { get; set; } = new Dictionary<Guid, ShardMetadata>();
         public object queueLock = new object();
 
 
@@ -167,6 +169,39 @@ namespace ConsensusCore.Node.Repositories
                 result.Add(operation.Value.Pos, operation.Value);
             }
             return result;
+        }
+
+        public Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to)
+        {
+            var writes = ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Pos >= from && swo.Value.Pos <= to);
+            SortedDictionary<int, ShardWriteOperation> operations = new SortedDictionary<int, ShardWriteOperation>();
+            foreach (var write in writes)
+            {
+                operations.Add(write.Value.Pos, write.Value);
+            }
+            return Task.FromResult(operations);
+        }
+
+        public Task<SortedDictionary<int, ShardWriteOperation>> GetAllObjectShardWriteOperationAsync(Guid shardId, Guid objectId)
+        {
+            var writes = ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Data.Id == objectId);
+            SortedDictionary<int, ShardWriteOperation> operations = new SortedDictionary<int, ShardWriteOperation>();
+            foreach (var write in writes)
+            {
+                operations.Add(write.Value.Pos, write.Value);
+            }
+            return Task.FromResult(operations);
+        }
+
+        public bool AddShardMetadata(ShardMetadata shardMetadata)
+        {
+            ShardMetadata.Add(shardMetadata.ShardId, shardMetadata);
+            return true;
+        }
+
+        public ShardMetadata GetShardMetadata(Guid shardId)
+        {
+            return ShardMetadata.GetValueOrDefault(shardId);
         }
     }
 }

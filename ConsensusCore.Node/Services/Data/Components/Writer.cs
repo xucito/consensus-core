@@ -1,7 +1,9 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
+using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.RPCs.Shard;
+using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.Utility;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Services.Raft;
@@ -43,7 +45,6 @@ namespace ConsensusCore.Node.Services.Data.Components
 
         public async Task<bool> WriteShardData(ShardData data, ShardOperationOptions operationType, string operationId, DateTime transactionDate)
         {
-
             ShardWriteOperation operation = new ShardWriteOperation()
             {
                 Data = data,
@@ -53,7 +54,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             };
             //Start at 1
             operation.Pos = _shardRepository.GetTotalShardWriteOperationsCount(operation.Data.ShardId.Value) + 1;
-            var hash = operation.Pos == 0 ? "" : _shardRepository.GetShardWriteOperation(operation.Data.ShardId.Value, operation.Pos - 1).ShardHash;
+            var hash = operation.Pos == 1 ? "" : _shardRepository.GetShardWriteOperation(operation.Data.ShardId.Value, operation.Pos - 1).ShardHash;
             operation.ShardHash = ObjectUtility.HashStrings(hash, operation.Id);
             //Write the data
             switch (operation.Operation)
@@ -93,7 +94,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                 }
                 catch (TaskCanceledException e)
                 {
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " on shard " + _stateMachine.CurrentState.Nodes[allocation].TransportAddress + " for operation " + operation.Pos + " as request timed out, marking shard as not insync...");
+                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " on node " + allocation + " for operation " + operation.Pos + " as request timed out, marking shard as not insync...");
                     InvalidNodes.Add(allocation);
                 }
                 catch (Exception e)
@@ -104,6 +105,21 @@ namespace ConsensusCore.Node.Services.Data.Components
             });
 
             await Task.WhenAll(tasks);
+
+            await _clusterClient.Send(new ExecuteCommands()
+            {
+                Commands = new List<BaseCommand>()
+                {
+                    new UpdateShardMetadataAllocations()
+                    {
+                        ShardId = data.ShardId.Value,
+                        Type = data.ShardType,
+                        StaleAllocationsToAdd = InvalidNodes.ToHashSet(),
+                        InsyncAllocationsToRemove = InvalidNodes.ToHashSet()
+                    }
+                },
+                WaitForCommits = true
+            });
 
             return true;
         }

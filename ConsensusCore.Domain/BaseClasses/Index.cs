@@ -7,6 +7,6 @@ namespace ConsensusCore.Domain.BaseClasses
     public class Index
     {
         public string Type { get; set; }
-        public List<SharedShardMetadata> Shards { get; set; }
+        public List<ShardAllocationMetadata> Shards { get; set; }
     }
 }

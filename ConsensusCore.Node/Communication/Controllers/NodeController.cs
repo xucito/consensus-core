@@ -25,18 +25,20 @@ namespace ConsensusCore.Node.Controllers
         where State : BaseState, new()
     {
         private ILogger<NodeController<State>> Logger;
-        private ClusterRequestHandler<State> _handler;
+        private IClusterRequestHandler _handler;
         private NodeStateService _nodeStateService;
         private IStateMachine<State> _stateMachine;
         private INodeStorage<State> _nodeStorage;
         private IClusterConnectionPool _clusterConnectionPool;
+        private IShardRepository _shardRepository;
 
-        public NodeController(ClusterRequestHandler<State> handler, 
+        public NodeController(IClusterRequestHandler handler, 
             ILogger<NodeController<State>> logger, 
-            ShardManager<State, IShardRepository> shardManager, NodeStateService nodeStateService,
+            NodeStateService nodeStateService,
              IStateMachine<State> stateMachine,
              INodeStorage<State> nodeStorage,
-             IClusterConnectionPool clusterConnectionPool)
+             IClusterConnectionPool clusterConnectionPool,
+             IShardRepository shardRepository)
         {
             _handler = handler;
             Logger = logger;
@@ -44,6 +46,7 @@ namespace ConsensusCore.Node.Controllers
             _stateMachine = stateMachine;
             _nodeStorage = nodeStorage;
             _clusterConnectionPool = clusterConnectionPool;
+            _shardRepository = shardRepository;
         }
 
         [HttpPost("RPC")]
@@ -78,6 +81,12 @@ namespace ConsensusCore.Node.Controllers
         public IActionResult GetClients()
         {
             return Ok(_clusterConnectionPool.GetAllNodeClients());
+        }
+
+        [HttpGet("transactions/{shardId}")]
+        public IActionResult GetTransactions(Guid shardId)
+        {
+            return Ok(_shardRepository.GetAllShardWriteOperations(shardId));
         }
     }
 }

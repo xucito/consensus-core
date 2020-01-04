@@ -16,7 +16,7 @@ namespace ConsensusCore.Node.Communication.Clients
         {
             get
             {
-                lock (_nodeConnectors)
+                lock (_connectorLock)
                 {
                     return _nodeConnectors.ToDictionary(entry => entry.Key, entry => entry.Value);
                 }
@@ -45,7 +45,10 @@ namespace ConsensusCore.Node.Communication.Clients
 
         public void Reset()
         {
-            _nodeConnectors = new Dictionary<Guid, INodeClient>();
+            lock (_connectorLock)
+            {
+                _nodeConnectors = new Dictionary<Guid, INodeClient>();
+            }
         }
 
         public void AddClient(Guid nodeId, string url)
@@ -54,9 +57,10 @@ namespace ConsensusCore.Node.Communication.Clients
             {
                 Guid existingNode;
                 //If the key exists
-                if ((existingNode = _nodeConnectors.Where(nc => nc.Value.Address == url).Select(k => k.Key).FirstOrDefault()) != default(Guid))
+                var matchingExistingNodes = _nodeConnectors.Where(nc => nc.Value.Address == url).Select(a => a.Key).ToList();
+                foreach (var matchingNode in matchingExistingNodes)
                 {
-                    _nodeConnectors.Remove(existingNode);
+                    _nodeConnectors.Remove(matchingNode);
                 }
 
                 _nodeConnectors.Add(nodeId, new HttpNodeConnector(url, _timeoutInterval, _dataTimeoutInterval));
@@ -70,17 +74,24 @@ namespace ConsensusCore.Node.Communication.Clients
         /// <returns></returns>
         public bool ContainsNode(Guid nodeId)
         {
+           if (!_nodeConnectors.ContainsKey(nodeId))
+            {
+                CheckAndAddFromState(nodeId);
+            }
             return _nodeConnectors.ContainsKey(nodeId);
         }
 
         public Guid? NodeAtUrl(string url)
         {
-            var clients = _nodeConnectors.Where(nc => nc.Value.Address == url);
-            if (clients.Count() > 0)
+            lock (_connectorLock)
             {
-                return clients.First().Key;
+                var clients = _nodeConnectors.Where(nc => nc.Value.Address == url);
+                if (clients.Count() > 0)
+                {
+                    return clients.First().Key;
+                }
+                return null;
             }
-            return null;
         }
 
         public INodeClient GetNodeClient(Guid nodeId)
@@ -102,7 +113,10 @@ namespace ConsensusCore.Node.Communication.Clients
 
         public void RemoveClient(Guid nodeId)
         {
-            _nodeConnectors.Remove(nodeId);
+            lock (_connectorLock)
+            {
+                _nodeConnectors.Remove(nodeId);
+            }
         }
 
         private void CheckAndAddFromState(Guid nodeId)

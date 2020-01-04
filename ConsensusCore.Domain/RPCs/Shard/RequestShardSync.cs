@@ -5,15 +5,15 @@ using System.Text;
 
 namespace ConsensusCore.Domain.RPCs.Shard
 {
-    public class AllocateShard : BaseRequest<AllocateShardResponse>
+    public class RequestShardSync : BaseRequest<RequestShardSyncResponse>
     {
         public Guid ShardId { get; set; }
         public string Type { get; set; }
 
-        public override string RequestName => "AllocateShard";
+        public override string RequestName => "RequestShardSync";
     }
 
-    public class AllocateShardResponse : BaseResponse
+    public class RequestShardSyncResponse : BaseResponse
     {
     }
 }

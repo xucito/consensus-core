@@ -29,4 +29,6 @@
     </Content>
   </ItemGroup>
 
+  <ProjectExtensions><VisualStudio><UserProperties appsettings_1Development_1json__JSONSchema="http://json.schemastore.org/behat" /></VisualStudio></ProjectExtensions>
+
 </Project>

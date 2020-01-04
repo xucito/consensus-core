@@ -45,11 +45,11 @@ namespace ConsensusCore.Domain.BaseClasses
             }
         }
 
-        public List<Guid> GetClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
+        public IEnumerable<BaseTask> GetNodeClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
         {
-            return ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(ct => ct.Key).ToList();
+            return ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(b => b.Value);
         }
-
+        
         public void ApplyCommand(BaseCommand command)
         {
             try
