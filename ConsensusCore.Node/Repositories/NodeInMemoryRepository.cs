@@ -37,15 +37,13 @@ namespace ConsensusCore.Node.Repositories
 
         public bool AddShardWriteOperation(ShardWriteOperation operation)
         {
-            ShardWriteOperations.TryAdd(operation.Data.ShardId + ":" + operation.Pos, SystemExtension.Clone(operation));
+            ShardWriteOperations.TryAdd(operation.Id, SystemExtension.Clone(operation));
             return true;
         }
 
         public ShardWriteOperation GetShardWriteOperation(Guid shardId, int pos)
         {
-            if (ShardWriteOperations.ContainsKey(shardId + ":" + pos))
-                return SystemExtension.Clone(ShardWriteOperations[shardId + ":" + pos]);
-            return null;
+            return SystemExtension.Clone(ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Pos == pos).FirstOrDefault().Value);
         }
 
         public int GetTotalShardWriteOperationsCount(Guid shardId)
@@ -92,7 +90,12 @@ namespace ConsensusCore.Node.Repositories
 
         public bool RemoveShardWriteOperation(Guid shardId, int pos)
         {
-            return ShardWriteOperations.TryRemove(shardId + ":" + pos, out _);
+            return ShardWriteOperations.TryRemove(GetShardWriteOperation(shardId, pos).Id, out _);
+        }
+
+        public bool RemoveShardWriteOperation(string transactionId)
+        {
+            return ShardWriteOperations.TryRemove(transactionId, out _);
         }
 
         public void SaveNodeData(NodeStorage<Z> storage)
@@ -106,7 +109,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool UpdateShardWriteOperation(Guid shardId, ShardWriteOperation operation)
         {
-            ShardWriteOperations[shardId + ":" + operation.Pos] = SystemExtension.Clone(operation);
+            ShardWriteOperations[operation.Id] = SystemExtension.Clone(operation);
             return true;
         }
 
@@ -202,6 +205,16 @@ namespace ConsensusCore.Node.Repositories
         public ShardMetadata GetShardMetadata(Guid shardId)
         {
             return ShardMetadata.GetValueOrDefault(shardId);
+        }
+
+        public bool IsOperationInQueue(string operationId)
+        {
+            return OperationQueue.ToList().Find(oq => oq.Id == operationId) != null;
+        }
+
+        public ShardWriteOperation GetShardWriteOperation(string transacionId)
+        {
+            return ShardWriteOperations[transacionId];
         }
     }
 }

@@ -24,6 +24,7 @@ namespace ConsensusCore.Domain.Interfaces
         /// <returns></returns>
         bool UpdateShardWriteOperation(Guid shardId, ShardWriteOperation operation);
         ShardWriteOperation GetShardWriteOperation(Guid shardId, int syncPos);
+        ShardWriteOperation GetShardWriteOperation(string transacionId);
         Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to);
         Task<SortedDictionary<int, ShardWriteOperation>> GetAllObjectShardWriteOperationAsync(Guid shardId, Guid objectId);
         IEnumerable<ShardWriteOperation> GetAllShardWriteOperations(Guid shardId);

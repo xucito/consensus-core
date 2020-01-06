@@ -10,7 +10,7 @@ namespace ConsensusCore.Node.Services.Raft
     public class NodeStateService
     {
         public int CommitIndex { get; set; }
-        public NodeState Role { get; private set; }
+        public NodeState Role { get; private set; } = NodeState.Disabled;
         public Guid Id { get; set; }
         public Dictionary<Guid, int> NextIndex { get; private set; } = new Dictionary<Guid, int>();
         public ConcurrentDictionary<Guid, int> MatchIndex { get; private set; } = new ConcurrentDictionary<Guid, int>();

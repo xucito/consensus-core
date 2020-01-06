@@ -40,11 +40,12 @@ namespace ConsensusCore.Node.Services.Data
         ConcurrentQueue<string> IndexCreationQueue { get; set; } = new ConcurrentQueue<string>();
         private readonly NodeStateService _nodeStateService;
 
+
         //Internal Components
-        private readonly Writer<State> _writer;
-        private readonly Allocator<State> _allocator;
-        private readonly Syncer<State> _syncer;
-        private readonly Reader<State> _reader;
+        public readonly Writer<State> Writer;
+        public readonly Allocator<State> Allocator;
+        public readonly Syncer<State> Syncer;
+        public readonly Reader<State> Reader;
 
         public DataService(
             ILoggerFactory loggerFactory,
@@ -63,35 +64,38 @@ namespace ConsensusCore.Node.Services.Data
             _logger = loggerFactory.CreateLogger<DataService<State>>();
             _shardRepository = shardRepository;
             _clusterClient = clusterClient;
-            _reader = new Reader<State>(
+            Reader = new Reader<State>(
                 loggerFactory.CreateLogger<Reader<State>>(),
                 shardRepository,
                 dataRouter,
                 stateMachine,
                 nodeStateService,
                 clusterClient); ;
-            _allocator = new Allocator<State>(
+            Allocator = new Allocator<State>(
                 loggerFactory.CreateLogger<Allocator<State>>(),
                 shardRepository,
                 dataRouter,
                 stateMachine,
                 nodeStateService,
                 clusterClient);
-            _writer = new Writer<State>(loggerFactory.CreateLogger<Writer<State>>(),
+            Writer = new Writer<State>(loggerFactory.CreateLogger<Writer<State>>(),
                 shardRepository,
                 dataRouter,
                 stateMachine,
                 nodeStateService,
                 clusterClient
                 );
-            _syncer = new Syncer<State>(shardRepository, loggerFactory.CreateLogger<Syncer<State>>(), dataRouter, stateMachine, clusterClient, nodeStateService);
+            Syncer = new Syncer<State>(shardRepository, loggerFactory.CreateLogger<Syncer<State>>(), dataRouter, stateMachine, clusterClient, nodeStateService);
             _writeTask = new Task(async () =>
             {
                 while (true)
                 {
                     var operation = _writeCache.DequeueOperation();
                     if (operation != null)
-                        await _writer.WriteShardData(operation.Data, operation.Operation, operation.Id, operation.TransactionDate);
+                    {
+                        await Writer.WriteShardData(operation.Data, operation.Operation, operation.Id, operation.TransactionDate);
+                        writeCache.CompleteOperation(operation.Id);
+                    }
                     else
                     {
                         //Release write thread for a small amount of time
@@ -104,6 +108,8 @@ namespace ConsensusCore.Node.Services.Data
 
             _allocationTask = new Task(async () => await AllocateShards());
             _allocationTask.Start();
+            _replicaValidationChecksTask = new Task(async () => await CheckAllReplicas());
+            _replicaValidationChecksTask.Start();
         }
 
         public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
@@ -121,7 +127,7 @@ namespace ConsensusCore.Node.Services.Data
                         response = (TResponse)(object)await AddShardWriteOperationHandler(t1);
                         break;
                     case RequestCreateIndex t1:
-                        response = (TResponse)(object)CreateIndexHandler(t1);
+                        response = (TResponse)(object)await RequestCreateIndexHandler(t1);
                         break;
                     case AllocateShard t1:
                         response = (TResponse)(object)await AllocateShardHandler(t1);
@@ -163,7 +169,7 @@ namespace ConsensusCore.Node.Services.Data
         {
             return new RequestShardSyncResponse()
             {
-                IsSuccessful = await _syncer.SyncShard(request.ShardId, request.Type)
+                IsSuccessful = await Syncer.SyncShard(request.ShardId, request.Type)
             };
         }
 
@@ -194,7 +200,7 @@ namespace ConsensusCore.Node.Services.Data
                     if (!_stateMachine.IsObjectLocked(request.ObjectId))
                     {
                         Guid newLockId = Guid.NewGuid();
-                        await Handle(new ExecuteCommands()
+                        await _clusterClient.Send(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>{
                                     new SetObjectLock()
@@ -212,7 +218,7 @@ namespace ConsensusCore.Node.Services.Data
                         //While the object is not locked yet, wait
                         while (!_stateMachine.IsObjectLocked(request.ObjectId))
                         {
-                            if ((DateTime.Now - lockStartTime).TotalMilliseconds > _clusterOptions.DataTransferTimeoutMs)
+                            if ((DateTime.Now - lockStartTime).TotalMilliseconds > _clusterOptions.LatencyToleranceMs)
                             {
                                 throw new ClusterOperationTimeoutException("Locking operation timed out on " + request.ObjectId);
                             }
@@ -247,7 +253,7 @@ namespace ConsensusCore.Node.Services.Data
 
             data = new RequestDataShardResponse()
             {
-                Data = await _reader.GetData(request.ObjectId, request.Type, request.TimeoutMs),
+                Data = await Reader.GetData(request.ObjectId, request.Type, request.TimeoutMs),
                 IsSuccessful = true
             };
             data.LockId = lockId;
@@ -263,19 +269,33 @@ namespace ConsensusCore.Node.Services.Data
             //Check if index exists, if not - create one
             if (!_stateMachine.IndexExists(request.Data.ShardType))
             {
-                await _clusterClient.Send(_nodeStateService.CurrentLeader.Value, new RequestCreateIndex()
+                if (IndexCreationQueue.Where(icq => icq == request.Data.ShardType).Count() > 0)
                 {
-                    Type = request.Data.ShardType
-                });
-
-                DateTime startIndexCreation = DateTime.Now;
-                while (!_stateMachine.IndexExists(request.Data.ShardType))
-                {
-                    if ((DateTime.Now - startIndexCreation).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
+                    while (!_stateMachine.IndexExists(request.Data.ShardType))
                     {
-                        throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " timed out.");
+                        if ((DateTime.Now - startDate).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
+                        {
+                            throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " is already queued.");
+                        }
+                        Thread.Sleep(10);
                     }
-                    Thread.Sleep(100);
+                }
+                else
+                {
+                    await _clusterClient.Send(_nodeStateService.CurrentLeader.Value, new RequestCreateIndex()
+                    {
+                        Type = request.Data.ShardType
+                    });
+
+                    DateTime startIndexCreation = DateTime.Now;
+                    while (!_stateMachine.IndexExists(request.Data.ShardType))
+                    {
+                        if ((DateTime.Now - startIndexCreation).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
+                        {
+                            throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " timed out.");
+                        }
+                        Thread.Sleep(100);
+                    }
                 }
             }
 
@@ -312,10 +332,12 @@ namespace ConsensusCore.Node.Services.Data
                     if ((DateTime.Now - startDate).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
                     {
                         throw new IndexCreationFailedException("Queue clearance for transaction " + operationId + request.Data.ShardType + " timed out.");
-                        throw new IndexCreationFailedException("Queue clearance for transaction " + operationId + request.Data.ShardType + " timed out.");
                     }
                     Thread.Sleep(1);
                 }
+                var transaction = _shardRepository.GetShardWriteOperation(operationId);
+                finalResult.Pos = transaction.Pos;
+                finalResult.ShardHash = transaction.ShardHash;
             }
             else
             {
@@ -365,7 +387,7 @@ namespace ConsensusCore.Node.Services.Data
 
         public async Task<AllocateShardResponse> AllocateShardHandler(AllocateShard shard)
         {
-            _allocator.AllocateShard(shard.ShardId, shard.Type);
+            Allocator.AllocateShard(shard.ShardId, shard.Type);
             return new AllocateShardResponse() { };
         }
 
@@ -386,7 +408,7 @@ namespace ConsensusCore.Node.Services.Data
                             if (!_stateMachine.IndexExists(typeToCreate))
                             {
                                 _logger.LogInformation(_nodeStateService.GetNodeLogId() + "Creating index for type " + typeToCreate);
-                                var result = _allocator.CreateIndexAsync(typeToCreate, _clusterOptions.DataTransferTimeoutMs, _clusterOptions.NumberOfShards).GetAwaiter().GetResult();
+                                var result = Allocator.CreateIndexAsync(typeToCreate, _clusterOptions.DataTransferTimeoutMs, _clusterOptions.NumberOfShards).GetAwaiter().GetResult();
 
                                 DateTime startTime = DateTime.Now;
                                 while (!_stateMachine.IndexExists(typeToCreate))
@@ -415,15 +437,6 @@ namespace ConsensusCore.Node.Services.Data
             }
         }
 
-        public RequestCreateIndexResponse CreateIndexHandler(RequestCreateIndex request)
-        {
-            IndexCreationQueue.Enqueue(request.Type);
-            return new RequestCreateIndexResponse()
-            {
-                IsSuccessful = true
-            };
-        }
-
         public async Task<RequestShardWriteOperationsResponse> RequestShardWriteOperationsHandler(RequestShardWriteOperations request)
         {
             return new RequestShardWriteOperationsResponse()
@@ -438,46 +451,50 @@ namespace ConsensusCore.Node.Services.Data
         {
             return new ReplicateShardWriteOperationResponse()
             {
-                IsSuccessful = await _syncer.ReplicateShardWriteOperationAsync(request.Operation)
+                IsSuccessful = await Syncer.ReplicateShardWriteOperationAsync(request.Operation)
             };
         }
 
         public async Task CheckAllReplicas()
         {
-            //Get all nodes you are the primary for
-            foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
+            while (true)
             {
-                //Get the shard positions
-                var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
-                //Wait 2 times the latency tolerance
-                Thread.Sleep(_clusterOptions.LatencyToleranceMs * 2);
-
-                ConcurrentBag<Guid> staleNodes = new ConcurrentBag<Guid>();
-
-                var tasks = shard.InsyncAllocations.Select(ia => new Task(async () =>
+                _logger.LogInformation("Checking all replicas");
+                //Get all nodes you are the primary for
+                foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
                 {
-                    var shardOperation = await _clusterClient.Send(new RequestShardWriteOperations()
-                    {
-                        From = 0,
-                        To = 0,
-                        ShardId = shard.Id,
-                        Type = shard.Type
-                    });
+                    //Get the shard positions
+                    var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
+                    //Wait 2 times the latency tolerance
+                    Thread.Sleep(_clusterOptions.LatencyToleranceMs * 2);
 
-                    if (shardOperation.LatestPosition < shardPosition)
-                    {
-                        staleNodes.Add(ia);
-                    }
-                }));
+                    ConcurrentBag<Guid> staleNodes = new ConcurrentBag<Guid>();
 
-                await Task.WhenAll(tasks);
-
-                if (staleNodes.Count > 0)
-                {
-                    _logger.LogInformation(_nodeStateService.GetNodeLogId() + " primary detected stale nodes");
-                    await _clusterClient.Send(new ExecuteCommands()
+                    var tasks = shard.InsyncAllocations.Select(ia => new Task(async () =>
                     {
-                        Commands = new List<BaseCommand>()
+                        var shardOperation = await _clusterClient.Send(new RequestShardWriteOperations()
+                        {
+                            From = 0,
+                            To = 0,
+                            ShardId = shard.Id,
+                            Type = shard.Type
+                        });
+
+                        //If the operations are lagging or it is infront of the latest count (Old transactions)
+                        if (shardOperation.LatestPosition < shardPosition || shardOperation.LatestPosition > _shardRepository.GetTotalShardWriteOperationsCount(shard.Id))
+                        {
+                            staleNodes.Add(ia);
+                        }
+                    }));
+
+                    await Task.WhenAll(tasks);
+
+                    if (staleNodes.Count > 0)
+                    {
+                        _logger.LogInformation(_nodeStateService.GetNodeLogId() + " primary detected stale nodes");
+                        await _clusterClient.Send(new ExecuteCommands()
+                        {
+                            Commands = new List<BaseCommand>()
                         {
                             new UpdateShardMetadataAllocations()
                             {
@@ -486,8 +503,10 @@ namespace ConsensusCore.Node.Services.Data
                                 Type = shard.Type
                             }
                         }
-                    });
+                        });
+                    }
                 }
+                Thread.Sleep(10000);
             }
         }
 
@@ -495,160 +514,176 @@ namespace ConsensusCore.Node.Services.Data
         {
             while (true)
             {
-                if (_nodeStateService.Role == NodeState.Leader)
+                try
                 {
-                    _logger.LogInformation("Allocating shards...");
-                    var updates = new List<BaseCommand>();
-                    var newTasks = new List<BaseTask>();
-                    var allShards = _stateMachine.GetShards();
-
-                    foreach (var shard in allShards)
+                    if (_nodeStateService.Role == NodeState.Leader && _nodeStateService.InCluster)
                     {
-                        //Scan for new allocations first
-                        var newAllocations = _allocator.GetAllocationCandidates(shard.Id, shard.Type);
-                        foreach (var newAllocation in newAllocations)
+                        _logger.LogInformation("Allocating shards...");
+                        var updates = new List<BaseCommand>();
+                        var newTasks = new List<BaseTask>();
+                        var allShards = _stateMachine.GetShards();
+
+                        foreach (var shard in allShards)
                         {
-                            _logger.LogInformation("Found new allocation " + newAllocation.NodeId + " for shard " + shard.Id);
-                            updates.Add(new UpdateShardMetadataAllocations()
+                            //Scan for new allocations first
+                            var newAllocations = Allocator.GetAllocationCandidates(shard.Id, shard.Type);
+                            if (newAllocations.Count() > 0)
                             {
-                                StaleAllocationsToAdd = newAllocations.Select(na => na.NodeId).ToHashSet<Guid>(),
+                                _logger.LogInformation("Found new allocations for shard " + shard.Id);
+                                updates.Add(new UpdateShardMetadataAllocations()
+                                {
+                                    StaleAllocationsToAdd = newAllocations.Select(na => na.NodeId).ToHashSet<Guid>(),
+                                    ShardId = shard.Id,
+                                    Type = shard.Type
+                                });
+
+                                foreach (var candidate in newAllocations)
+                                {
+                                    var taskId = ResyncShard.GetTaskUniqueId(shard.Id, candidate.NodeId);
+                                    BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
+                                    if (recoveryTask == null)
+                                    {
+                                        newTasks.Add(new ResyncShard()
+                                        {
+                                            Id = Guid.NewGuid(),
+                                            ShardId = shard.Id,
+                                            NodeId = candidate.NodeId,
+                                            Type = shard.Type,
+                                            UniqueRunningId = taskId,
+                                            CreatedOn = DateTime.UtcNow
+                                        });
+                                    }
+                                }
+                            }
+
+                            var staleAllocationsToRemove = new List<Guid>();
+                            //Scan for stale Allocations
+                            foreach (var staleAllocation in shard.StaleAllocations)
+                            {
+                                //If the node is just stale then try resync it
+                                if (_stateMachine.GetNode(staleAllocation) != null)
+                                {
+                                    _logger.LogInformation("Found stale allocation " + staleAllocation + " for shard " + shard.Id);
+                                    var taskId = ResyncShard.GetTaskUniqueId(shard.Id, staleAllocation);
+                                    BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
+                                    if (recoveryTask == null)
+                                    {
+                                        newTasks.Add(new ResyncShard()
+                                        {
+                                            Id = Guid.NewGuid(),
+                                            ShardId = shard.Id,
+                                            NodeId = staleAllocation,
+                                            Type = shard.Type,
+                                            UniqueRunningId = taskId,
+                                            CreatedOn = DateTime.UtcNow
+                                        });
+                                    }
+                                }
+                                else
+                                {
+                                    staleAllocationsToRemove.Add(staleAllocation);
+                                }
+                            }
+
+                            if (staleAllocationsToRemove.Count() > 0)
+                            {
+                                updates.Add(new UpdateShardMetadataAllocations()
+                                {
+                                    ShardId = shard.Id,
+                                    Type = shard.Type,
+                                    StaleAllocationsToRemove = staleAllocationsToRemove.ToHashSet()
+                                });
+                            }
+
+                            //If there are new stale allocations
+                            var stillInsync = shard.InsyncAllocations.Where(insync => _stateMachine.IsNodeContactable(insync));
+                            var staleAllocations = shard.InsyncAllocations.Where(ia => !stillInsync.Contains(ia));
+                            if (staleAllocations.Count() > 0)
+                            {
+                                if (stillInsync.Count() > 0)
+                                {
+                                    updates.Add(new UpdateShardMetadataAllocations()
+                                    {
+                                        ShardId = shard.Id,
+                                        Type = shard.Type,
+                                        PrimaryAllocation = stillInsync.Contains(shard.PrimaryAllocation) ? shard.PrimaryAllocation : stillInsync.First(),
+                                        StaleAllocationsToAdd = staleAllocations.ToHashSet(),
+                                        InsyncAllocationsToRemove = staleAllocations.ToHashSet()
+                                    });
+
+                                    //Scan for primary allocations or in-sync allocations becoming unavailable
+                                    foreach (var staleAllocation in staleAllocations)
+                                    {
+                                        _logger.LogInformation("Found stale allocation " + staleAllocation + " for shard " + shard.Id);
+                                        var taskId = ResyncShard.GetTaskUniqueId(shard.Id, staleAllocation);
+                                        BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
+                                        if (recoveryTask == null)
+                                        {
+                                            newTasks.Add(new ResyncShard()
+                                            {
+                                                Id = Guid.NewGuid(),
+                                                ShardId = shard.Id,
+                                                NodeId = staleAllocation,
+                                                Type = shard.Type,
+                                                UniqueRunningId = taskId,
+                                                CreatedOn = DateTime.UtcNow
+                                            });
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogError("Shard " + shard.Id + " has no primaries available, shard is unavailable...");
+                                }
+                            }
+
+                            //Get the latest position of the shard
+                            var latestOperation = await _clusterClient.Send(new RequestShardWriteOperations()
+                            {
+                                From = 0,
+                                To = 0,
                                 ShardId = shard.Id,
                                 Type = shard.Type
                             });
 
-                            foreach (var candidate in newAllocations)
+                            if (_stateMachine.GetShard(shard.Type, shard.Id).LatestOperationPos != latestOperation.LatestPosition)
                             {
-                                var taskId = ResyncShard.GetTaskUniqueId(shard.Id, candidate.NodeId);
-                                BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
-                                if (recoveryTask == null)
+                                updates.Add(new UpdateShardMetadataAllocations()
                                 {
-                                    newTasks.Add(new ResyncShard()
-                                    {
-                                        Id = Guid.NewGuid(),
-                                        ShardId = shard.Id,
-                                        NodeId = candidate.NodeId,
-                                        Type = shard.Type,
-                                        UniqueRunningId = taskId,
-                                        CreatedOn = DateTime.UtcNow
-                                    });
-                                }
+                                    ShardId = shard.Id,
+                                    Type = shard.Type,
+                                    LatestPos = latestOperation.LatestPosition
+                                });
                             }
                         }
 
-                        var staleAllocationsToRemove = new List<Guid>();
-                        //Scan for stale Allocations
-                        foreach (var staleAllocation in shard.StaleAllocations)
+                        if (newTasks.Count > 0)
                         {
-                            //If the node is just stale then try resync it
-                            if (_stateMachine.GetNode(staleAllocation) != null)
+                            updates.Add(new UpdateClusterTasks()
                             {
-                                _logger.LogInformation("Found stale allocation " + staleAllocation + " for shard " + shard.Id);
-                                var taskId = ResyncShard.GetTaskUniqueId(shard.Id, staleAllocation);
-                                BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
-                                if (recoveryTask == null)
-                                {
-                                    newTasks.Add(new ResyncShard()
-                                    {
-                                        Id = Guid.NewGuid(),
-                                        ShardId = shard.Id,
-                                        NodeId = staleAllocation,
-                                        Type = shard.Type,
-                                        UniqueRunningId = taskId,
-                                        CreatedOn = DateTime.UtcNow
-                                    });
-                                }
-                            }
-                            else
-                            {
-                                staleAllocationsToRemove.Add(staleAllocation);
-                            }
-                        }
-
-                        if (staleAllocationsToRemove.Count() > 0)
-                        {
-                            updates.Add(new UpdateShardMetadataAllocations()
-                            {
-                                ShardId = shard.Id,
-                                Type = shard.Type,
-                                StaleAllocationsToRemove = staleAllocationsToRemove.ToHashSet()
+                                TasksToAdd = newTasks
                             });
                         }
 
-                        var stillInsync = shard.InsyncAllocations.Where(insync => _stateMachine.IsNodeContactable(insync));
-                        var staleAllocations = shard.InsyncAllocations.Where(ia => !stillInsync.Contains(ia));
-                        if (stillInsync.Count() > 0)
+                        if (updates.Count > 0)
                         {
-                            updates.Add(new UpdateShardMetadataAllocations()
+                            await _clusterClient.Send(new ExecuteCommands()
                             {
-                                ShardId = shard.Id,
-                                Type = shard.Type,
-                                PrimaryAllocation = stillInsync.Contains(shard.PrimaryAllocation) ? shard.PrimaryAllocation : stillInsync.First(),
-                                StaleAllocationsToAdd = staleAllocations.ToHashSet(),
-                                InsyncAllocationsToRemove = staleAllocations.ToHashSet()
-                            });
-
-                            //Scan for primary allocations or in-sync allocations becoming unavailable
-                            foreach (var staleAllocation in staleAllocations)
-                            {
-                                _logger.LogInformation("Found stale allocation " + staleAllocation + " for shard " + shard.Id);
-                                var taskId = ResyncShard.GetTaskUniqueId(shard.Id, staleAllocation);
-                                BaseTask recoveryTask = _stateMachine.GetRunningTask(taskId);
-                                if (recoveryTask == null)
-                                {
-                                    newTasks.Add(new ResyncShard()
-                                    {
-                                        Id = Guid.NewGuid(),
-                                        ShardId = shard.Id,
-                                        NodeId = staleAllocation,
-                                        Type = shard.Type,
-                                        UniqueRunningId = taskId,
-                                        CreatedOn = DateTime.UtcNow
-                                    });
-                                }
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogError("Shard " + shard.Id + " has no primaries available, shard is unavailable...");
-                        }
-
-                        //Get the latest position of the shard
-                        var latestOperation = await _clusterClient.Send(new RequestShardWriteOperations()
-                        {
-                            From = 0,
-                            To = 0,
-                            ShardId = shard.Id,
-                            Type = shard.Type
-                        });
-
-                        if (_stateMachine.GetShard(shard.Type, shard.Id).LatestOperationPos != latestOperation.LatestPosition)
-                        {
-                            updates.Add(new UpdateShardMetadataAllocations()
-                            {
-                                ShardId = shard.Id,
-                                Type = shard.Type,
-                                LatestPos = latestOperation.LatestPosition
+                                Commands = updates,
+                                WaitForCommits = true
                             });
                         }
+
+                        Thread.Sleep(3000);
                     }
-
-                    updates.Add(new UpdateClusterTasks()
+                    else
                     {
-                        TasksToAdd = newTasks
-                    });
-
-
-                    await _clusterClient.Send(new ExecuteCommands()
-                    {
-                        Commands = updates,
-                        WaitForCommits = true
-                    });
-
-                    Thread.Sleep(3000);
+                        Thread.Sleep(5000);
+                    }
                 }
-                else
+                catch (Exception e)
                 {
-                    Thread.Sleep(5000);
+                    _logger.LogError("Failed to allocate shards with error " + e.Message + Environment.NewLine + e.StackTrace);
                 }
             }
         }

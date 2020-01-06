@@ -86,7 +86,7 @@ namespace ConsensusCore.Node.Controllers
         [HttpGet("transactions/{shardId}")]
         public IActionResult GetTransactions(Guid shardId)
         {
-            return Ok(_shardRepository.GetAllShardWriteOperations(shardId));
+            return Ok(_shardRepository.GetAllShardWriteOperations(shardId).OrderBy(swo => swo.Pos));
         }
     }
 }

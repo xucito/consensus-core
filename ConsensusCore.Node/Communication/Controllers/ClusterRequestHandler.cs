@@ -7,6 +7,7 @@ using ConsensusCore.Node.Services.Data;
 using ConsensusCore.Node.Services.Raft;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -43,7 +44,7 @@ namespace ConsensusCore.Node.Communication.Controllers
         public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
         {
 
-            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + ".");
+            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + "." + Environment.NewLine + JsonConvert.SerializeObject(request));
             if (!_nodeStateService.IsBootstrapped)
             {
                 _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Node is not ready...");
@@ -130,7 +131,7 @@ namespace ConsensusCore.Node.Communication.Controllers
         {
             var CurrentTime = DateTime.Now;
             // if you change and become a leader, just handle this yourself.
-            while (_nodeStateService.Role != NodeState.Leader)
+            if (_nodeStateService.Role != NodeState.Leader)
             {
                 if (_nodeStateService.Role == NodeState.Candidate)
                 {

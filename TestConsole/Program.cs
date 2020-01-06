@@ -709,12 +709,14 @@ namespace TestConsole
                 {
                     if (!JToken.DeepEquals(allResults[i], allResults[i - 1]))
                     {
+                        //Console.WriteLine("Object " + allResults[i]["value"]["id"].ToObject<string>() + " is not consistent.." + Environment.NewLine + allResults[i].ToString(Newtonsoft.Json.Formatting.Indented));
                         return false;
                     }
                 }
             }
             catch (Exception e)
             {
+                Console.WriteLine("Failed to compare data with exception " + e.Message + Environment.NewLine + e.StackTrace);
                 return false;
             }
             return true;

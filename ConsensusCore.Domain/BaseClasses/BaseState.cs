@@ -71,6 +71,15 @@ namespace ConsensusCore.Domain.BaseClasses
                         {
                             //Only add if it is marking as contactable
                             if (t1.IsContactable)
+                            {
+                                var nodes = Nodes.Where(n => n.Value.TransportAddress == t1.TransportAddress);
+                                if (nodes.Count() > 0)
+                                {
+                                    foreach(var node in nodes)
+                                    {
+                                        Nodes.Remove(node.Key, out _);
+                                    }
+                                }
                                 Nodes.TryAdd(t1.Id, new NodeInformation()
                                 {
                                     Name = t1.Name,
@@ -78,6 +87,8 @@ namespace ConsensusCore.Domain.BaseClasses
                                     Id = t1.Id,
                                     IsContactable = t1.IsContactable
                                 });
+                            }
+
                         }
                         break;
                     case DeleteNodeInformation t1:

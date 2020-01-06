@@ -2,11 +2,13 @@ using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Raft;
 using ConsensusCore.TestNode.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,27 +23,23 @@ namespace ConcensusCore.Node.Tests.SingleNode
 {
     public class AppendEntriesRPC_Test
     {
-        public ConsensusCoreNode<TestState> Node;
-        public NodeStorage<TestState> NodeStorage;
+        public IRaftService Node;
+        public INodeStorage<TestState> NodeStorage;
 
         public AppendEntriesRPC_Test()
         {
-            Node = TestUtility.GetTestConsensusCoreNode();
-            NodeStorage = Node._nodeStorage;
+            var sp = TestUtility.GetFullNodeProvider();
+            Node = sp.GetService<IRaftService>();
+            NodeStorage = sp.GetService<INodeStorage<TestState>>();
             NodeStorage.AddLogs(new System.Collections.Generic.List<LogEntry>()
                 {
-                    new LogEntry(){
-                        Commands = new List<BaseCommand>(),
-                        Index = 1,
-                        Term = 5
-                    },
                     new LogEntry(){
                         Commands =new List<BaseCommand>(),
                         Index = 2,
                         Term = 5
                     }
                 });
-            NodeStorage.CurrentTerm = 5;
+            NodeStorage.SetCurrentTerm(5);
         }
 
         [Fact]

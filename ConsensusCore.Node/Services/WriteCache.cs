@@ -57,7 +57,7 @@ namespace ConsensusCore.Node.Services
 
         public bool IsOperationComplete(string transactionId)
         {
-            return _operationCacheRepository.IsOperationInTransit(transactionId);
+            return (!_operationCacheRepository.IsOperationInTransit(transactionId) && !_operationCacheRepository.IsOperationInQueue(transactionId));
         }
     }
 }

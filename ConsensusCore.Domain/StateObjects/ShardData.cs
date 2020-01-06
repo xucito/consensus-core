@@ -14,5 +14,14 @@ namespace ConsensusCore.Domain.BaseClasses
         public Guid? ShardId { get; set; }
         public string ShardType { get; set; }
         public string ClassName { get { return this.GetType().FullName; } }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is ShardData)
+            {
+                return Id == ((ShardData)obj).Id;
+            }
+            return false;
+        }
     }
 }

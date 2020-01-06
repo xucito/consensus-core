@@ -56,5 +56,11 @@ namespace ConsensusCore.Domain.Interfaces
         /// <param name="operationId"></param>
         /// <returns></returns>
         bool IsOperationInTransit(string operationId);
+        /// <summary>
+        /// Is the operation still in transit
+        /// </summary>
+        /// <param name="operationId"></param>
+        /// <returns></returns>
+        bool IsOperationInQueue(string operationId);
     }
 }

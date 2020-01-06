@@ -8,7 +8,6 @@ namespace ConsensusCore.Node.Services.Data
     {
         Task<AddShardWriteOperationResponse> AddShardWriteOperationHandler(AddShardWriteOperation request);
         Task<AllocateShardResponse> AllocateShardHandler(AllocateShard shard);
-        RequestCreateIndexResponse CreateIndexHandler(RequestCreateIndex request);
         Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
         Task<ReplicateShardWriteOperationResponse> ReplicateShardWriteOperationHandler(ReplicateShardWriteOperation request);
         Task<RequestCreateIndexResponse> RequestCreateIndexHandler(RequestCreateIndex request);

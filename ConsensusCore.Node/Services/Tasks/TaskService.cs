@@ -157,6 +157,8 @@ namespace ConsensusCore.Node.Services.Tasks
                         }
                         break;
                 }
+
+                _logger.LogInformation("Completing task " + task.Id);
             }
             catch (Exception e)
             {

@@ -69,6 +69,9 @@ namespace ConsensusCore.Node.Services.Raft
             _clusterConnectionPool = clusterConnectionPool;
             NodeStateService.Id = _nodeStorage.Id;
 
+            _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
+            _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+
             if (!ClusterOptions.TestMode)
             {
                 _bootstrapTask = Task.Run(() =>
@@ -77,9 +80,6 @@ namespace ConsensusCore.Node.Services.Raft
                     Thread.Sleep(3000);
                     nodeStateService.Url = _bootstrapService.GetMyUrl(ClusterOptions.GetClusterUrls(), TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs)).GetAwaiter().GetResult();
                     NodeStateService.IsBootstrapped = true;
-
-                    _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
-                    _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
                     SetNodeRole(NodeState.Follower);
                 });
             }
@@ -87,7 +87,22 @@ namespace ConsensusCore.Node.Services.Raft
             {
                 Logger.LogInformation("Running in test mode...");
                 SetNodeRole(NodeState.Leader);
+                NodeStateService.IsBootstrapped = true;
+                Handle(new ExecuteCommands()
+                {
+                    Commands = new List<BaseCommand>() { {
+                    new UpsertNodeInformation()
+                    {
+                        Id = NodeStateService.Id,
+                        Name = "",
+                        TransportAddress = "https://localhost:5021",
+                        IsContactable = true
+                    }
+                        }
+                    }
+                }).GetAwaiter().GetResult();
             }
+
 
         }
 
@@ -157,7 +172,7 @@ namespace ConsensusCore.Node.Services.Raft
             var startDate = DateTime.Now;
             while (request.WaitForCommits)
             {
-                if ((DateTime.Now - startDate).TotalMilliseconds > ClusterOptions.CommitsTimeout)
+                if ((startDate - DateTime.Now).TotalMilliseconds > ClusterOptions.CommitsTimeout)
                 {
                     return new ExecuteCommandsResponse()
                     {
@@ -271,6 +286,7 @@ namespace ConsensusCore.Node.Services.Raft
                 NodeStateService.LatestLeaderCommit = entry.LeaderCommit;
             }
 
+
             // If your log entry is not within the last snapshot, then check the validity of the previous log index
             if (_nodeStorage.LastSnapshotIncludedIndex < entry.PrevLogIndex)
             {
@@ -309,7 +325,7 @@ namespace ConsensusCore.Node.Services.Raft
 
             _nodeStorage.SetCurrentTerm(entry.Term);
 
-            foreach (var log in entry.Entries.OrderBy(e => e.Index))
+            foreach (var log in entry.Entries)
             {
                 var existingEnty = _nodeStorage.GetLogAtIndex(log.Index);
                 if (existingEnty != null && existingEnty.Term != log.Term)
@@ -323,6 +339,19 @@ namespace ConsensusCore.Node.Services.Raft
             NodeStateService.InCluster = true;
 
             DateTime time = DateTime.Now;
+
+            if (entry.Entries != null && _nodeStorage.GetLogAtIndex(entry.PrevLogIndex) != null && entry.Entries.Count() > 0 && entry.Entries.First().Index > 1 && _nodeStorage.GetLogAtIndex(entry.Entries.First().Index - 1).Term != entry.PrevLogTerm)
+            {
+                Logger.LogInformation(NodeStateService.GetNodeLogId() + "Last term does not match, log " + entry.PrevLogIndex + " from term " + entry.PrevLogTerm + " does not exist.");
+                return new AppendEntryResponse()
+                {
+                    ConflictName = AppendEntriesExceptionNames.ConflictingLogEntryException,
+                    IsSuccessful = false,
+                    ConflictingTerm = entry.PrevLogTerm,
+                    NodeId = _nodeStorage.Id,
+                    FirstTermIndex = 0//always set to 0 as snapshots are assumed to be from 0 > n
+                };
+            }
 
             foreach (var log in entry.Entries)
             {
@@ -568,15 +597,14 @@ namespace ConsensusCore.Node.Services.Raft
                     Logger.LogDebug(NodeStateService.GetNodeLogId() + "Sending heartbeat to " + node.Key);
                     var entriesToSend = new List<LogEntry>();
 
+
                     var prevLogIndex = Math.Max(0, NodeStateService.NextIndex[node.Key] - 1);
                     var startingLogsToSend = NodeStateService.NextIndex[node.Key] == 0 ? 1 : NodeStateService.NextIndex[node.Key];
-                    var unsentLogs = (_nodeStorage.GetTotalLogCount() - NodeStateService.NextIndex[node.Key] + 1);
-                    var quantityToSend = unsentLogs;
-                    var endingLogsToSend = startingLogsToSend + (quantityToSend < ClusterOptions.MaxLogsToSend ? quantityToSend : ClusterOptions.MaxLogsToSend) - 1;
 
-                    //If the logs still exist in the state then get the logs to be sent
                     if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
                     {
+                        var unsentLogs = (_nodeStorage.GetTotalLogCount() - NodeStateService.NextIndex[node.Key]) + 1;
+                        int endingLogsToSend = startingLogsToSend + (unsentLogs < ClusterOptions.MaxLogsToSend ? unsentLogs : ClusterOptions.MaxLogsToSend) -1;
                         int prevLogTerm = 0;
                         if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
                         {
@@ -588,10 +616,10 @@ namespace ConsensusCore.Node.Services.Raft
                         }
                         if (NodeStateService.NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, false))
                         {
-                            entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).ToList();
+                            Logger.LogInformation(NodeStateService.GetNodeLogId() + " Requires logs from " + startingLogsToSend + " to " + endingLogsToSend);
+                            entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).OrderBy(log => log.Index).ToList();
                             // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
-                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
-
+                            //Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
                         }
 
                         // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");

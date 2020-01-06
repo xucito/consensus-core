@@ -17,19 +17,26 @@ namespace ConsensusCore.TestNode
         static IConfigurationRoot config;
         public static void Main(string[] args)
         {
-            config = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json", optional: false)
-            .AddEnvironmentVariables()
-            .Build();
+            try
+            {
+                config = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: false)
+                .AddEnvironmentVariables()
+                .Build();
 
-
-            CreateWebHostBuilder(args).Build().Run();
+                CreateWebHostBuilder(args).Build().Run();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Encountered Global Critical error "  +  e.Message + Environment.NewLine + e.StackTrace);
+            }
         }
 
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
-                .ConfigureLogging(builder => builder.AddFile(options => {
-                    options.FileName = "diagnostics-" + config.GetValue<string>("Node:Name")+"_"; // The log file prefixes
+                .ConfigureLogging(builder => builder.AddFile(options =>
+                {
+                    options.FileName = "diagnostics-" + config.GetValue<string>("Node:Name") + "_"; // The log file prefixes
                     options.LogDirectory = "LogFiles"; // The directory to write the logs
                     options.FileSizeLimit = 20 * 1024 * 1024; // The maximum log file size (20MB here)
                     options.Extension = "txt"; // The log file extension

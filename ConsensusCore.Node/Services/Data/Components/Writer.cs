@@ -56,6 +56,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             operation.Pos = _shardRepository.GetTotalShardWriteOperationsCount(operation.Data.ShardId.Value) + 1;
             var hash = operation.Pos == 1 ? "" : _shardRepository.GetShardWriteOperation(operation.Data.ShardId.Value, operation.Pos - 1).ShardHash;
             operation.ShardHash = ObjectUtility.HashStrings(hash, operation.Id);
+            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "writing new operation " + operationId + " with data " + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
             //Write the data
             switch (operation.Operation)
             {
@@ -99,16 +100,18 @@ namespace ConsensusCore.Node.Services.Data.Components
                 }
                 catch (Exception e)
                 {
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " for operation " + operation.Pos + ", marking shard as not insync..." + e.StackTrace);
+                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " for operation " + operation.Pos + " with error " + e.Message + ", marking shard as not insync..." + Environment.NewLine + e.StackTrace);
                     InvalidNodes.Add(allocation);
                 }
             });
 
             await Task.WhenAll(tasks);
 
-            await _clusterClient.Send(new ExecuteCommands()
+            if (InvalidNodes.Count() > 0)
             {
-                Commands = new List<BaseCommand>()
+                await _clusterClient.Send(new ExecuteCommands()
+                {
+                    Commands = new List<BaseCommand>()
                 {
                     new UpdateShardMetadataAllocations()
                     {
@@ -118,8 +121,10 @@ namespace ConsensusCore.Node.Services.Data.Components
                         InsyncAllocationsToRemove = InvalidNodes.ToHashSet()
                     }
                 },
-                WaitForCommits = true
-            });
+                    WaitForCommits = true
+                });
+                _logger.LogInformation(_nodeStateService.GetNodeLogId() + " had stale virtual machines.");
+            }
 
             return true;
         }
