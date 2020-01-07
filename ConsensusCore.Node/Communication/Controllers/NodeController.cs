@@ -32,8 +32,8 @@ namespace ConsensusCore.Node.Controllers
         private IClusterConnectionPool _clusterConnectionPool;
         private IShardRepository _shardRepository;
 
-        public NodeController(IClusterRequestHandler handler, 
-            ILogger<NodeController<State>> logger, 
+        public NodeController(IClusterRequestHandler handler,
+            ILogger<NodeController<State>> logger,
             NodeStateService nodeStateService,
              IStateMachine<State> stateMachine,
              INodeStorage<State> nodeStorage,
@@ -87,6 +87,18 @@ namespace ConsensusCore.Node.Controllers
         public IActionResult GetTransactions(Guid shardId)
         {
             return Ok(_shardRepository.GetAllShardWriteOperations(shardId).OrderBy(swo => swo.Pos));
+        }
+
+
+
+        [HttpGet("snapshot")]
+        public async Task<IActionResult> GetSnapshot()
+        {
+            return Ok(new {
+                lastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
+                lastIncludedIndex = _nodeStorage.LastSnapshotIncludedIndex,
+                snapshot = _nodeStorage.LastSnapshot
+            });
         }
     }
 }

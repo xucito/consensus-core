@@ -44,7 +44,7 @@ namespace ConsensusCore.Node.Communication.Controllers
         public async Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
         {
 
-            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + "." + Environment.NewLine + JsonConvert.SerializeObject(request));
+            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Detected RPC " + request.GetType().Name + "." + Environment.NewLine + JsonConvert.SerializeObject(request, Formatting.Indented));
             if (!_nodeStateService.IsBootstrapped)
             {
                 _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Node is not ready...");
@@ -133,20 +133,20 @@ namespace ConsensusCore.Node.Communication.Controllers
             // if you change and become a leader, just handle this yourself.
             if (_nodeStateService.Role != NodeState.Leader)
             {
-                if (_nodeStateService.Role == NodeState.Candidate)
+                if (_nodeStateService.Role == NodeState.Candidate || !_nodeStateService.InCluster)
                 {
-                    if ((DateTime.Now - CurrentTime).TotalMilliseconds < _clusterOptions.LatencyToleranceMs)
+                    /* if ((DateTime.Now - CurrentTime).TotalMilliseconds < _clusterOptions.LatencyToleranceMs)
+                     {
+                         _logger.LogWarning(_nodeStateService.GetNodeLogId() + "Currently a candidate during routing, will sleep thread and try again.");
+                         Thread.Sleep(1000);
+                     }
+                     else
+                     {*/
+                    return new TResponse()
                     {
-                        _logger.LogWarning(_nodeStateService.GetNodeLogId() + "Currently a candidate during routing, will sleep thread and try again.");
-                        Thread.Sleep(1000);
-                    }
-                    else
-                    {
-                        return new TResponse()
-                        {
-                            IsSuccessful = false
-                        };
-                    }
+                        IsSuccessful = false
+                    };
+                    //}
                 }
                 else
                 {
@@ -175,6 +175,18 @@ namespace ConsensusCore.Node.Communication.Controllers
             switch (request)
             {
                 case ExecuteCommands t1:
+                    return true;
+                case RequestCreateIndex t1:
+                    return true;
+                case AddShardWriteOperation t1:
+                    return true;
+                case RequestDataShard t1:
+                    return true;
+                case AllocateShard t1:
+                    return true;
+                case ReplicateShardWriteOperation t1:
+                    return true;
+                case RequestShardWriteOperations t1:
                     return true;
                 default:
                     return false;

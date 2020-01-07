@@ -11,7 +11,10 @@ namespace ConsensusCore.Domain.Interfaces
     {
         int GetTotalShardWriteOperationsCount(Guid shardId);
         bool AddShardWriteOperation(ShardWriteOperation operation);
+        bool MarkShardWriteOperationApplied(string operationId);
         bool RemoveShardWriteOperation(Guid shardId, int pos);
+        SortedDictionary<int, ShardWriteOperation> GetAllUnappliedOperations(Guid shardId);
+        List<ShardMetadata> GetAllShardMetadata();
         //bool MarkShardWriteOperationAsApplied(Guid shardId, int pos);
         bool AddDataReversionRecord(DataReversionRecord record);
         bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId);

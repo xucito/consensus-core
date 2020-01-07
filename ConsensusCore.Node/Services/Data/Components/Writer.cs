@@ -58,60 +58,64 @@ namespace ConsensusCore.Node.Services.Data.Components
             operation.ShardHash = ObjectUtility.HashStrings(hash, operation.Id);
             _logger.LogDebug(_nodeStateService.GetNodeLogId() + "writing new operation " + operationId + " with data " + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
             //Write the data
-            switch (operation.Operation)
-            {
-                case ShardOperationOptions.Create:
-                    await _dataRouter.InsertDataAsync(operation.Data);
-                    break;
-                case ShardOperationOptions.Delete:
-                    await _dataRouter.DeleteDataAsync(operation.Data);
-                    break;
-                case ShardOperationOptions.Update:
-                    await _dataRouter.UpdateDataAsync(operation.Data);
-                    break;
-            }
-            _shardRepository.AddShardWriteOperation(operation); //Add shard operation
 
-            var shardMetadata = _stateMachine.GetShard(operation.Data.ShardType, operation.Data.ShardId.Value);
-            ConcurrentBag<Guid> InvalidNodes = new ConcurrentBag<Guid>();
-            //All allocations except for your own
-            var tasks = shardMetadata.InsyncAllocations.Where(id => id != _nodeStateService.Id).Select(async allocation =>
+            var writeOperation = _shardRepository.AddShardWriteOperation(operation); //Add shard operation
+            if (writeOperation)
             {
-                try
+                switch (operation.Operation)
                 {
-                    var result = await _clusterClient.Send(allocation, new ReplicateShardWriteOperation()
+                    case ShardOperationOptions.Create:
+                        await _dataRouter.InsertDataAsync(operation.Data);
+                        break;
+                    case ShardOperationOptions.Delete:
+                        await _dataRouter.DeleteDataAsync(operation.Data);
+                        break;
+                    case ShardOperationOptions.Update:
+                        await _dataRouter.UpdateDataAsync(operation.Data);
+                        break;
+                }
+                var shardMetadata = _stateMachine.GetShard(operation.Data.ShardType, operation.Data.ShardId.Value);
+                //Mark operation as applied
+                _shardRepository.MarkShardWriteOperationApplied(operation.Id);
+                ConcurrentBag<Guid> InvalidNodes = new ConcurrentBag<Guid>();
+                //All allocations except for your own
+                var tasks = shardMetadata.InsyncAllocations.Where(id => id != _nodeStateService.Id).Select(async allocation =>
+                {
+                    try
                     {
-                        Operation = operation
-                    });
+                        var result = await _clusterClient.Send(allocation, new ReplicateShardWriteOperation()
+                        {
+                            Operation = operation
+                        });
 
-                    if (result.IsSuccessful)
-                    {
-                        _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Successfully replicated all " + shardMetadata.Id + "shards.");
+                        if (result.IsSuccessful)
+                        {
+                            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Successfully replicated all " + shardMetadata.Id + "shards.");
+                        }
+                        else
+                        {
+                            throw new Exception("Failed to replicate data to shard " + shardMetadata.Id + " to node " + allocation + " for operation " + operation.ToString() + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
+                        }
                     }
-                    else
+                    catch (TaskCanceledException e)
                     {
-                        throw new Exception("Failed to replicate data to shard " + shardMetadata.Id + " to node " + allocation + " for operation " + operation.ToString() + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
+                        _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " on node " + allocation + " for operation " + operation.Pos + " as request timed out, marking shard as not insync...");
+                        InvalidNodes.Add(allocation);
                     }
-                }
-                catch (TaskCanceledException e)
-                {
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " on node " + allocation + " for operation " + operation.Pos + " as request timed out, marking shard as not insync...");
-                    InvalidNodes.Add(allocation);
-                }
-                catch (Exception e)
-                {
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " for operation " + operation.Pos + " with error " + e.Message + ", marking shard as not insync..." + Environment.NewLine + e.StackTrace);
-                    InvalidNodes.Add(allocation);
-                }
-            });
+                    catch (Exception e)
+                    {
+                        _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to replicate shard " + shardMetadata.Id + " for operation " + operation.Pos + " with error " + e.Message + ", marking shard as not insync..." + Environment.NewLine + e.StackTrace);
+                        InvalidNodes.Add(allocation);
+                    }
+                });
 
-            await Task.WhenAll(tasks);
+                await Task.WhenAll(tasks);
 
-            if (InvalidNodes.Count() > 0)
-            {
-                await _clusterClient.Send(new ExecuteCommands()
+                if (InvalidNodes.Count() > 0)
                 {
-                    Commands = new List<BaseCommand>()
+                    await _clusterClient.Send(new ExecuteCommands()
+                    {
+                        Commands = new List<BaseCommand>()
                 {
                     new UpdateShardMetadataAllocations()
                     {
@@ -121,12 +125,17 @@ namespace ConsensusCore.Node.Services.Data.Components
                         InsyncAllocationsToRemove = InvalidNodes.ToHashSet()
                     }
                 },
-                    WaitForCommits = true
-                });
-                _logger.LogInformation(_nodeStateService.GetNodeLogId() + " had stale virtual machines.");
-            }
+                        WaitForCommits = true
+                    });
+                    _logger.LogInformation(_nodeStateService.GetNodeLogId() + " had stale virtual machines.");
+                }
 
-            return true;
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
     }
 }

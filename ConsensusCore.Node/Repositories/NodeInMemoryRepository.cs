@@ -3,6 +3,7 @@ using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.Utility;
 using ConsensusCore.Node.Utility;
 using Newtonsoft.Json;
 using System;
@@ -37,8 +38,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool AddShardWriteOperation(ShardWriteOperation operation)
         {
-            ShardWriteOperations.TryAdd(operation.Id, SystemExtension.Clone(operation));
-            return true;
+            return ShardWriteOperations.TryAdd(operation.Id, SystemExtension.Clone(operation));
         }
 
         public ShardWriteOperation GetShardWriteOperation(Guid shardId, int pos)
@@ -115,7 +115,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool EnqueueOperation(ShardWriteOperation data)
         {
-            OperationQueue.Add(data);
+            OperationQueue.Add(SystemExtension.Clone(data));
             return true;
         }
 
@@ -156,7 +156,7 @@ namespace ConsensusCore.Node.Repositories
 
         public bool AddOperationToTransit(ShardWriteOperation operation)
         {
-            return TransitQueue.TryAdd(operation.Id, operation);
+            return TransitQueue.TryAdd(operation.Id, SystemExtension.Clone(operation));
         }
 
         public bool IsOperationInTransit(string operationId)
@@ -215,6 +215,29 @@ namespace ConsensusCore.Node.Repositories
         public ShardWriteOperation GetShardWriteOperation(string transacionId)
         {
             return ShardWriteOperations[transacionId];
+        }
+
+        public bool MarkShardWriteOperationApplied(string operationId)
+        {
+            if (ShardWriteOperations.ContainsKey(operationId))
+                return (ShardWriteOperations[operationId].Applied = true);
+            return false;
+        }
+
+        public SortedDictionary<int, ShardWriteOperation> GetAllUnappliedOperations(Guid shardId)
+        {
+            var sortedSWO = ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId).ToList();
+            SortedDictionary<int, ShardWriteOperation> result = new SortedDictionary<int, ShardWriteOperation>();
+            foreach (var operation in sortedSWO)
+            {
+                result.Add(operation.Value.Pos, operation.Value);
+            }
+            return result;
+        }
+
+        public List<ShardMetadata> GetAllShardMetadata()
+        {
+            return ShardMetadata.Select(sm => sm.Value).ToList();
         }
     }
 }

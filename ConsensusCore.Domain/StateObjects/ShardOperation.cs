@@ -26,6 +26,8 @@ namespace ConsensusCore.Domain.BaseClasses
         /// </summary>
         public DateTime TransactionDate { get; set; }
 
+        public bool Applied { get; set; }
+        
         public override bool Equals(object obj)
         {
             if (obj == null) return false;

@@ -34,6 +34,7 @@ namespace ConsensusCore.Node.Services.Raft
         {
             if (_nodeStorage.GetTotalLogCount() < lastIncludedIndex)
             {
+                _logger.LogInformation("Installing snapshot...");
                 _nodeStorage.SetLastSnapshot(((JObject)snapshot).ToObject<State>(), lastIncludedIndex, lastIncludedTerm);
                 _stateMachine.ApplySnapshotToStateMachine(((JObject)snapshot).ToObject<State>());
                 _nodeStateService.CommitIndex = lastIncludedIndex;

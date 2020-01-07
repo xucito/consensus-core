@@ -47,7 +47,7 @@ namespace ConsensusCore.Domain.BaseClasses
 
         public IEnumerable<BaseTask> GetNodeClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
         {
-            return ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(b => b.Value);
+            return SystemExtension.Clone(ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(b => b.Value));
         }
         
         public void ApplyCommand(BaseCommand command)

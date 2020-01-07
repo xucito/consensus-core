@@ -39,6 +39,57 @@ namespace ConsensusCore.Node.Services.Data.Components
             _stateMachine = stateMachine;
             _nodeStateService = nodeStateService;
             _clusterClient = clusterClient;
+            ResyncShardWriteOperations();
+        }
+
+        /// <summary>
+        /// Apply all unapplied operations
+        /// </summary>
+        public async void ResyncShardWriteOperations()
+        {
+            _logger.LogInformation("Resyncing Operations");
+
+            foreach(var shard in _shardRepository.GetAllShardMetadata())
+            {
+                _logger.LogInformation("Checking shard " + shard.ShardId);
+                var unappliedShardOperations = _shardRepository.GetAllUnappliedOperations(shard.ShardId);
+                foreach(var unappliedShardOperation in unappliedShardOperations)
+                {
+                    ShardWriteOperation lastOperation;
+                    //If the previous operation exists and has been applied
+                    if ((lastOperation = _shardRepository.GetShardWriteOperation(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Pos - 1)) != null && lastOperation.Applied)
+                    {
+                        string newHash;
+
+                        //Run shard operation
+                        switch (unappliedShardOperation.Value.Operation)
+                        {
+                            case ShardOperationOptions.Create:
+                                await _dataRouter.InsertDataAsync(unappliedShardOperation.Value.Data);
+                                break;
+                            case ShardOperationOptions.Delete:
+                                await _dataRouter.DeleteDataAsync(unappliedShardOperation.Value.Data);
+                                break;
+                            case ShardOperationOptions.Update:
+                                await _dataRouter.UpdateDataAsync(unappliedShardOperation.Value.Data);
+                                break;
+                        }
+                        _shardRepository.MarkShardWriteOperationApplied(unappliedShardOperation.Value.Id);
+                    }
+                    //Reverse all the last operations
+                    else
+                    {
+                        var removeFrom = unappliedShardOperation.Value.Pos;
+                        for(var i = _shardRepository.GetTotalShardWriteOperationsCount(shard.ShardId); i >= removeFrom; i--)
+                        {
+                            _logger.LogWarning("Detected out of order operations from " + removeFrom + ", removing operations onwards.");
+                            ReverseLocalTransaction(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Data.ShardType, i);
+                        }
+                        //Break out of loop
+                        break;
+                    }
+                }
+            }
         }
 
         public async Task<bool> ReplicateShardWriteOperationAsync(ShardWriteOperation operation)
@@ -49,7 +100,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             var startTime = DateTime.Now;
             if (operation.Pos != 1)
             {
-                while ((lastOperation = _shardRepository.GetShardWriteOperation(operation.Data.ShardId.Value, operation.Pos - 1)) == null)
+                while ((lastOperation = _shardRepository.GetShardWriteOperation(operation.Data.ShardId.Value, operation.Pos - 1)) == null || !lastOperation.Applied)
                 {
                     //Assume in the next 3 seconds you should receive the previos requests
                     if ((DateTime.Now - startTime).TotalMilliseconds > 3000)
@@ -68,6 +119,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                 }
             }
 
+            _shardRepository.AddShardWriteOperation(operation);
             //Run shard operation
             switch (operation.Operation)
             {
@@ -81,7 +133,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                     await _dataRouter.UpdateDataAsync(operation.Data);
                     break;
             }
-            _shardRepository.AddShardWriteOperation(operation);
+            _shardRepository.MarkShardWriteOperationApplied(operation.Id);
             return true;
         }
 
@@ -101,58 +153,71 @@ namespace ConsensusCore.Node.Services.Data.Components
 
             if (result.IsSuccessful)
             {
-                //Check whether the hash is equal, if not equal roll back each transaction
-                var currentPosition = lastOperationPos;
-                ShardWriteOperation currentOperation = null;
-                if (lastOperationPos != 0 && !(result.Operations[lastOperationPos].ShardHash == lastOperation.ShardHash))
+                var totalPositions = _shardRepository.GetTotalShardWriteOperationsCount(shardId);
+                //If the primary has less operations
+                if (result.LatestPosition < lastOperationPos)
                 {
-                    //While the shard position does not match 
-                    while (!((await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
+                    while (totalPositions != result.LatestPosition)
                     {
-                        ShardId = shardId,
-                        From = currentPosition,
-                        To = currentPosition
-                    })).Operations[currentPosition].ShardHash != (currentOperation = _shardRepository.GetShardWriteOperation(shardId, currentPosition)).ShardHash))
-                    {
-                        _logger.LogInformation("Reverting transaction " + currentOperation.Pos + " on shard " + shardId);
-                        ReverseLocalTransaction(shardId, type, currentOperation.Pos);
-                        currentPosition--;
+                        ReverseLocalTransaction(shardId, type, totalPositions);
+                        totalPositions--;
                     }
                 }
-
-                result = await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
+                else
                 {
-                    ShardId = shardId,
-                    From = currentPosition + 1,
-                    To = currentPosition + 50
-                });
-
-                var totalShards = (_shardRepository.GetTotalShardWriteOperationsCount(shardId));
-                //If you have more operations
-                if (result.LatestPosition < totalShards)
-                {
-                    _logger.LogWarning("Detected more nodes locally then primary, revering to latest position");
-                    while (totalShards != result.LatestPosition)
+                    //Check whether the hash is equal, if not equal roll back each transaction
+                    var currentPosition = lastOperationPos;
+                    ShardWriteOperation currentOperation = null;
+                    if (lastOperationPos != 0 && !(result.Operations[lastOperationPos].ShardHash == lastOperation.ShardHash))
                     {
-                        ReverseLocalTransaction(shardId, type, totalShards);
-                        totalShards--;
+                        //While the shard position does not match 
+                        while (!((await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
+                        {
+                            ShardId = shardId,
+                            From = currentPosition,
+                            To = currentPosition
+                        })).Operations[currentPosition].ShardHash != (currentOperation = _shardRepository.GetShardWriteOperation(shardId, currentPosition)).ShardHash))
+                        {
+                            _logger.LogInformation("Reverting transaction " + currentOperation.Pos + " on shard " + shardId);
+                            ReverseLocalTransaction(shardId, type, currentOperation.Pos);
+                            currentPosition--;
+                        }
                     }
-                }
 
-                while (result.LatestPosition != (_shardRepository.GetTotalShardWriteOperationsCount(shardId)))
-                {
-                    foreach (var operation in result.Operations)
-                    {
-                        _logger.LogInformation(_nodeStateService.Id + "Replicated operation " + operation.Key + " for shard " + shardId);
-                        await ReplicateShardWriteOperationAsync(operation.Value);
-                    }
-                    currentPosition = result.Operations.Last().Key;
                     result = await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
                     {
                         ShardId = shardId,
                         From = currentPosition + 1,
                         To = currentPosition + 50
                     });
+
+                    var totalShards = (_shardRepository.GetTotalShardWriteOperationsCount(shardId));
+                    //If you have more operations
+                    if (result.LatestPosition < totalShards)
+                    {
+                        _logger.LogWarning("Detected more nodes locally then primary, revering to latest position");
+                        while (totalShards != result.LatestPosition)
+                        {
+                            ReverseLocalTransaction(shardId, type, totalShards);
+                            totalShards--;
+                        }
+                    }
+
+                    while (result.LatestPosition != (_shardRepository.GetTotalShardWriteOperationsCount(shardId)))
+                    {
+                        foreach (var operation in result.Operations)
+                        {
+                            _logger.LogInformation(_nodeStateService.Id + "Replicated operation " + operation.Key + " for shard " + shardId);
+                            await ReplicateShardWriteOperationAsync(operation.Value);
+                        }
+                        currentPosition = result.Operations.Last().Key;
+                        result = await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
+                        {
+                            ShardId = shardId,
+                            From = currentPosition + 1,
+                            To = currentPosition + 50
+                        });
+                    }
                 }
 
                 _logger.LogInformation("Successfully recovered data on shard " + shardId);
@@ -185,7 +250,6 @@ namespace ConsensusCore.Node.Services.Data.Components
                     allOperations = await _shardRepository.GetAllObjectShardWriteOperationAsync(data.ShardId.Value, data.Id);
                     lastObjectOperation = allOperations.Where(ao => ao.Key < operation.Pos).Last().Value;
                 }
-
 
                 switch (operation.Operation)
                 {

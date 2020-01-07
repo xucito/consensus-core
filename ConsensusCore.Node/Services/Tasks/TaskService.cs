@@ -80,7 +80,6 @@ namespace ConsensusCore.Node.Services.Tasks
                                     {
                                         TasksToUpdate = tasks.GetRange(0, numberOfTasksToAssign).Select(t => new TaskUpdate(){
                                               Status = ClusterTaskStatuses.InProgress,
-                                              CompletedOn = DateTime.UtcNow,
                                               TaskId = t.Id
                                         }).ToList()
                                     }
@@ -147,7 +146,7 @@ namespace ConsensusCore.Node.Services.Tasks
                                             {
                                                 Status = ClusterTaskStatuses.Successful,
                                                 CompletedOn = DateTime.UtcNow,
-                                            TaskId = task.Id
+                                                TaskId = task.Id
                                             }
                                         }
                                     }

@@ -103,31 +103,29 @@ namespace ConsensusCore.Domain.Services
         {
             var stateMachine = new StateMachine<State>();
 
-            if(!LogExists(LastSnapshotIncludedIndex + 1))
+            lock (_locker)
             {
-                return;
-            }
-
-            //Find the log position of the commit index
-            if (LastSnapshot != null)
-            {
-                stateMachine.ApplySnapshotToStateMachine(LastSnapshot);
-            }
-
-            var logIncludedTo = GetLogAtIndex(indexIncludedTo);
-            var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
-            Logger.LogInformation("Getting logs " + logIncludedFrom.Index + " to " + logIncludedTo);
-            if (logIncludedTo != null && logIncludedFrom != null)
-            {
-                //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
-                stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, indexIncludedTo));
-
-                LastSnapshot = stateMachine.CurrentState;
-                LastSnapshotIncludedIndex = indexIncludedTo;
-                LastSnapshotIncludedTerm = logIncludedTo.Term;
-
-                lock (_locker)
+                if (!LogExists(LastSnapshotIncludedIndex + 1))
                 {
+                    return;
+                }
+
+                //Find the log position of the commit index
+                if (LastSnapshot != null)
+                {
+                    stateMachine.ApplySnapshotToStateMachine(LastSnapshot);
+                }
+
+                var logIncludedTo = GetLogAtIndex(indexIncludedTo);
+                var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
+                Logger.LogInformation("Getting logs " + logIncludedFrom.Index + " to " + indexIncludedTo);
+                if (logIncludedTo != null && logIncludedFrom != null)
+                {
+                    //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
+                    stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, indexIncludedTo));
+                    LastSnapshot = stateMachine.CurrentState;
+                    LastSnapshotIncludedIndex = indexIncludedTo;
+                    LastSnapshotIncludedTerm = logIncludedTo.Term;
                     // Deleting logs from the index
                     DeleteLogsFromIndex(1, indexIncludedTo);
                 }

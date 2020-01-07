@@ -40,6 +40,8 @@ namespace ConsensusCore.Node.Services.Raft
         //Used to track whether you are currently already sending logs to a particular node to not double send
         public ConcurrentDictionary<Guid, bool> LogsSent = new ConcurrentDictionary<Guid, bool>();
         public ClusterClient _clusterClient;
+        //Object used to lock commits on state
+        public object commitLock = new object();
 
         private INodeStorage<State> _nodeStorage;
         Snapshotter<State> _snapshotService;
@@ -159,11 +161,16 @@ namespace ConsensusCore.Node.Services.Raft
                     Term = request.Term
                 };
             }
-            return new InstallSnapshotResponse()
+            lock (commitLock)
             {
-                IsSuccessful = _snapshotService.InstallSnapshot(request.Snapshot, request.LastIncludedIndex, request.LastIncludedTerm),
-                Term = request.Term
-            };
+                var snapshotInstallResult = _snapshotService.InstallSnapshot(request.Snapshot, request.LastIncludedIndex, request.LastIncludedTerm);
+
+                return new InstallSnapshotResponse()
+                {
+                    IsSuccessful = snapshotInstallResult,
+                    Term = request.Term
+                };
+            }
         }
 
         public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
@@ -357,10 +364,15 @@ namespace ConsensusCore.Node.Services.Raft
             {
                 try
                 {
-                    _nodeStorage.AddLog(log);
+                    if (!_nodeStorage.LogExists(log.Index))
+                    {
+                        Logger.LogInformation(NodeStateService.GetNodeLogId() + " adding to node storage " + log);
+                        _nodeStorage.AddLog(log);
+                    }
                 }
                 catch (MissingLogEntryException e)
                 {
+                    Logger.LogError(NodeStateService.GetNodeLogId() + " failed to add log " + log.Index + " with exception " + e.Message + Environment.NewLine + e.StackTrace);
                     return new AppendEntryResponse()
                     {
                         IsSuccessful = false,
@@ -504,7 +516,7 @@ namespace ConsensusCore.Node.Services.Raft
                 if (_nodeStorage.CurrentTerm > lastLogTerm + 3)
                 {
                     Logger.LogInformation("Detected that the node is too far ahead of its last log (3), restarting election from the term of the last log term " + lastLogTerm);
-                    _nodeStorage.SetCurrentTerm(lastLogTerm);
+                    _nodeStorage.SetCurrentTerm(lastLogTerm + 1);
                 }
                 else
                 {
@@ -550,10 +562,13 @@ namespace ConsensusCore.Node.Services.Raft
             {
                 try
                 {
-                    _commitService.ApplyCommits();
-                    if (NodeStateService.Role == NodeState.Leader || NodeStateService.Role == NodeState.Follower)
+                    lock (commitLock)
                     {
-                        _snapshotService.CheckAndApplySnapshots(NodeStateService.CommitIndex, ClusterOptions.SnapshottingTrailingLogCount, ClusterOptions.SnapshottingInterval);
+                        _commitService.ApplyCommits();
+                        if (NodeStateService.Role == NodeState.Leader || NodeStateService.Role == NodeState.Follower)
+                        {
+                            _snapshotService.CheckAndApplySnapshots(NodeStateService.CommitIndex, ClusterOptions.SnapshottingTrailingLogCount, ClusterOptions.SnapshottingInterval);
+                        }
                     }
                     Thread.Sleep(500);
                 }
@@ -604,7 +619,7 @@ namespace ConsensusCore.Node.Services.Raft
                     if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
                     {
                         var unsentLogs = (_nodeStorage.GetTotalLogCount() - NodeStateService.NextIndex[node.Key]) + 1;
-                        int endingLogsToSend = startingLogsToSend + (unsentLogs < ClusterOptions.MaxLogsToSend ? unsentLogs : ClusterOptions.MaxLogsToSend) -1;
+                        int endingLogsToSend = startingLogsToSend + (unsentLogs < ClusterOptions.MaxLogsToSend ? unsentLogs : ClusterOptions.MaxLogsToSend) - 1;
                         int prevLogTerm = 0;
                         if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
                         {
@@ -649,8 +664,8 @@ namespace ConsensusCore.Node.Services.Raft
                                 Id = result.NodeId,
                                 TransportAddress = node.Value.Address,
                                 IsContactable = true,
-                                Name = ""
-                            } });
+                                Name = "",
+                            }});
                         }
 
                         if (result == null)
@@ -764,7 +779,7 @@ namespace ConsensusCore.Node.Services.Raft
             }
             else
             {
-                RemoveNodesFromCluster(unreachableNodes.ToList());
+                //RemoveNodesFromCluster(unreachableNodes.ToList());
             }
         }
 
@@ -774,6 +789,7 @@ namespace ConsensusCore.Node.Services.Raft
 
             foreach (var nodeId in nodesToMarkAsStale)
             {
+                Console.WriteLine("Removing " + nodesToMarkAsStale + " from node");
                 //There could be already requests in queue marking the node as unreachable
                 if (StateMachine.IsNodeContactable(nodeId))
                 {
@@ -786,7 +802,7 @@ namespace ConsensusCore.Node.Services.Raft
             }
             if (nodeUpsertCommands.Count() > 0)
             {
-                await Handle(new ExecuteCommands()
+                await _clusterClient.Send(new ExecuteCommands()
                 {
                     Commands = nodeUpsertCommands,
                     WaitForCommits = true
@@ -812,7 +828,7 @@ namespace ConsensusCore.Node.Services.Raft
 
             if (nodeUpsertCommands.Count() > 0)
             {
-                await Handle(new ExecuteCommands()
+                await _clusterClient.Send(new ExecuteCommands()
                 {
                     Commands = nodeUpsertCommands,
                     WaitForCommits = true

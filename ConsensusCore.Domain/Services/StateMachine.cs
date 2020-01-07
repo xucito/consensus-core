@@ -2,6 +2,7 @@
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Utility;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -19,13 +20,27 @@ namespace ConsensusCore.Domain.Services
     public class StateMachine<Z> : IStateMachine<Z>
         where Z : BaseState, new()
     {
+        private Z _currentState;
         public Z DefaultState { get; set; }
-        public Z CurrentState { get; private set; }
+        public Z CurrentState{
+            get;
+            private set;
+        }
         public int CommitIndex { get; set; }
         public int CurrentTerm { get; set; }
         public Guid Id { get; set; }
+        private ILogger _logger;
+        private bool _disabledLogging = true;
 
         private object currentStateLock = new object();
+
+        public StateMachine(ILogger<StateMachine<Z>> logger)
+        {
+            DefaultState = new Z();
+            CurrentState = DefaultState;
+            _logger = logger;
+            _disabledLogging = false;
+        }
 
         public StateMachine()
         {
@@ -39,7 +54,10 @@ namespace ConsensusCore.Domain.Services
             {
                 try
                 {
-                    CurrentState.ApplyCommand(command);
+                    lock (currentStateLock)
+                    {
+                        _currentState.ApplyCommand(command);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -52,20 +70,26 @@ namespace ConsensusCore.Domain.Services
         {
             List<string> FailedLogs = new List<string>();
             var copy = entries.OrderBy(c => c.Index).Select(e => e.DeepCopy());
-            lock (currentStateLock)
+            foreach (var entry in copy)
             {
-                foreach (var entry in copy)
+                foreach (var command in entry.Commands)
                 {
-                    foreach (var command in entry.Commands)
+                    try
                     {
-                        try
+                        if (!_disabledLogging)
+                            _logger.LogDebug("Applying command " + Environment.NewLine + JsonConvert.SerializeObject(command, Formatting.Indented));
+
+                        lock (currentStateLock)
                         {
-                            CurrentState.ApplyCommand(command);
+                            _currentState.ApplyCommand(command);
                         }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e.Message);
-                        }
+                        if (!_disabledLogging)
+                            _logger.LogDebug("State " + Environment.NewLine + JsonConvert.SerializeObject(CurrentState, Formatting.Indented));
+                    }
+                    catch (Exception e)
+                    {
+                        if (!_disabledLogging)
+                            _logger.LogError("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
                     }
                 }
             }

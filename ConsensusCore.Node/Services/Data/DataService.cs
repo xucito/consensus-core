@@ -459,42 +459,44 @@ namespace ConsensusCore.Node.Services.Data
         {
             while (true)
             {
-                _logger.LogInformation("Checking all replicas");
-                //Get all nodes you are the primary for
-                foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
+                try
                 {
-                    //Get the shard positions
-                    var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
-                    //Wait 2 times the latency tolerance
-                    Thread.Sleep(_clusterOptions.LatencyToleranceMs * 2);
-
-                    ConcurrentBag<Guid> staleNodes = new ConcurrentBag<Guid>();
-
-                    var tasks = shard.InsyncAllocations.Select(ia => new Task(async () =>
+                    _logger.LogInformation("Checking all replicas");
+                    //Get all nodes you are the primary for
+                    foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
                     {
-                        var shardOperation = await _clusterClient.Send(new RequestShardWriteOperations()
-                        {
-                            From = 0,
-                            To = 0,
-                            ShardId = shard.Id,
-                            Type = shard.Type
-                        });
+                        //Get the shard positions
+                        var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
+                        //Wait 2 times the latency tolerance
+                        Thread.Sleep(_clusterOptions.LatencyToleranceMs * 2);
 
-                        //If the operations are lagging or it is infront of the latest count (Old transactions)
-                        if (shardOperation.LatestPosition < shardPosition || shardOperation.LatestPosition > _shardRepository.GetTotalShardWriteOperationsCount(shard.Id))
-                        {
-                            staleNodes.Add(ia);
-                        }
-                    }));
+                        ConcurrentBag<Guid> staleNodes = new ConcurrentBag<Guid>();
 
-                    await Task.WhenAll(tasks);
-
-                    if (staleNodes.Count > 0)
-                    {
-                        _logger.LogInformation(_nodeStateService.GetNodeLogId() + " primary detected stale nodes");
-                        await _clusterClient.Send(new ExecuteCommands()
+                        var tasks = shard.InsyncAllocations.Select(ia => new Task(async () =>
                         {
-                            Commands = new List<BaseCommand>()
+                            var shardOperation = await _clusterClient.Send(ia, new RequestShardWriteOperations()
+                            {
+                                From = 0,
+                                To = 0,
+                                ShardId = shard.Id,
+                                Type = shard.Type
+                            });
+
+                            //If the operations are lagging or it is infront of the latest count (Old transactions)
+                            if (shardOperation.LatestPosition < shardPosition || shardOperation.LatestPosition > _shardRepository.GetTotalShardWriteOperationsCount(shard.Id))
+                            {
+                                staleNodes.Add(ia);
+                            }
+                        }));
+
+                        await Task.WhenAll(tasks);
+
+                        if (staleNodes.Count > 0)
+                        {
+                            _logger.LogInformation(_nodeStateService.GetNodeLogId() + " primary detected stale nodes");
+                            await _clusterClient.Send(new ExecuteCommands()
+                            {
+                                Commands = new List<BaseCommand>()
                         {
                             new UpdateShardMetadataAllocations()
                             {
@@ -503,8 +505,13 @@ namespace ConsensusCore.Node.Services.Data
                                 Type = shard.Type
                             }
                         }
-                        });
+                            });
+                        }
                     }
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to check all replicas with exception " + e.Message + Environment.NewLine + e.StackTrace);
                 }
                 Thread.Sleep(10000);
             }

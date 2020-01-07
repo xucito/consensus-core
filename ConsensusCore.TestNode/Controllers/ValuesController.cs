@@ -6,6 +6,7 @@ using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Domain.RPCs.Shard;
+using ConsensusCore.Domain.Services;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;

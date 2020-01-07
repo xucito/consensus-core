@@ -60,7 +60,8 @@ namespace ConsensusCore.TestNode
             IBaseRepository<TestState> repository,
             IRaftService raftService,
             IDataService dataService,
-            ITaskService taskService)
+            ITaskService taskService,
+            ILogger<Startup> logger)
         {
             if (env.IsDevelopment())
             {
@@ -79,12 +80,14 @@ namespace ConsensusCore.TestNode
                 if (context.Request.Path == "/api/kill" && context.Request.Method == "POST")
                 {
                     Killed = true;
+                    logger.LogInformation("Killing node");
                     raftService.SetNodeRole(Domain.Enums.NodeState.Disabled);
                 }
 
                 if (context.Request.Path == "/api/revive" && context.Request.Method == "POST")
                 {
                     Killed = false;
+                    logger.LogInformation("Restoring node");
                     raftService.SetNodeRole(Domain.Enums.NodeState.Follower);
                 }
                 
