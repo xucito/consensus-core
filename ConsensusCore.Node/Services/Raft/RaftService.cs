@@ -12,6 +12,7 @@ using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
@@ -366,7 +367,7 @@ namespace ConsensusCore.Node.Services.Raft
                 {
                     if (!_nodeStorage.LogExists(log.Index))
                     {
-                        Logger.LogInformation(NodeStateService.GetNodeLogId() + " adding to node storage " + log);
+                        Logger.LogDebug(NodeStateService.GetNodeLogId() + " adding to node storage " + log);
                         _nodeStorage.AddLog(log);
                     }
                 }
@@ -556,9 +557,9 @@ namespace ConsensusCore.Node.Services.Raft
             }
         }
 
-        public async Task MonitorCommits()
+        public async Task MonitorCommits(bool loop = true)
         {
-            while (true)
+            do
             {
                 try
                 {
@@ -570,7 +571,7 @@ namespace ConsensusCore.Node.Services.Raft
                             _snapshotService.CheckAndApplySnapshots(NodeStateService.CommitIndex, ClusterOptions.SnapshottingTrailingLogCount, ClusterOptions.SnapshottingInterval);
                         }
                     }
-                    Thread.Sleep(500);
+                    Thread.Sleep(5);
                 }
                 catch (Exception e)
                 {
@@ -578,6 +579,7 @@ namespace ConsensusCore.Node.Services.Raft
                 }
 
             }
+            while (loop);
         }
 
         public async void SendHeartbeats()
@@ -616,32 +618,146 @@ namespace ConsensusCore.Node.Services.Raft
                     var prevLogIndex = Math.Max(0, NodeStateService.NextIndex[node.Key] - 1);
                     var startingLogsToSend = NodeStateService.NextIndex[node.Key] == 0 ? 1 : NodeStateService.NextIndex[node.Key];
 
-                    if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
-                    {
-                        var unsentLogs = (_nodeStorage.GetTotalLogCount() - NodeStateService.NextIndex[node.Key]) + 1;
-                        int endingLogsToSend = startingLogsToSend + (unsentLogs < ClusterOptions.MaxLogsToSend ? unsentLogs : ClusterOptions.MaxLogsToSend) - 1;
-                        int prevLogTerm = 0;
-                        if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
+                    //if (startingLogsToSend <= _nodeStorage.GetTotalLogCount())
+                //    {
+                        if (_nodeStorage.LastSnapshotIncludedIndex < startingLogsToSend)
                         {
-                            prevLogTerm = _nodeStorage.LastSnapshotIncludedTerm;
+                            var unsentLogs = _nodeStorage.GetTotalLogCount() - startingLogsToSend;
+                            int endingLogsToSend = (startingLogsToSend + (unsentLogs < ClusterOptions.MaxLogsToSend ? unsentLogs : ClusterOptions.MaxLogsToSend));
+                            int prevLogTerm = 0;
+                            if (_nodeStorage.LastSnapshotIncludedIndex == prevLogIndex)
+                            {
+                                prevLogTerm = _nodeStorage.LastSnapshotIncludedTerm;
+                            }
+                            else
+                            {
+                                prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
+                            }
+                            if (NodeStateService.NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, false))
+                            {
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + node.Key + " Requires logs from " + startingLogsToSend + " to " + endingLogsToSend);
+                                entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).OrderBy(log => log.Index).ToList();
+                                // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
+                                //Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
+                            }
+
+                            // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
+                            LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
+                            {
+                                return true;
+                            });
+                            var result = await _clusterClient.Send(node.Key, new AppendEntry()
+                            {
+                                Term = _nodeStorage.CurrentTerm,
+                                Entries = entriesToSend,
+                                LeaderCommit = NodeStateService.CommitIndex,
+                                LeaderId = _nodeStorage.Id,
+                                PrevLogIndex = prevLogIndex,
+                                PrevLogTerm = prevLogTerm
+                            });
+
+
+
+                            LogsSent.TryUpdate(node.Key, false, true);
+
+                            if (result != null && node.Key != result.NodeId && result.NodeId != default(Guid))
+                            {
+                                Logger.LogInformation("Detected change of client");
+                                RemoveNodesFromCluster(new Guid[] { node.Key });
+                                AddNodesToCluster(new NodeInformation[] { new NodeInformation {
+                                Id = result.NodeId,
+                                TransportAddress = node.Value.Address,
+                                IsContactable = true,
+                                Name = "",
+                            }});
+                            }
+
+                            if (result == null)
+                            {
+                                Logger.LogError(NodeStateService.GetNodeLogId() + "The node " + node.Key + " has returned a empty response");
+                            }
+                            else if (result != null && result.IsSuccessful)
+                            {
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Successfully updated logs on " + node.Key);
+                                if (entriesToSend.Count() > 0)
+                                {
+                                    var lastIndexToSend = entriesToSend.Last().Index;
+                                    NodeStateService.NextIndex[node.Key] = lastIndexToSend + 1;
+
+                                    int previousValue;
+                                    bool SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
+                                    if (!SuccessfullyGotValue)
+                                    {
+                                        Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
+                                    }
+                                    var updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                    //If the updated did not execute, there hs been a concurrency issue
+                                    while (!updateWorked)
+                                    {
+                                        SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
+                                        // If the match index has already exceeded the previous value, dont bother updating it
+                                        if (previousValue > lastIndexToSend && SuccessfullyGotValue)
+                                        {
+                                            updateWorked = true;
+                                        }
+                                        else
+                                        {
+                                            updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
+                                        }
+                                    }
+                                    Logger.LogDebug(NodeStateService.GetNodeLogId() + "Updated match index to " + NodeStateService.MatchIndex);
+                                }
+                            }
+                            else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
+                            {
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
+                                NodeStateService.NextIndex[node.Key] = (result.LastLogEntryIndex.Value + 1);
+                            }
+                            else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
+                            {
+                                var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
+                                var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
+
+                                //Revert back to the first index of that term
+                                NodeStateService.NextIndex[node.Key] = revertedIndex;
+                            }
+                            else if (result.ConflictName == AppendEntriesExceptionNames.OldTermException)
+                            {
+                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
+                            }
                         }
                         else
                         {
-                            prevLogTerm = (_nodeStorage.GetTotalLogCount() > 0 && prevLogIndex > 0) ? _nodeStorage.GetLogAtIndex(prevLogIndex).Term : 0;
-                        }
-                        if (NodeStateService.NextIndex[node.Key] <= _nodeStorage.GetLastLogIndex() && _nodeStorage.GetLastLogIndex() != 0 && !LogsSent.GetOrAdd(node.Key, false))
-                        {
-                            Logger.LogInformation(NodeStateService.GetNodeLogId() + " Requires logs from " + startingLogsToSend + " to " + endingLogsToSend);
-                            entriesToSend = _nodeStorage.GetLogRange(startingLogsToSend, endingLogsToSend).OrderBy(log => log.Index).ToList();
-                            // entriesToSend = _nodeStorage.Logs.Where(l => l.Index >= NextIndex[connector.Key]).ToList();
-                            //Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is not upto date, sending logs from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index);
-                        }
+                            Logger.LogInformation("Detected pending snapshot to send, sending snapshot with included index " + _nodeStorage.LastSnapshotIncludedIndex);
 
-                        // Console.WriteLine("Sending logs with from " + entriesToSend.First().Index + " to " + entriesToSend.Last().Index + " sent " + entriesToSend.Count + "logs.");
-                        LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
-                        {
-                            return true;
-                        });
+                            //Mark that you have send the logs to this node
+                            LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
+                            {
+                                return true;
+                            });
+                            var lastIndex = _nodeStorage.LastSnapshotIncludedIndex;
+                            var result = await _clusterClient.Send(node.Key, new InstallSnapshot()
+                            {
+                                Term = _nodeStorage.CurrentTerm,
+                                LastIncludedIndex = lastIndex,
+                                LastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
+                                LeaderId = _nodeStorage.Id,
+                                Snapshot = _nodeStorage.LastSnapshot
+                            });
+
+                            if (result.IsSuccessful)
+                            {
+                                //mark the node has successfully received the logs
+                                LogsSent.TryUpdate(node.Key, false, true);
+                                NodeStateService.NextIndex[node.Key] = lastIndex + 1;
+                            }
+
+                        }
+                  /*  }
+                    //The node is up to date
+                    else
+                    {
                         var result = await _clusterClient.Send(node.Key, new AppendEntry()
                         {
                             Term = _nodeStorage.CurrentTerm,
@@ -649,108 +765,10 @@ namespace ConsensusCore.Node.Services.Raft
                             LeaderCommit = NodeStateService.CommitIndex,
                             LeaderId = _nodeStorage.Id,
                             PrevLogIndex = prevLogIndex,
-                            PrevLogTerm = prevLogTerm
+                            PrevLogTerm = _nodeStorage.GetLogAtIndex(prevLogIndex).Term
                         });
-
-
-
-                        LogsSent.TryUpdate(node.Key, false, true);
-
-                        if (result != null && node.Key != result.NodeId && result.NodeId != default(Guid))
-                        {
-                            Logger.LogInformation("Detected change of client");
-                            RemoveNodesFromCluster(new Guid[] { node.Key });
-                            AddNodesToCluster(new NodeInformation[] { new NodeInformation {
-                                Id = result.NodeId,
-                                TransportAddress = node.Value.Address,
-                                IsContactable = true,
-                                Name = "",
-                            }});
-                        }
-
-                        if (result == null)
-                        {
-                            Logger.LogError(NodeStateService.GetNodeLogId() + "The node " + node.Key + " has returned a empty response");
-                        }
-                        else if (result != null && result.IsSuccessful)
-                        {
-                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Successfully updated logs on " + node.Key);
-                            if (entriesToSend.Count() > 0)
-                            {
-                                var lastIndexToSend = entriesToSend.Last().Index;
-                                NodeStateService.NextIndex[node.Key] = lastIndexToSend + 1;
-
-                                int previousValue;
-                                bool SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
-                                if (!SuccessfullyGotValue)
-                                {
-                                    Logger.LogError("Concurrency issues encountered when getting the Next Match Index");
-                                }
-                                var updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
-                                //If the updated did not execute, there hs been a concurrency issue
-                                while (!updateWorked)
-                                {
-                                    SuccessfullyGotValue = NodeStateService.MatchIndex.TryGetValue(node.Key, out previousValue);
-                                    // If the match index has already exceeded the previous value, dont bother updating it
-                                    if (previousValue > lastIndexToSend && SuccessfullyGotValue)
-                                    {
-                                        updateWorked = true;
-                                    }
-                                    else
-                                    {
-                                        updateWorked = NodeStateService.MatchIndex.TryUpdate(node.Key, lastIndexToSend, previousValue);
-                                    }
-                                }
-                                Logger.LogDebug(NodeStateService.GetNodeLogId() + "Updated match index to " + NodeStateService.MatchIndex);
-                            }
-                        }
-                        else if (result.ConflictName == AppendEntriesExceptionNames.MissingLogEntryException)
-                        {
-                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " is missing the previous log, sending logs from log " + (result.LastLogEntryIndex.Value + 1));
-                            NodeStateService.NextIndex[node.Key] = (result.LastLogEntryIndex.Value + 1);
-                        }
-                        else if (result.ConflictName == AppendEntriesExceptionNames.ConflictingLogEntryException)
-                        {
-                            var firstEntryOfTerm = _nodeStorage.Logs.Where(l => l.Value.Term == result.ConflictingTerm).FirstOrDefault();
-                            var revertedIndex = firstEntryOfTerm.Value.Index < result.FirstTermIndex ? firstEntryOfTerm.Value.Index : result.FirstTermIndex.Value;
-                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " has conflicting values, reverting to " + revertedIndex);
-
-                            //Revert back to the first index of that term
-                            NodeStateService.NextIndex[node.Key] = revertedIndex;
-                        }
-                        else if (result.ConflictName == AppendEntriesExceptionNames.OldTermException)
-                        {
-                            Logger.LogDebug(NodeStateService.GetNodeLogId() + "Detected node " + node.Key + " rejected heartbeat due to invalid leader term.");
-                        }
                     }
-                    else
-                    {
-                        Logger.LogInformation("Detected pending snapshot to send, sending snapshot with included index " + _nodeStorage.LastSnapshotIncludedIndex);
-
-                        //Mark that you have send the logs to this node
-                        LogsSent.AddOrUpdate(node.Key, true, (key, oldvalue) =>
-                        {
-                            return true;
-                        });
-                        var lastIndex = _nodeStorage.LastSnapshotIncludedIndex;
-                        var result = await _clusterClient.Send(node.Key, new InstallSnapshot()
-                        {
-                            Term = _nodeStorage.CurrentTerm,
-                            LastIncludedIndex = lastIndex,
-                            LastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
-                            LeaderId = _nodeStorage.Id,
-                            Snapshot = _nodeStorage.LastSnapshot
-                        });
-
-                        if (result.IsSuccessful)
-                        {
-                            //mark the node has successfully received the logs
-                            LogsSent.TryUpdate(node.Key, false, true);
-                            NodeStateService.NextIndex[node.Key] = lastIndex + 1;
-                        }
-
-                    }
-
+                    */
                     Interlocked.Increment(ref recognizedhosts);
                 }
                 catch (HttpRequestException e)
@@ -789,7 +807,7 @@ namespace ConsensusCore.Node.Services.Raft
 
             foreach (var nodeId in nodesToMarkAsStale)
             {
-                Console.WriteLine("Removing " + nodesToMarkAsStale + " from node");
+                Logger.LogDebug("Removing " + nodeId + " from node");
                 //There could be already requests in queue marking the node as unreachable
                 if (StateMachine.IsNodeContactable(nodeId))
                 {
@@ -799,6 +817,8 @@ namespace ConsensusCore.Node.Services.Raft
                     });
                 }
                 _clusterConnectionPool.RemoveClient(nodeId);
+
+                NodeStateService.MatchIndex.TryRemove(nodeId, out _);
             }
             if (nodeUpsertCommands.Count() > 0)
             {
@@ -808,6 +828,8 @@ namespace ConsensusCore.Node.Services.Raft
                     WaitForCommits = true
                 });
             }
+
+
         }
 
         public async void AddNodesToCluster(IEnumerable<NodeInformation> nodesInfo)

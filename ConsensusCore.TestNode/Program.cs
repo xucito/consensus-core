@@ -38,7 +38,7 @@ namespace ConsensusCore.TestNode
                 {
                     options.FileName = "diagnostics-" + config.GetValue<string>("Node:Name") + "_"; // The log file prefixes
                     options.LogDirectory = "LogFiles"; // The directory to write the logs
-                    options.FileSizeLimit = 20 * 1024 * 1024; // The maximum log file size (20MB here)
+                    options.FileSizeLimit = 100 * 1024 * 1024; // The maximum log file size (20MB here)
                     options.Extension = "txt"; // The log file extension
                     options.Periodicity = PeriodicityOptions.Hourly; // Roll log files hourly instead of daily.
                 }))

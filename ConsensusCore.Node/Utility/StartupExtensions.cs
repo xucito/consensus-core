@@ -17,14 +17,17 @@ using ConsensusCore.Node.Services.Raft;
 using ConsensusCore.Node.Communication.Controllers;
 using ConsensusCore.Node.Services.Data;
 using ConsensusCore.Node.Services.Tasks;
+using ConsensusCore.Node.Services.Data.Components;
 
 namespace ConsensusCore.Node.Utility
 {
     public static class StartupExtensions
     {
 
-        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
+        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(
+            this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
+            Func<IServiceProvider, operationCache> operationCacheImplementationFactory,
             Action<NodeOptions> nodeOptions,
             Action<ClusterOptions> clusterOptions
             )
@@ -33,7 +36,7 @@ namespace ConsensusCore.Node.Utility
         where ShardRepository : class, IShardRepository
             where operationCache : class, IOperationCacheRepository
         {
-            services.AddSingleton<IOperationCacheRepository, operationCache>();
+            services.AddSingleton<IOperationCacheRepository, operationCache>(operationCacheImplementationFactory);
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
@@ -46,8 +49,7 @@ namespace ConsensusCore.Node.Utility
             services.Configure(nodeOptions);
             services.Configure(clusterOptions);
             services.AddSingleton<ClusterClient>();
-            services.AddSingleton<WriteCache>();
-            services.AddTransient<IClusterRequestHandler, ClusterRequestHandler<State>>();
+            services.AddSingleton<IClusterRequestHandler, ClusterRequestHandler<State>>();
             services.AddSingleton<IDataService, DataService<State>>();
             services.AddSingleton<ITaskService, TaskService<State>>();
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)
@@ -62,6 +64,7 @@ namespace ConsensusCore.Node.Utility
         public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(this IServiceCollection services,
             Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
+            Func<IServiceProvider, operationCache> operationCacheImplementationFactory,
             IConfigurationSection nodeOptions,
             IConfigurationSection clusterOptions)
                 where State : BaseState, new()
@@ -69,8 +72,7 @@ namespace ConsensusCore.Node.Utility
                 where ShardRepository : class, IShardRepository
             where operationCache : class, IOperationCacheRepository
         {
-            services.AddSingleton<IOperationCacheRepository, operationCache>();
-            services.AddSingleton<WriteCache>();
+            services.AddSingleton<IOperationCacheRepository, operationCache>(operationCacheImplementationFactory);
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             services.AddSingleton<IShardRepository, ShardRepository>(shardRepositoryImplementationFactory);
             // services.AddSingleton<NodeStorage
@@ -86,7 +88,7 @@ namespace ConsensusCore.Node.Utility
             services.AddSingleton<ClusterClient>();
             services.AddSingleton<NodeStorage<State>>();
             services.AddSingleton<ITaskService, TaskService<State>>();
-            services.AddTransient<IClusterRequestHandler, ClusterRequestHandler<State>>();
+            services.AddSingleton<IClusterRequestHandler, ClusterRequestHandler<State>>();
             services.AddSingleton<IDataService, DataService<State>>();
 
             services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_2_2)

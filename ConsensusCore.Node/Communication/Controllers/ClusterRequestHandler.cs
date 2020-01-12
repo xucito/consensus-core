@@ -1,5 +1,6 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Node.Connectors;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -24,6 +26,8 @@ namespace ConsensusCore.Node.Communication.Controllers
         private readonly ClusterOptions _clusterOptions;
         private readonly ClusterClient _clusterClient;
         private readonly IDataService _dataService;
+        public event EventHandler<Metric> MetricGenerated;
+        public ConcurrentDictionary<string, DateTime> lastMetricGenerated = new ConcurrentDictionary<string, DateTime>(); 
 
         public ClusterRequestHandler(
             IOptions<ClusterOptions> clusterOptions,
@@ -66,6 +70,8 @@ namespace ConsensusCore.Node.Communication.Controllers
                 };
             }
 
+            DateTime commandStartTime = DateTime.Now;
+
             try
             {
                 TResponse response;
@@ -105,6 +111,33 @@ namespace ConsensusCore.Node.Communication.Controllers
                         throw new Exception("Request is not implemented");
                 }
 
+                if (MetricGenerated != null && _nodeStateService.Role == NodeState.Leader && request.Metric)
+                {
+                    //Add and send
+                    if(!lastMetricGenerated.ContainsKey(request.RequestName))
+                    {
+                        lastMetricGenerated.TryAdd(request.RequestName, DateTime.Now);
+                        MetricGenerated.Invoke(this, new Metric()
+                        {
+                            Date = DateTime.Now,
+                            IntervalMs = 0,
+                            Type = MetricTypes.ClusterCommandElapsed(request.RequestName),
+                            Value = (DateTime.Now - commandStartTime).TotalMilliseconds
+                        });
+                    }
+                    else if((DateTime.Now - lastMetricGenerated[request.RequestName]).TotalMilliseconds > _clusterOptions.MetricsIntervalMs)
+                    {
+                        lastMetricGenerated.TryUpdate(request.RequestName, DateTime.Now, lastMetricGenerated[request.RequestName]);
+                        MetricGenerated.Invoke(this, new Metric()
+                        {
+                            Date = DateTime.Now,
+                            IntervalMs = 0,
+                            Type = MetricTypes.ClusterCommandElapsed(request.RequestName),
+                            Value = (DateTime.Now - commandStartTime).TotalMilliseconds
+                        });
+                    }
+                }
+
                 return response;
 
             }
@@ -133,7 +166,8 @@ namespace ConsensusCore.Node.Communication.Controllers
             // if you change and become a leader, just handle this yourself.
             if (_nodeStateService.Role != NodeState.Leader)
             {
-                if (_nodeStateService.Role == NodeState.Candidate || !_nodeStateService.InCluster)
+                // Candidate, not in cluster or you still think current leader is yourself.
+                if (_nodeStateService.Role == NodeState.Candidate || !_nodeStateService.InCluster || _nodeStateService.Id == _nodeStateService.CurrentLeader.Value)
                 {
                     /* if ((DateTime.Now - CurrentTime).TotalMilliseconds < _clusterOptions.LatencyToleranceMs)
                      {

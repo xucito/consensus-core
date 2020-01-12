@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.2</TargetFramework>
-    <Version>1.0.3</Version>
+    <Version>1.0.3.4-alpha</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,11 +11,6 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="2.2.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Utility\ClusterTasks\" />
-    <Folder Include="Utility\RoutedRequests\" />
   </ItemGroup>
 
   <ItemGroup>

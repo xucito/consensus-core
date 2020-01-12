@@ -4,6 +4,7 @@ using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Node.Communication.Clients;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -45,12 +46,37 @@ namespace ConsensusCore.Node.Services.Raft
 
         public void CheckAndApplySnapshots(int commitIndex, int snapshottingtrailinglogcount, int snapshotInterval)
         {
-            var snapshotTo = commitIndex - snapshottingtrailinglogcount;
+            var snapshotTo = commitIndex - 3;
             // If the number of logs that are commited but not included in the snapshot are not included in interval, create snapshot
             if (snapshotInterval < (commitIndex - _nodeStorage.LastSnapshotIncludedIndex))
             {
-                _logger.LogInformation("Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
-                _nodeStorage.CreateSnapshot(snapshotTo);
+                /*_logger.LogInformation("Reached snapshotting interval, creating snapshot to index " + snapshotTo + ".");
+                _logger.LogInformation("State before snapshotting " + _nodeStateService.CommitIndex);
+                _logger.LogInformation(JsonConvert.SerializeObject(_stateMachine.CurrentState, Formatting.Indented));*/
+                /* _logger.LogInformation("Logs before snapshotting ");
+                 _logger.LogInformation(JsonConvert.SerializeObject(_nodeStorage.Logs, Formatting.Indented));
+                 _logger.LogInformation("Snapshots before snapshotting ");
+                 _logger.LogInformation(JsonConvert.SerializeObject(_nodeStorage.LastSnapshot, Formatting.Indented));
+                 */
+
+
+                //var startingState = JToken.Parse(JsonConvert.SerializeObject(_stateMachine.CurrentState));
+                _nodeStorage.CreateSnapshot(snapshotTo, snapshottingtrailinglogcount);
+                /* _logger.LogInformation("State after snapshotting " + _nodeStateService.CommitIndex);
+                 _logger.LogInformation(JsonConvert.SerializeObject(_stateMachine.CurrentState, Formatting.Indented));*/
+
+               // var endingState = JToken.Parse(JsonConvert.SerializeObject(_stateMachine.CurrentState));
+
+                /*if(!JToken.DeepEquals(startingState, endingState))
+                {
+                    Console.WriteLine("");
+                }*/
+
+                /* _logger.LogInformation("Logs after snapshotting ");
+                 _logger.LogInformation(JsonConvert.SerializeObject(_nodeStorage.Logs, Formatting.Indented));
+                 _logger.LogInformation("Snapshots after snapshotting ");
+                 _logger.LogInformation(JsonConvert.SerializeObject(_nodeStorage.LastSnapshot, Formatting.Indented));
+     */
             }
         }
     }

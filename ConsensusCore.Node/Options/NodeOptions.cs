@@ -12,5 +12,7 @@ namespace ConsensusCore.Node
         public string Name { get; set; }
         public bool EnableLeader { get; set; } = true;
         public bool AlwaysPrimary { get; set; } = false;
+        public bool EnablePerformanceLogging { get; set; } = false;
+        public bool PersistWriteQueue { get; set; } = false;
     }
 }

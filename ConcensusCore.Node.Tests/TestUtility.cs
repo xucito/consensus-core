@@ -46,11 +46,13 @@ namespace ConcensusCore.Node.Tests
             services.AddTransient<NodeController<TestState>>();
             services.Configure<NodeOptions>(o => new NodeOptions() { });
             services.Configure<ClusterOptions>(o => new ClusterOptions() {
-                TestMode = true
+                TestMode = true,
+                SnapshottingInterval = 20,
+                SnapshottingTrailingLogCount = 10,
+                ShardRecoveryValidationCount = 10
             });
             services.AddSingleton<ClusterClient>();
-            services.AddSingleton<WriteCache>();
-            services.AddTransient<IClusterRequestHandler, ClusterRequestHandler<TestState>>();
+            services.AddSingleton<IClusterRequestHandler, ClusterRequestHandler<TestState>>();
             services.AddSingleton<IDataService, DataService<TestState>>();
             services.AddSingleton<ITaskService, TaskService<TestState>>();
             services.AddSingleton<IDataRouter, TestDataRouter>();
@@ -123,7 +125,9 @@ namespace ConcensusCore.Node.Tests
             NodeInMemoryRepository<TestState> inMemoryRepository = new NodeInMemoryRepository<TestState>();
             var _dataRouter = new TestDataRouter();
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
-            
+
+            var moqNodeOptions = new Mock<IOptions<NodeOptions>>();
+
             Guid nodeStorageId = Guid.NewGuid();
             var NodeStorage = new NodeStorage<TestState>(factory.CreateLogger<NodeStorage<TestState>>(), inMemoryRepository)
             {
@@ -176,12 +180,14 @@ namespace ConcensusCore.Node.Tests
             var manager = new DataService<TestState>(
                 factory,
                 inMemoryRepository,
-                new WriteCache(inMemoryRepository, factory.CreateLogger<WriteCache>()),
                 _dataRouter,
                 _stateMachine,
                 nodeStateService,
                 _connector,
-                moqClusterOptions.Object);
+                moqClusterOptions.Object,
+                inMemoryRepository,
+                moqNodeOptions.Object
+                );
             return manager;
         }
     }

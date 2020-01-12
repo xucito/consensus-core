@@ -84,9 +84,9 @@ namespace ConsensusCore.Node.Controllers
         }
 
         [HttpGet("transactions/{shardId}")]
-        public IActionResult GetTransactions(Guid shardId)
+        public async Task<IActionResult> GetTransactions(Guid shardId)
         {
-            return Ok(_shardRepository.GetAllShardWriteOperations(shardId).OrderBy(swo => swo.Pos));
+            return Ok((await _shardRepository.GetAllShardWriteOperationsAsync(shardId)).OrderBy(swo => swo.Pos));
         }
 
 
@@ -94,7 +94,8 @@ namespace ConsensusCore.Node.Controllers
         [HttpGet("snapshot")]
         public async Task<IActionResult> GetSnapshot()
         {
-            return Ok(new {
+            return Ok(new
+            {
                 lastIncludedTerm = _nodeStorage.LastSnapshotIncludedTerm,
                 lastIncludedIndex = _nodeStorage.LastSnapshotIncludedIndex,
                 snapshot = _nodeStorage.LastSnapshot

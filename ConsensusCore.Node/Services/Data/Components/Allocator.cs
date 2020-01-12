@@ -115,9 +115,9 @@ namespace ConsensusCore.Node.Services.Data.Components
             return true;
         }
 
-        public void AllocateShard(Guid shardId, string type)
+        public async void AllocateShard(Guid shardId, string type)
         {
-            _shardRepository.AddShardMetadata(new Domain.Models.ShardMetadata()
+            await _shardRepository.AddShardMetadataAsync(new Domain.Models.ShardMetadata()
             {
                 ShardId = shardId,
                 Type = type

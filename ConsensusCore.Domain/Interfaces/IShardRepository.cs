@@ -9,29 +9,21 @@ namespace ConsensusCore.Domain.Interfaces
 {
     public interface IShardRepository
     {
-        int GetTotalShardWriteOperationsCount(Guid shardId);
-        bool AddShardWriteOperation(ShardWriteOperation operation);
-        bool MarkShardWriteOperationApplied(string operationId);
-        bool RemoveShardWriteOperation(Guid shardId, int pos);
-        SortedDictionary<int, ShardWriteOperation> GetAllUnappliedOperations(Guid shardId);
-        List<ShardMetadata> GetAllShardMetadata();
-        //bool MarkShardWriteOperationAsApplied(Guid shardId, int pos);
-        bool AddDataReversionRecord(DataReversionRecord record);
         bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId);
-        bool MarkObjectForDeletion(ObjectDeletionMarker marker);
-        /// <summary>
-        /// You should update based on not only the operation pos but also check the objectid, type
-        /// </summary>
-        /// <param name="shardId"></param>
-        /// <param name="operation"></param>
-        /// <returns></returns>
-        bool UpdateShardWriteOperation(Guid shardId, ShardWriteOperation operation);
-        ShardWriteOperation GetShardWriteOperation(Guid shardId, int syncPos);
-        ShardWriteOperation GetShardWriteOperation(string transacionId);
+        int GetTotalShardWriteOperationsCount(Guid shardId);
+        Task<bool> AddShardWriteOperationAsync(ShardWriteOperation operation);
+        Task<bool> MarkShardWriteOperationAppliedAsync(string operationId);
+        Task<bool> RemoveShardWriteOperationAsync(Guid shardId, int pos);
+        Task<SortedDictionary<int, ShardWriteOperation>> GetAllUnappliedOperationsAsync(Guid shardId);
+        Task<List<ShardMetadata>> GetAllShardMetadataAsync();
+        Task<bool> AddDataReversionRecordAsync(DataReversionRecord record);
+        Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker);
+        Task<ShardWriteOperation> GetShardWriteOperationAsync(Guid shardId, int syncPos);
+        Task<ShardWriteOperation> GetShardWriteOperationAsync(string transacionId);
         Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to);
         Task<SortedDictionary<int, ShardWriteOperation>> GetAllObjectShardWriteOperationAsync(Guid shardId, Guid objectId);
-        IEnumerable<ShardWriteOperation> GetAllShardWriteOperations(Guid shardId);
-        bool AddShardMetadata(ShardMetadata operation);
-        ShardMetadata GetShardMetadata(Guid shardId);
+        Task<IEnumerable<ShardWriteOperation>> GetAllShardWriteOperationsAsync(Guid shardId);
+        Task<bool> AddShardMetadataAsync(ShardMetadata shardMetadata);
+        Task<ShardMetadata> GetShardMetadataAsync(Guid shardId);
     }
 }

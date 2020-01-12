@@ -9,7 +9,8 @@ namespace ConsensusCore.Domain.Interfaces
 {
     public interface IStateMachine<Z> where Z : BaseState, new()
     {
-        Z CurrentState { get; }
+        //Set should only be used for testing
+        Z CurrentState { get; set; }
         Z DefaultState { get; set; }
         void ApplySnapshotToStateMachine(Z state);
         void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries);

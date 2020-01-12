@@ -13,7 +13,7 @@ namespace ConsensusCore.Node.Services.Raft
         ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request);
         Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
         InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request);
-        Task MonitorCommits();
+        Task MonitorCommits(bool loop);
         RequestVoteResponse RequestVoteRPCHandler(RequestVote requestVoteRPC);
         void SendHeartbeats();
         void SetNodeRole(NodeState newState);

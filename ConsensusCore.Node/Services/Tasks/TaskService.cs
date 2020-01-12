@@ -6,6 +6,7 @@ using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.SystemCommands.Tasks;
+using ConsensusCore.Domain.Utility;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Services.Data;
 using ConsensusCore.Node.Services.Raft;
@@ -93,7 +94,7 @@ namespace ConsensusCore.Node.Services.Tasks
                             _logger.LogDebug(_nodeStateService.GetNodeLogId() + " is starting task " + tasks[i].ToString());
                             try
                             {
-                                var newTask = StartNodeTask(tasks[i]);
+                                var newTask = StartNodeTask(SystemExtension.Clone(tasks[i]));
                                 _nodeTasks.TryAdd(tasks[i].Id
                                     , new NodeTaskMetadata()
                                     {

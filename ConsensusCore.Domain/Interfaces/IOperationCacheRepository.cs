@@ -3,6 +3,7 @@ using ConsensusCore.Domain.RPCs;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace ConsensusCore.Domain.Interfaces
 {
@@ -13,31 +14,31 @@ namespace ConsensusCore.Domain.Interfaces
         /// </summary>
         /// <param name="data"></param>
         /// <returns></returns>
-        bool EnqueueOperation(ShardWriteOperation data);
+        Task<bool> EnqueueOperationAsync(ShardWriteOperation data);
         /// <summary>
         /// Gets Next Operation
         /// </summary>
         /// <param name="objectId"></param>
         /// <returns></returns>
-        ShardWriteOperation GetNextOperation();
+        Task<ShardWriteOperation> GetNextOperationAsync();
         /// <summary>
         /// Delete Operation from Queue
         /// </summary>
         /// <param name="objectId"></param>
         /// <returns></returns>
-        bool DeleteOperationFromQueue(ShardWriteOperation operation);
+        Task<bool> DeleteOperationFromQueueAsync(ShardWriteOperation operation);
         /// <summary>
         /// Add operation to transit queue
         /// </summary>
         /// <param name="operation"></param>
         /// <returns></returns>
-        bool AddOperationToTransit(ShardWriteOperation operation);
+        Task<bool> AddOperationToTransitAsync(ShardWriteOperation operation);
         /// <summary>
         /// Removes the transaction from the queue and moves to transit
         /// </summary>
         /// <param name="objectId"></param>
         /// <returns></returns>
-        bool DeleteOperationFromTransit(string operationId);
+        Task<bool> DeleteOperationFromTransitAsync(string operationId);
         /// <summary>
         /// Removes the transaction from the queue and moves to transit
         /// </summary>
@@ -62,5 +63,15 @@ namespace ConsensusCore.Domain.Interfaces
         /// <param name="operationId"></param>
         /// <returns></returns>
         bool IsOperationInQueue(string operationId);
+        /// <summary>
+        /// Load the entire Operation Queue
+        /// </summary>
+        /// <returns></returns>
+        Task<IEnumerable<ShardWriteOperation>> GetOperationQueueAsync();
+        /// <summary>
+        /// Load the entire transit queue
+        /// </summary>
+        /// <returns></returns>
+        Task<IEnumerable<ShardWriteOperation>> GetTransitQueueAsync();
     }
 }

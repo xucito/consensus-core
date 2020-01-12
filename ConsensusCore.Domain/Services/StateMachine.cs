@@ -20,11 +20,10 @@ namespace ConsensusCore.Domain.Services
     public class StateMachine<Z> : IStateMachine<Z>
         where Z : BaseState, new()
     {
-        private Z _currentState;
         public Z DefaultState { get; set; }
         public Z CurrentState{
             get;
-            private set;
+            set;
         }
         public int CommitIndex { get; set; }
         public int CurrentTerm { get; set; }
@@ -56,12 +55,13 @@ namespace ConsensusCore.Domain.Services
                 {
                     lock (currentStateLock)
                     {
-                        _currentState.ApplyCommand(command);
+                        CurrentState.ApplyCommand(command);
                     }
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e.Message);
+                    if(!_disabledLogging)
+                        _logger.LogDebug("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
                 }
             }
         }
@@ -81,7 +81,7 @@ namespace ConsensusCore.Domain.Services
 
                         lock (currentStateLock)
                         {
-                            _currentState.ApplyCommand(command);
+                            CurrentState.ApplyCommand(command);
                         }
                         if (!_disabledLogging)
                             _logger.LogDebug("State " + Environment.NewLine + JsonConvert.SerializeObject(CurrentState, Formatting.Indented));
@@ -89,7 +89,7 @@ namespace ConsensusCore.Domain.Services
                     catch (Exception e)
                     {
                         if (!_disabledLogging)
-                            _logger.LogError("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
+                            _logger.LogDebug("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
                     }
                 }
             }

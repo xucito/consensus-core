@@ -52,6 +52,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.True(dataResult.IsSuccessful);
             Assert.NotNull(dataResult.Data);
             Assert.Equal(1, ((TestData)dataResult.Data).Data);
+            Assert.True(dataResult.AppliedLocked);
 
             var failedRequest = await Node.Handle(new RequestDataShard()
             {

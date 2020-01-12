@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Node;
+using ConsensusCore.Node.Communication.Controllers;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
 using ConsensusCore.Node.Services.Data;
@@ -42,7 +43,7 @@ namespace ConsensusCore.TestNode
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
+            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
@@ -52,7 +53,11 @@ namespace ConsensusCore.TestNode
             {
                 options.Conventions.Add(new RouteTokenTransformerConvention(
                 new SlugifyParameterTransformer()));
-            }).SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+            })
+            .AddJsonOptions(options => {
+                options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+            })
+            .SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -61,7 +66,8 @@ namespace ConsensusCore.TestNode
             IRaftService raftService,
             IDataService dataService,
             ITaskService taskService,
-            ILogger<Startup> logger)
+            ILogger<Startup> logger,
+            IClusterRequestHandler clusterRequestHandler)
         {
             if (env.IsDevelopment())
             {
@@ -73,7 +79,9 @@ namespace ConsensusCore.TestNode
                 app.UseHsts();
             }
 
-          //  node.MetricGenerated += metricGenerated;
+            //  node.MetricGenerated += metricGenerated;
+
+            clusterRequestHandler.MetricGenerated += metricGenerated;
 
             app.Use(async (context, next) =>
             {
@@ -114,9 +122,9 @@ namespace ConsensusCore.TestNode
             app.UseMvc();
         }
 
-        /*static void metricGenerated(object sender, Metric e)
+        static void metricGenerated(object sender, Metric e)
         {
-            Console.WriteLine(JsonConvert.SerializeObject(e, Formatting.Indented));
-        }*/
+          //  Console.WriteLine(JsonConvert.SerializeObject(e, Formatting.Indented));
+        }
     }
 }

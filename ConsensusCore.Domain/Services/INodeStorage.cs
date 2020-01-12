@@ -12,7 +12,7 @@ namespace ConsensusCore.Domain.Services
         Guid Id { get; set; }
         int CurrentTerm { get; }
         int LastSnapshotIncludedIndex { get; set; }
-        int LastSnapshotIncludedTerm { get; set; }
+        int LastSnapshotIncludedTerm { get; }
         SortedList<int, LogEntry> Logs { get; set; }
         string Name { get; set; }
         double Version { get; set; }
@@ -20,7 +20,7 @@ namespace ConsensusCore.Domain.Services
         int AddCommands(List<BaseCommand> commands, int term);
         void AddLog(LogEntry entry);
         void AddLogs(List<LogEntry> entries);
-        void CreateSnapshot(int indexIncludedTo);
+        void CreateSnapshot(int indexIncludedTo, int trailingLogCount);
         void DeleteLogsFromIndex(int fromIndex, int? toIndex = null);
         int GetLastLogIndex();
         int GetLastLogTerm();

@@ -40,7 +40,7 @@ namespace ConsensusCore.Node.Services.Raft
                             //You can catch this error as presumably all nodes in cluster wil experience the same error
                             try
                             {
-                                _logger.LogDebug("Applying commit "+ (commitIndex + 1) + " to " + indexToAddTo);
+                                _logger.LogDebug("Applying commit " + (commitIndex + 1) + " to " + indexToAddTo);
                                 StateMachine.ApplyLogsToStateMachine(_nodeStorage.GetLogRange(commitIndex + 1, indexToAddTo));// _nodeStorage.GetLogAtIndex(CommitIndex + 1));
                             }
                             catch (Exception e)
@@ -49,11 +49,12 @@ namespace ConsensusCore.Node.Services.Raft
                             }
                             NodeStateService.CommitIndex = indexToAddTo;
                             NodeStateService.LatestLeaderCommit = indexToAddTo;
+                            commitIndex = indexToAddTo;
                         }
                         else
                         {
+                            indexToAddTo--;
                         }
-                        indexToAddTo--;
                     }
                 }
                 else if (NodeStateService.Role == NodeState.Follower)

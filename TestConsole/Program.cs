@@ -352,7 +352,7 @@ namespace TestConsole
                 }
                 counters++;
             }
-            logger.LogWarning("Failed 10 times");
+            //logger.LogWarning("Failed 10 times");
             return default(TResult);
         }
     }
