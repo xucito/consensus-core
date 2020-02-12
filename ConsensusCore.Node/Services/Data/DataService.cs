@@ -114,30 +114,45 @@ namespace ConsensusCore.Node.Services.Data
                         catch (Exception e)
                         {
                             _logger.LogError("Failed to apply operation " + operation.Id + " with exception " + e.Message + Environment.NewLine + e.StackTrace);
-                            await _writeCache.CompleteOperation(operation.Id);
+                            try
+                            {
+                                await _writeCache.CompleteOperation(operation.Id);
+                            }
+                            catch (Exception completionError)
+                            {
+                                _logger.LogError("Error removing operation from transit queue with error " + completionError.Message + Environment.NewLine
+                                    + completionError.StackTrace + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
+                            }
                         }
                     }
                 }
 
                 while (true)
                 {
-                    var operation = await _writeCache.DequeueOperation();
-                    if (operation != null)
+                    try
                     {
-                        var result = await Writer.WriteShardData(operation.Data, operation.Operation, operation.Id, operation.TransactionDate);
-                        if (result)
+                        var operation = await _writeCache.DequeueOperation();
+                        if (operation != null)
                         {
+                            try
+                            {
+                                var result = await Writer.WriteShardData(operation.Data, operation.Operation, operation.Id, operation.TransactionDate);
+                            }
+                            catch (Exception e)
+                            {
+                                _logger.LogError("Failed to write operation with exception " + e.Message + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
+                            }
                             await _writeCache.CompleteOperation(operation.Id);
                         }
                         else
                         {
-                            _logger.LogError("Failed to write operation " + result + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
+                            //Release write thread for a small amount of time
+                            Thread.Sleep(100);
                         }
                     }
-                    else
+                    catch (Exception e)
                     {
-                        //Release write thread for a small amount of time
-                        Thread.Sleep(100);
+                        _logger.LogError("Encountered critical write error " + e.Message + Environment.NewLine + e.StackTrace);
                     }
                 }
             });
@@ -146,7 +161,7 @@ namespace ConsensusCore.Node.Services.Data
 
             _allocationTask = new Task(async () => await AllocateShards());
             _allocationTask.Start();
-            _replicaValidationChecksTask = Task.Run(async() => await CheckAllReplicas());
+            _replicaValidationChecksTask = Task.Run(async () => await CheckAllReplicas());
 
 
             if (_nodeOptions.EnablePerformanceLogging)
@@ -324,6 +339,7 @@ namespace ConsensusCore.Node.Services.Data
         {
             var startDate = DateTime.Now;
             var checkpoint = 1;
+            var totalOperation = _writeCache.OperationQueue.Count();
             _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Received write request for object " + request.Data.Id + " for request " + request.Data.ShardId);
 
             AddShardWriteOperationResponse finalResult = new AddShardWriteOperationResponse();
@@ -396,16 +412,14 @@ namespace ConsensusCore.Node.Services.Data
 
                 ShardWriteOperation transaction;
 
-                while (!_writeCache.IsOperationComplete(operationId) || (transaction = await _shardRepository.GetShardWriteOperationAsync(operationId)) == null)
+                while (!_writeCache.IsOperationComplete(operationId))
                 {
                     if ((DateTime.Now - startDate).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
                     {
                         throw new IndexCreationFailedException("Queue clearance for transaction " + operationId + request.Data.ShardType + " timed out.");
                     }
-                    Thread.Sleep(10);
+                    Thread.Sleep(totalOperation);
                 }
-                finalResult.Pos = transaction.Pos;
-                finalResult.ShardHash = transaction.ShardHash;
                 // printCheckPoint(ref startDate, ref checkpoint, "wait for completion");
             }
             else
@@ -443,6 +457,9 @@ namespace ConsensusCore.Node.Services.Data
             }
 
             Interlocked.Increment(ref totalRequests);
+
+            if (_nodeOptions.EnablePerformanceLogging) PerformanceMetricUtility.PrintCheckPoint(ref totalLock, ref totals, ref startDate, ref checkpoint, "removeLock");
+
             return finalResult;
         }
 

@@ -363,8 +363,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                     Data = 200,
                     ShardId = TestUtility.DefaultShardId
                 },
-                Operation =
-                ShardOperationOptions.Update
+                Operation = ShardOperationOptions.Update
             });
 
             var updatedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });

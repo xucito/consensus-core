@@ -40,5 +40,7 @@ namespace ConsensusCore.Domain.BaseClasses
         {
             return operation.Id == Id;
         }
+
+        public WriteConsistencyLevels ConsistencyLevel { get; set; } = WriteConsistencyLevels.Queued;
     }
 }

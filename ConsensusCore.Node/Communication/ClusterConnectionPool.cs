@@ -62,7 +62,10 @@ namespace ConsensusCore.Node.Communication.Clients
                 {
                     _nodeConnectors.Remove(matchingNode);
                 }
-
+                if (_nodeConnectors.ContainsKey(nodeId))
+                {
+                    _nodeConnectors.Remove(nodeId);
+                }
                 _nodeConnectors.Add(nodeId, new HttpNodeConnector(url, _timeoutInterval, _dataTimeoutInterval));
             }
         }

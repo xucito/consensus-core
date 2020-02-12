@@ -21,7 +21,5 @@ namespace ConsensusCore.Domain.RPCs.Shard
         public Guid ShardId { get; set; }
         public bool LockRemoved { get; set; } //Whether a lock was removed
         public List<Guid> FailedNodes { get; set; }
-        public int? Pos { get; set; } = null; //Position of the write
-        public string ShardHash { get; set; }
     }
 }

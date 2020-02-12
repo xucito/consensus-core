@@ -26,6 +26,8 @@ namespace ConsensusCore.Node.Services.Data.Components
         private readonly NodeStateService _nodeStateService;
         private readonly ClusterClient _clusterClient;
         private readonly ILogger _logger;
+        //Stores a copy of the last operation completed for each shard
+        private Dictionary<Guid, ShardWriteOperation> _shardLastOperationCache = new Dictionary<Guid, ShardWriteOperation>();
 
         public Writer(
             ILogger<Writer<State>> logger,
@@ -52,9 +54,27 @@ namespace ConsensusCore.Node.Services.Data.Components
                 Operation = operationType,
                 TransactionDate = transactionDate
             };
+
+            ShardWriteOperation lastOperation = null;
+
+            //If you havent locally cached the last operation
+            if (!_shardLastOperationCache.ContainsKey(operation.Data.ShardId.Value))
+            {
+                var totalOperations = _shardRepository.GetTotalShardWriteOperationsCount(operation.Data.ShardId.Value);
+                if (totalOperations != 0)
+                {
+                    lastOperation = await _shardRepository.GetShardWriteOperationAsync(operation.Data.ShardId.Value, totalOperations);
+                    _shardLastOperationCache.Add(operation.Data.ShardId.Value, lastOperation);
+                }
+            }
+            else
+            {
+                lastOperation = _shardLastOperationCache[operation.Data.ShardId.Value];
+            }
+
             //Start at 1
-            operation.Pos = _shardRepository.GetTotalShardWriteOperationsCount(operation.Data.ShardId.Value) + 1;
-            var hash = operation.Pos == 1 ? "" : (await _shardRepository.GetShardWriteOperationAsync(operation.Data.ShardId.Value, operation.Pos - 1)).ShardHash;
+            operation.Pos = lastOperation == null ? 1 : lastOperation.Pos + 1;
+            var hash = lastOperation == null ? "" : lastOperation.ShardHash;
             operation.ShardHash = ObjectUtility.HashStrings(hash, operation.Id);
             _logger.LogDebug(_nodeStateService.GetNodeLogId() + "writing new operation " + operationId + " with data " + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
             //Write the data
@@ -77,6 +97,8 @@ namespace ConsensusCore.Node.Services.Data.Components
                 var shardMetadata = _stateMachine.GetShard(operation.Data.ShardType, operation.Data.ShardId.Value);
                 //Mark operation as applied
                 await _shardRepository.MarkShardWriteOperationAppliedAsync(operation.Id);
+                //Update the cache
+                _shardLastOperationCache[operation.Data.ShardId.Value] = operation;
                 ConcurrentBag<Guid> InvalidNodes = new ConcurrentBag<Guid>();
                 //All allocations except for your own
                 var tasks = shardMetadata.InsyncAllocations.Where(id => id != _nodeStateService.Id).Select(async allocation =>
