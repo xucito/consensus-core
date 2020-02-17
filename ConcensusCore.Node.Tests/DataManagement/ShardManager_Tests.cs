@@ -186,7 +186,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 Type = "number",
                 ShardId = TestUtility.DefaultShardId
             });
-            _shardManager.Syncer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", result.Operations.First().Value.Pos);
+            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", result.Operations.First().Value.Pos);
             var newResult = await _shardManager.Reader.GetData(recordId, "number", 3000);
             Assert.Null(newResult);
         }
@@ -263,7 +263,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                         Data = 101,
                         Id = recordId
                     },
-                    ShardHash = ObjectUtility.HashStrings(firstTransaction.ShardHash, secondId)
+                    ShardHash = ObjectUtility.HashStrings(ObjectUtility.HashStrings("",firstTransaction.OperationId), secondId)
                 }
             });
 
@@ -370,7 +370,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             Assert.Equal(200, ((TestData)updatedResult.Data).Data);
 
-            _shardManager.Syncer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", updateWriteResult.Pos.Value);
+            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
             var revertedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
             Assert.Equal(100, ((TestData)revertedResult.Data).Data);
         }
@@ -430,7 +430,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var updatedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
 
             Assert.True(updatedResult.IsSuccessful);
-            _shardManager.Syncer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", deleteDataResponse.Pos.Value);
+            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
             var revertedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
             Assert.Equal(100, ((TestData)revertedResult.Data).Data);
         }

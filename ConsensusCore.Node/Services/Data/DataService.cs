@@ -94,7 +94,7 @@ namespace ConsensusCore.Node.Services.Data
                 nodeStateService,
                 clusterClient
                 );
-            Syncer = new Syncer<State>(shardRepository, loggerFactory.CreateLogger<Syncer<State>>(), dataRouter, stateMachine, clusterClient, nodeStateService);
+            Syncer = new Syncer<State>(shardRepository, loggerFactory.CreateLogger<Syncer<State>>(), stateMachine, clusterClient, nodeStateService, Writer);
 
 
 
@@ -399,6 +399,7 @@ namespace ConsensusCore.Node.Services.Data
             if (shardMetadata.PrimaryAllocation == _nodeStateService.Id)
             {
                 var operationId = Guid.NewGuid().ToString();
+                finalResult.OperationId = operationId;
                 await _writeCache.EnqueueOperationAsync(new ShardWriteOperation()
                 {
                     Data = request.Data,
@@ -538,7 +539,7 @@ namespace ConsensusCore.Node.Services.Data
         {
             return new ReplicateShardWriteOperationResponse()
             {
-                IsSuccessful = await Syncer.ReplicateShardWriteOperationAsync(request.Operation)
+                IsSuccessful = await Writer.ReplicateShardWriteOperationAsync(request.Operation)
             };
         }
 

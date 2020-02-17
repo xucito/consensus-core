@@ -127,7 +127,10 @@ namespace ConcensusCore.Node.Tests
             var moqClusterOptions = new Mock<IOptions<ClusterOptions>>();
 
             var moqNodeOptions = new Mock<IOptions<NodeOptions>>();
+            moqNodeOptions.Setup(mqo => mqo.Value).Returns(new NodeOptions()
+            {
 
+            });
             Guid nodeStorageId = Guid.NewGuid();
             var NodeStorage = new NodeStorage<TestState>(factory.CreateLogger<NodeStorage<TestState>>(), inMemoryRepository)
             {

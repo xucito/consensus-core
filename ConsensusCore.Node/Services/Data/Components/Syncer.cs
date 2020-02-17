@@ -21,24 +21,24 @@ namespace ConsensusCore.Node.Services.Data.Components
     {
         IShardRepository _shardRepository;
         ILogger _logger;
-        IDataRouter _dataRouter;
         IStateMachine<State> _stateMachine;
         ClusterClient _clusterClient;
         NodeStateService _nodeStateService;
+        Writer<State> _writer;
 
         public Syncer(IShardRepository shardRepository,
             ILogger<Syncer<State>> logger,
-            IDataRouter dataRouter,
             IStateMachine<State> stateMachine,
             ClusterClient clusterClient,
-             NodeStateService nodeStateService)
+             NodeStateService nodeStateService,
+             Writer<State> writer)
         {
             _logger = logger;
             _shardRepository = shardRepository;
-            _dataRouter = dataRouter;
             _stateMachine = stateMachine;
             _nodeStateService = nodeStateService;
             _clusterClient = clusterClient;
+            _writer = writer;
             ResyncShardWriteOperations();
         }
 
@@ -62,18 +62,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         string newHash;
 
                         //Run shard operation
-                        switch (unappliedShardOperation.Value.Operation)
-                        {
-                            case ShardOperationOptions.Create:
-                                await _dataRouter.InsertDataAsync(unappliedShardOperation.Value.Data);
-                                break;
-                            case ShardOperationOptions.Delete:
-                                await _dataRouter.DeleteDataAsync(unappliedShardOperation.Value.Data);
-                                break;
-                            case ShardOperationOptions.Update:
-                                await _dataRouter.UpdateDataAsync(unappliedShardOperation.Value.Data);
-                                break;
-                        }
+                        _writer.ApplyOperationToDatastore(unappliedShardOperation.Value);
                         await _shardRepository.MarkShardWriteOperationAppliedAsync(unappliedShardOperation.Value.Id);
                     }
                     //Reverse all the last operations
@@ -83,7 +72,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         for (var i = _shardRepository.GetTotalShardWriteOperationsCount(shard.ShardId); i >= removeFrom; i--)
                         {
                             _logger.LogWarning("Detected out of order operations from " + removeFrom + ", removing operations onwards.");
-                            ReverseLocalTransaction(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Data.ShardType, i);
+                            _writer.ReverseLocalTransaction(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Data.ShardType, i);
                         }
                         //Break out of loop
                         break;
@@ -94,50 +83,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             _logger.LogDebug("Finished Resyncing Operations");
         }
 
-        public async Task<bool> ReplicateShardWriteOperationAsync(ShardWriteOperation operation)
-        {
-            // Get the last operation
-            ShardWriteOperation lastOperation;
 
-            var startTime = DateTime.Now;
-            if (operation.Pos != 1)
-            {
-                while ((lastOperation = await _shardRepository.GetShardWriteOperationAsync(operation.Data.ShardId.Value, operation.Pos - 1)) == null || !lastOperation.Applied)
-                {
-                    //Assume in the next 3 seconds you should receive the previos requests
-                    if ((DateTime.Now - startTime).TotalMilliseconds > 3000)
-                    {
-                        return false;
-                    }
-                    Thread.Sleep(100);
-                }
-
-                string newHash;
-                if ((newHash = ObjectUtility.HashStrings(lastOperation.ShardHash, operation.Id)) != operation.ShardHash)
-                {
-                    //Critical error with data concurrency, revert back to last known good commit via the resync process
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
-                    throw new Exception(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
-                }
-            }
-
-            await _shardRepository.AddShardWriteOperationAsync(operation);
-            //Run shard operation
-            switch (operation.Operation)
-            {
-                case ShardOperationOptions.Create:
-                    await _dataRouter.InsertDataAsync(operation.Data);
-                    break;
-                case ShardOperationOptions.Delete:
-                    await _dataRouter.DeleteDataAsync(operation.Data);
-                    break;
-                case ShardOperationOptions.Update:
-                    await _dataRouter.UpdateDataAsync(operation.Data);
-                    break;
-            }
-            await _shardRepository.MarkShardWriteOperationAppliedAsync(operation.Id);
-            return true;
-        }
 
         public async Task<bool> SyncShard(Guid shardId, string type)
         {
@@ -161,7 +107,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                 {
                     while (totalPositions != result.LatestPosition)
                     {
-                        ReverseLocalTransaction(shardId, type, totalPositions);
+                        _writer.ReverseLocalTransaction(shardId, type, totalPositions);
                         totalPositions--;
                     }
                 }
@@ -181,7 +127,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         })).Operations[currentPosition].ShardHash != (currentOperation = await _shardRepository.GetShardWriteOperationAsync(shardId, currentPosition)).ShardHash))
                         {
                             _logger.LogInformation("Reverting transaction " + currentOperation.Pos + " on shard " + shardId);
-                            ReverseLocalTransaction(shardId, type, currentOperation.Pos);
+                            _writer.ReverseLocalTransaction(shardId, type, currentOperation.Pos);
                             currentPosition--;
                         }
                     }
@@ -200,7 +146,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         _logger.LogWarning("Detected more nodes locally then primary, revering to latest position");
                         while (totalShards != result.LatestPosition)
                         {
-                            ReverseLocalTransaction(shardId, type, totalShards);
+                            _writer.ReverseLocalTransaction(shardId, type, totalShards);
                             totalShards--;
                         }
                     }
@@ -210,7 +156,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         foreach (var operation in result.Operations)
                         {
                             _logger.LogDebug(_nodeStateService.Id + "Replicated operation " + operation.Key + " for shard " + shardId);
-                            await ReplicateShardWriteOperationAsync(operation.Value);
+                            await _writer.ReplicateShardWriteOperationAsync(operation.Value);
                         }
                         currentPosition = result.Operations.Last().Key;
                         result = await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
@@ -228,51 +174,6 @@ namespace ConsensusCore.Node.Services.Data.Components
             else
             {
                 throw new Exception("Failed to fetch shard from primary.");
-            }
-        }
-
-        public async void ReverseLocalTransaction(Guid shardId, string type, int pos)
-        {
-            var operation = await _shardRepository.GetShardWriteOperationAsync(shardId, pos);
-            if (operation != null)
-            {
-                await _shardRepository.AddDataReversionRecordAsync(new DataReversionRecord()
-                {
-                    OriginalOperation = operation,
-                    NewData = operation.Data,
-                    OriginalData = await _dataRouter.GetDataAsync(type, operation.Data.Id),
-                    RevertedTime = DateTime.Now
-                });
-
-                ShardData data = operation.Data;
-                SortedDictionary<int, ShardWriteOperation> allOperations;
-                ShardWriteOperation lastObjectOperation = null;
-                if (operation.Operation == ShardOperationOptions.Update || operation.Operation == ShardOperationOptions.Delete)
-                {
-                    allOperations = await _shardRepository.GetAllObjectShardWriteOperationAsync(data.ShardId.Value, data.Id);
-                    lastObjectOperation = allOperations.Where(ao => ao.Key < operation.Pos).Last().Value;
-                }
-
-                switch (operation.Operation)
-                {
-                    case ShardOperationOptions.Create:
-                        data = await _dataRouter.GetDataAsync(type, operation.Data.Id);
-                        if (data != null)
-                        {
-                            _logger.LogInformation(_nodeStateService.GetNodeLogId() + "Reverting create with deletion of " + data);
-                            await _dataRouter.DeleteDataAsync(data);
-                        }
-                        break;
-                    // Put the data back in the right position
-                    case ShardOperationOptions.Delete:
-                        await _dataRouter.InsertDataAsync(lastObjectOperation.Data);
-                        break;
-                    case ShardOperationOptions.Update:
-                        await _dataRouter.UpdateDataAsync(lastObjectOperation.Data);
-                        break;
-                }
-
-                await _shardRepository.RemoveShardWriteOperationAsync(shardId, operation.Pos);
             }
         }
     }
