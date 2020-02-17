@@ -23,6 +23,7 @@ namespace TestConsole
         static int RandomFailures = 0;
         static int TotalTimeDown = 0;
         static int AverageTimeForRecoveries = 0;
+        static bool DataConsistencyCheck = true;
         static int[] ports = new int[]
         {
             5021,
@@ -44,7 +45,7 @@ namespace TestConsole
         {
             Console.WriteLine("Hello World!");
             ILoggerFactory loggerFactory = new LoggerFactory()
-             .AddConsole();
+             .AddConsole(LogLevel.Information);
             logger = loggerFactory.CreateLogger<Program>();
 
 
@@ -67,33 +68,37 @@ namespace TestConsole
                 });
                 chaosMonkey.Start();
             }
-            while (true)
-            {
-                List<Task> allThreads = new List<Task>();
-                int numberOfConcurrentThreads = 10;
-                lock (DataLock)
-                {
-                    for (var i = 0; i < numberOfConcurrentThreads; i++)
-                    {
-                        allThreads.Add(new Task(async () =>
-                        {
-                            try
-                            {
-                                Interlocked.Increment(ref TestLoops);
-                                await RunTest();
-                            }
-                            catch (Exception e)
-                            {
-                                logger.LogError("Critical error while running test...");
-                            }
-                        }));
-                    }
-                    Parallel.ForEach(allThreads, thread =>
-                             {
-                                 thread.Start();
-                             });
 
-                    Task.WhenAll(allThreads).GetAwaiter().GetResult();
+            if (DataConsistencyCheck)
+            {
+                while (true)
+                {
+                    List<Task> allThreads = new List<Task>();
+                    int numberOfConcurrentThreads = 10;
+                    lock (DataLock)
+                    {
+                        for (var i = 0; i < numberOfConcurrentThreads; i++)
+                        {
+                            allThreads.Add(new Task(async () =>
+                            {
+                                try
+                                {
+                                    Interlocked.Increment(ref TestLoops);
+                                    await RunTest();
+                                }
+                                catch (Exception e)
+                                {
+                                    logger.LogError("Critical error while running test...");
+                                }
+                            }));
+                        }
+                        Parallel.ForEach(allThreads, thread =>
+                                 {
+                                     thread.Start();
+                                 });
+
+                        Task.WhenAll(allThreads).GetAwaiter().GetResult();
+                    }
                 }
             }
             Console.ReadLine();
@@ -113,7 +118,7 @@ namespace TestConsole
             while (true)
             {
                 PrintStatus();
-                Thread.Sleep(rand.Next(0, 10000));
+                Thread.Sleep(rand.Next(0, 3000));
                 var numberOfNodeFailures = rand.Next(1, ports.Length); //(processes.Count - 1) / 2;
 
                 List<ChaosDefinition> processesToMessWith = new List<ChaosDefinition>();
@@ -222,25 +227,35 @@ namespace TestConsole
                     Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
                     logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
 
-                    if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
+                    while (!client.IsClusterStateConsistent(Urls.ToList()).GetAwaiter().GetResult())
                     {
-
-                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY.");
+                        Console.WriteLine("State is still not consistent");
                     }
-                    else
+
+                    Console.WriteLine("State is still consistent");
+
+                    if (DataConsistencyCheck)
                     {
-                        Console.WriteLine("ERROR! THERE IS AN ISSUE WITH THE DATA CONSISTENCY AFTER RECOVERY.");
-                        Thread.Sleep(10000);
-                        while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
+                        if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
                         {
-                            Thread.Sleep(1000);
+
+                            Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY.");
                         }
-                        while (!client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
+                        else
                         {
-                            Console.WriteLine("After 10 seconds the cluster is still inconsistent.");
-                            Thread.Sleep(1000);
+                            Console.WriteLine("ERROR! THERE IS AN ISSUE WITH THE DATA CONSISTENCY AFTER RECOVERY.");
+                            Thread.Sleep(10000);
+                            while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
+                            {
+                                Thread.Sleep(1000);
+                            }
+                            while (!client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
+                            {
+                                Console.WriteLine("After 10 seconds the cluster is still inconsistent.");
+                                Thread.Sleep(1000);
+                            }
+                            Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
                         }
-                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
                     }
 
                 }
@@ -337,7 +352,7 @@ namespace TestConsole
                 }
                 counters++;
             }
-            logger.LogWarning("Failed 10 times");
+            //logger.LogWarning("Failed 10 times");
             return default(TResult);
         }
     }
@@ -687,6 +702,38 @@ namespace TestConsole
                         client.BaseAddress = new Uri(url);
                         var result = await client.GetAsync("api/values/Test");
                         allResults.Add(JArray.Parse(await result.Content.ReadAsStringAsync()));
+                    }
+                }
+
+                for (var i = 1; i < urls.Count; i++)
+                {
+                    if (!JToken.DeepEquals(allResults[i], allResults[i - 1]))
+                    {
+                        //Console.WriteLine("Object " + allResults[i]["value"]["id"].ToObject<string>() + " is not consistent.." + Environment.NewLine + allResults[i].ToString(Newtonsoft.Json.Formatting.Indented));
+                        return false;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Failed to compare data with exception " + e.Message + Environment.NewLine + e.StackTrace);
+                return false;
+            }
+            return true;
+        }
+
+        public async Task<bool> IsClusterStateConsistent(List<string> urls)
+        {
+            try
+            {
+                List<JObject> allResults = new List<JObject>();
+                foreach (var url in urls)
+                {
+                    using (var client = new HttpClient())
+                    {
+                        client.BaseAddress = new Uri(url);
+                        var result = await client.GetAsync("api/node/state");
+                        allResults.Add(JObject.Parse(await result.Content.ReadAsStringAsync()));
                     }
                 }
 

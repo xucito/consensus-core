@@ -8,7 +8,7 @@ namespace ConsensusCore.Domain.SystemCommands
     public class CreateIndex: BaseCommand
     {
         public string Type { get; set; }
-        public List<SharedShardMetadata> Shards { get; set; }
+        public List<ShardAllocationMetadata> Shards { get; set; }
 
         public override string CommandName => "CreateIndex";
     }

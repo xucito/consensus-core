@@ -45,11 +45,11 @@ namespace ConsensusCore.Domain.BaseClasses
             }
         }
 
-        public List<Guid> GetClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
+        public IEnumerable<BaseTask> GetNodeClusterTasks(ClusterTaskStatuses[] statuses, Guid nodeId)
         {
-            return ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(ct => ct.Key).ToList();
+            return SystemExtension.Clone(ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(b => b.Value));
         }
-
+        
         public void ApplyCommand(BaseCommand command)
         {
             try
@@ -71,6 +71,15 @@ namespace ConsensusCore.Domain.BaseClasses
                         {
                             //Only add if it is marking as contactable
                             if (t1.IsContactable)
+                            {
+                                var nodes = Nodes.Where(n => n.Value.TransportAddress == t1.TransportAddress);
+                                if (nodes.Count() > 0)
+                                {
+                                    foreach(var node in nodes)
+                                    {
+                                        Nodes.Remove(node.Key, out _);
+                                    }
+                                }
                                 Nodes.TryAdd(t1.Id, new NodeInformation()
                                 {
                                     Name = t1.Name,
@@ -78,6 +87,8 @@ namespace ConsensusCore.Domain.BaseClasses
                                     Id = t1.Id,
                                     IsContactable = t1.IsContactable
                                 });
+                            }
+
                         }
                         break;
                     case DeleteNodeInformation t1:
@@ -100,7 +111,7 @@ namespace ConsensusCore.Domain.BaseClasses
                             {
                                 if (GetRunningTask(task.UniqueRunningId) == null)
                                 {
-                                    if (!ClusterTasks.TryAdd(task.Id, task))
+                                    if (!ClusterTasks.TryAdd(task.Id, SystemExtension.Clone(task)))
                                     {
                                         //Can't add a task twice
                                         if (ClusterTasks.ContainsKey(task.Id))
@@ -108,7 +119,7 @@ namespace ConsensusCore.Domain.BaseClasses
                                             if (_logger == null)
                                                 Console.WriteLine("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
                                             else
-                                                _logger.LogError("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
+                                                _logger.LogDebug("Critical error while trying to add cluster task " + task.Id + " the id already exists as the object " + JsonConvert.SerializeObject(ClusterTasks[task.Id], Formatting.Indented));
                                         }
                                         else
                                         {
@@ -147,7 +158,10 @@ namespace ConsensusCore.Domain.BaseClasses
                                 }
                                 else
                                 {
-                                    Console.WriteLine("Critical error while trying to update cluster task " + task.TaskId + " task is not present in dictionary.");
+                                    if (_logger == null)
+                                        Console.WriteLine("Critical error while trying to update cluster task " + task.TaskId + " task is not present in dictionary.");
+                                    else
+                                        _logger.LogInformation("Critical error while trying to update cluster task " + task.TaskId + " task is not present in dictionary.");
                                 }
                             }
                         }

@@ -18,6 +18,7 @@ namespace ConsensusCore.Node
         public int CommitsTimeout { get; set; } = 10000;
         public int MaxLogsToSend { get; set; } = 100;
         public int MaxObjectSync { get; set; } = 100;
+        public int MetricsIntervalMs { get; set; } = 5000;
         public int SnapshottingInterval { get; set; } = 50;
         public int SnapshottingTrailingLogCount { get; set; } = 10;
         /// <summary>
@@ -25,5 +26,9 @@ namespace ConsensusCore.Node
         /// </summary>
         public int ShardRecoveryValidationCount { get; set; } = 50;
         public bool DebugMode { get; set; } = false;
+        public string[] GetClusterUrls()
+        {
+            return NodeUrls.Split(',');
+        }
     }
 }

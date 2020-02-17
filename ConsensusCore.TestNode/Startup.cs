@@ -5,8 +5,12 @@ using System.Threading.Tasks;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Node;
+using ConsensusCore.Node.Communication.Controllers;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Data;
+using ConsensusCore.Node.Services.Raft;
+using ConsensusCore.Node.Services.Tasks;
 using ConsensusCore.Node.Utility;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Builder;
@@ -39,7 +43,7 @@ namespace ConsensusCore.TestNode
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
+            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
@@ -49,14 +53,21 @@ namespace ConsensusCore.TestNode
             {
                 options.Conventions.Add(new RouteTokenTransformerConvention(
                 new SlugifyParameterTransformer()));
-            }).SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+            })
+            .AddJsonOptions(options => {
+                options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+            })
+            .SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env,
             IBaseRepository<TestState> repository,
-            ShardManager<TestState, IShardRepository> shardManager,
-            IConsensusCoreNode<TestState> node)
+            IRaftService raftService,
+            IDataService dataService,
+            ITaskService taskService,
+            ILogger<Startup> logger,
+            IClusterRequestHandler clusterRequestHandler)
         {
             if (env.IsDevelopment())
             {
@@ -68,25 +79,33 @@ namespace ConsensusCore.TestNode
                 app.UseHsts();
             }
 
-          //  node.MetricGenerated += metricGenerated;
+            //  node.MetricGenerated += metricGenerated;
+
+            clusterRequestHandler.MetricGenerated += metricGenerated;
 
             app.Use(async (context, next) =>
             {
                 if (context.Request.Path == "/api/kill" && context.Request.Method == "POST")
                 {
                     Killed = true;
-                    node.SetNodeRole(Domain.Enums.NodeState.Disabled);
+                    logger.LogInformation("Killing node");
+                    raftService.SetNodeRole(Domain.Enums.NodeState.Disabled);
                 }
 
                 if (context.Request.Path == "/api/revive" && context.Request.Method == "POST")
                 {
                     Killed = false;
-                    node.SetNodeRole(Domain.Enums.NodeState.Follower);
+                    logger.LogInformation("Restoring node");
+                    raftService.SetNodeRole(Domain.Enums.NodeState.Follower);
                 }
-
+                
                 if (Killed == false)
                 {
                     await next();
+                }
+                else
+                {
+                    context.Abort();
                 }
             });
 
@@ -103,9 +122,9 @@ namespace ConsensusCore.TestNode
             app.UseMvc();
         }
 
-        /*static void metricGenerated(object sender, Metric e)
+        static void metricGenerated(object sender, Metric e)
         {
-            Console.WriteLine(JsonConvert.SerializeObject(e, Formatting.Indented));
-        }*/
+          //  Console.WriteLine(JsonConvert.SerializeObject(e, Formatting.Indented));
+        }
     }
 }

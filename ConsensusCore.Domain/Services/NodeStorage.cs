@@ -2,6 +2,8 @@
 using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.Utility;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -14,8 +16,9 @@ using System.Threading;
 
 namespace ConsensusCore.Domain.Services
 {
-    public class NodeStorage<State> where State : BaseState, new()
+    public class NodeStorage<State> : INodeStorage<State> where State : BaseState, new()
     {
+        private ILogger Logger { get; set; }
         public Guid Id { get; set; }
         public string Name { get; set; }
         public double Version { get; set; } = 1.0;
@@ -51,11 +54,12 @@ namespace ConsensusCore.Domain.Services
         }
 
 
-        public NodeStorage(IBaseRepository<State> repository)
+        public NodeStorage(ILogger<NodeStorage<State>> logger, IBaseRepository<State> repository)
         {
+            Logger = logger;
             _repository = repository;
 
-            var loadedData = repository.LoadNodeData();
+            var loadedData = repository.LoadNodeDataAsync().GetAwaiter().GetResult();
             if (loadedData != null)
             {
                 Id = loadedData.Id;
@@ -69,7 +73,7 @@ namespace ConsensusCore.Domain.Services
             else
             {
                 Id = Guid.NewGuid();
-                Console.WriteLine("Failed to load local node storage from store, creating new node storage");
+                Logger.LogInformation("Failed to load local node storage from store, creating new node storage");
                 Save();
             }
 
@@ -96,31 +100,33 @@ namespace ConsensusCore.Domain.Services
             Save();
         }
 
-        public void CreateSnapshot(int indexIncludedTo)
+        public void CreateSnapshot(int indexIncludedTo, int trailingLogCount)
         {
             var stateMachine = new StateMachine<State>();
-            //Find the log position of the commit index
-            if (LastSnapshot != null)
+
+            lock (_locker)
             {
-                stateMachine.ApplySnapshotToStateMachine(LastSnapshot);
-            }
-
-            var logIncludedTo = GetLogAtIndex(indexIncludedTo);
-            var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
-            Console.WriteLine("Getting logs " + logIncludedFrom.Index + " to " + logIncludedTo);
-            if (logIncludedTo != null && logIncludedFrom != null)
-            {
-                //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
-                stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, indexIncludedTo));
-
-                LastSnapshot = stateMachine.CurrentState;
-                LastSnapshotIncludedIndex = indexIncludedTo;
-                LastSnapshotIncludedTerm = logIncludedTo.Term;
-
-                lock (_locker)
+                if (!LogExists(LastSnapshotIncludedIndex + 1))
                 {
+                    return;
+                }
+
+                //Find the log position of the commit index
+                if (LastSnapshot != null)
+                {
+                    stateMachine.ApplySnapshotToStateMachine(SystemExtension.Clone(LastSnapshot));
+                }
+
+                var logIncludedTo = GetLogAtIndex(indexIncludedTo);
+                var logIncludedFrom = GetLogAtIndex(LastSnapshotIncludedIndex + 1);
+                Logger.LogDebug("Last snapshot index, getting logs " + logIncludedFrom.Index + " to " + indexIncludedTo);
+                if (logIncludedTo != null && logIncludedFrom != null)
+                {
+                    //for (var i = LastSnapshotIncludedIndex; i <= indexIncludedTo; i++)
+                    stateMachine.ApplyLogsToStateMachine(GetLogRange(LastSnapshotIncludedIndex + 1, indexIncludedTo));
+                    SetLastSnapshot(stateMachine.CurrentState, indexIncludedTo, logIncludedTo.Term);
                     // Deleting logs from the index
-                    DeleteLogsFromIndex(1, indexIncludedTo);
+                    DeleteLogsFromIndex(1, indexIncludedTo - trailingLogCount < 0 ? 1 : indexIncludedTo - trailingLogCount);
                 }
             }
         }
@@ -191,9 +197,6 @@ namespace ConsensusCore.Domain.Services
             if (id != VotedFor)
             {
                 VotedFor = id;
-
-
-                //Console.WriteLine("Set voted for");
                 Save();
             }
         }
@@ -202,8 +205,6 @@ namespace ConsensusCore.Domain.Services
         {
             if (newTerm != CurrentTerm)
             {
-
-                //Console.WriteLine("Set term for");
                 CurrentTerm = newTerm;
                 Save();
             }
@@ -254,7 +255,6 @@ namespace ConsensusCore.Domain.Services
                         Index = index
                     });
                 }
-                //Console.WriteLine("Add commands");
                 Save();
                 return index;
             }
@@ -287,7 +287,7 @@ namespace ConsensusCore.Domain.Services
                 foreach (var entry in entries)
                 {
                     //The entry should be the next log required
-                    if (entry.Index == GetTotalLogCount() + 1 || entry.Index == LastSnapshotIncludedIndex + 1)
+                    if (entry.Index == GetTotalLogCount() + 1 || entry.Index == (LastSnapshotIncludedIndex + 1))
                     {
                         Logs.Add(entry.Index, entry);
                     }
@@ -328,8 +328,6 @@ namespace ConsensusCore.Domain.Services
                 {
                     Logs.Remove(delete);
                 }
-
-                //Console.WriteLine("Delete logs from index");
                 Save();
             }
         }
@@ -346,7 +344,7 @@ namespace ConsensusCore.Domain.Services
                 if (RequireSave)
                 {
                     RequireSave = false;
-                    _repository.SaveNodeData(this);
+                    _repository.SaveNodeDataAsync(this).GetAwaiter().GetResult();
                 }
                 else
                 {

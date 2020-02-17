@@ -35,7 +35,7 @@ namespace ConsensusCore.TestNode.Models
                     var addResult = _numberStore.TryAdd(t1.Id, t1);
                     if (!addResult)
                     {
-                        Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id + " replacing the existing data" + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
+                       // Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id + " replacing the existing data" + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
                         await UpdateDataAsync(data);
                     }
                     break;
@@ -69,7 +69,12 @@ namespace ConsensusCore.TestNode.Models
                 case TestData t1:
                     if(!_numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]))
                     {
+                     //   Console.WriteLine("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
                         throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
+                    }
+                    else
+                    {
+                       // Console.WriteLine("Updated successfully object " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
                     }
                     /*if (!updateResult)
                     {

@@ -9,5 +9,6 @@ namespace ConsensusCore.Domain.BaseClasses
         public BaseResponse() { }
 
         public bool IsSuccessful { get; set; }
+        public string ErrorMessage { get; set; }
     }
 }

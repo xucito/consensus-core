@@ -2,12 +2,15 @@
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.RPCs.Raft;
+using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Domain.Services;
 using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Data;
 using ConsensusCore.TestNode.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -26,20 +29,18 @@ namespace ConcensusCore.Node.Tests.DataManagement
 {
     public class ShardManagement_Tests
     {
-        public ConsensusCoreNode<TestState> Node;
-        public NodeStorage<TestState> NodeStorage;
+        public DataService<TestState> Node;
 
         public ShardManagement_Tests()
         {
-            Node = TestUtility.GetTestConsensusCoreNode();
-            NodeStorage = Node._nodeStorage;
+            Node = TestUtility.GetTestShardManager();
         }
 
         [Fact]
         public async void WriteNewDataType()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -59,130 +60,12 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.True(false);
         }
 
-        [Fact]
-        public async void ReleaseLockOnUpdate()
-        {
-            var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
-            {
-                Data = new TestData
-                {
-                    Id = objectId,
-                    Data = 1,
-                    ShardType = "number"
-                }
-            });
-
-            Assert.True(result.IsSuccessful);
-
-            var dataResult = await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            });
-
-            Assert.True((await Node.Handle(new WriteData()
-            {
-                Data = new TestData
-                {
-                    Id = objectId,
-                    ShardType = "number",
-                    Data = 2
-                },
-                Operation = ShardOperationOptions.Update,
-                WaitForSafeWrite = true,
-                RemoveLock = true
-            })).IsSuccessful);
-
-            Assert.True((await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            })).IsSuccessful);
-
-        }
-
-        [Fact]
-        public async void RemoveLockCommand()
-        {
-            var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
-            {
-                Data = new TestData
-                {
-                    Id = objectId,
-                    Data = 1,
-                    ShardType = "number"
-                }
-            });
-
-            Assert.True(result.IsSuccessful);
-
-            var dataResult = await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            });
-
-            Assert.True((await Node.Handle(new ExecuteCommands()
-            {
-                Commands = new List<BaseCommand>(){ new RemoveObjectLock()
-                {
-                    ObjectId = objectId,
-                    Type = "number"
-                }
-                }
-            })).IsSuccessful);
-
-            Assert.True((await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            })).IsSuccessful);
-        }
-
-        [Fact]
-        public async void ConcurrentNewDataWrites()
-        {
-            var objectId = Guid.NewGuid();
-            var tasks = new List<Task>();
-            tasks.Add(
-                Node.Handle(new WriteData()
-                {
-                    Data = new TestData
-                    {
-                        Id = objectId,
-                        Data = 1,
-                        ShardType = "number"
-                    }
-                })
-            );
-
-            tasks.Add(
-                Node.Handle(new WriteData()
-                {
-                    Data = new TestData
-                    {
-                        Data = 1,
-                        ShardType = "number"
-                    }
-                })
-            );
-
-            await Task.WhenAll(tasks);
-            //Check there is only one shard created
-            //Assert.Single(Node.LocalShards);
-        }
 
         [Fact]
         public async void GetData()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -222,7 +105,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.Equal("The type number does not exist.", dataResult.SearchMessage);
 
             //Write a a new operation to create the index
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -243,83 +126,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
             Assert.Equal("Object " + objectId + " could not be found in shards.", dataResult.SearchMessage);
         }
 
-        [Fact]
-        public async void LockDataOnGet()
-        {
-            var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
-            {
-                Data = new TestData
-                {
-                    Id = objectId,
-                    Data = 1,
-                    ShardType = "number"
-                }
-            });
-
-            Assert.True(result.IsSuccessful);
-
-            var dataResult = await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            });
-
-            Assert.True(dataResult.IsSuccessful);
-            Assert.NotNull(dataResult.Data);
-            Assert.Equal(1, ((TestData)dataResult.Data).Data);
-
-            var failedRequest = await Node.Handle(new RequestDataShard()
-            {
-                Type = "number",
-                ObjectId = objectId,
-                CreateLock = true
-            });
-
-            //Request should still be successful
-            Assert.True(failedRequest.IsSuccessful);
-            Assert.Null(failedRequest.Data);
-            Assert.Equal("Object " + objectId + " is locked.", failedRequest.SearchMessage);
-        }
-
-        [Fact]
-        public async void HandleConcurrentLockRequests()
-        {
-            var objectId = Guid.NewGuid();
-
-            var result = await Node.Handle(new WriteData()
-            {
-                Data = new TestData
-                {
-                    Id = objectId,
-                    Data = 1,
-                    ShardType = "number"
-                }
-            });
-            var tests = new int[] { 1, 2 };
-
-            int foundResults = 0;
-
-            var runningTests = tests.Select(async t =>
-             {
-                 var sendRequest = await Node.Handle(new RequestDataShard()
-                 {
-                     Type = "number",
-                     ObjectId = objectId,
-                     CreateLock = true
-                 });
-
-                 if (sendRequest.IsSuccessful && sendRequest.Data != null)
-                 {
-                     Interlocked.Increment(ref foundResults);
-                 }
-             });
-
-            await Task.WhenAll(runningTests);
-
-            Assert.Equal(1, foundResults);
-        }
+       
 
         [Fact]
         public void DeleteData()
@@ -346,10 +153,10 @@ namespace ConcensusCore.Node.Tests.DataManagement
         }
 
         [Fact]
-        public async void RequestShardOperationsHandler()
+        public async void RequestShardWriteOperationsHandler()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -359,7 +166,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 }
             });
 
-            var requestShardResult = await Node.Handle(new RequestShardOperations()
+            var requestShardResult = await Node.Handle(new RequestShardWriteOperations()
             {
                 From = 0,
                 To = 1,
@@ -374,7 +181,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         public async void UpdateData()
         {
             var objectId = Guid.NewGuid();
-            var result = await Node.Handle(new WriteData()
+            var result = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData
                 {
@@ -384,7 +191,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 }
             });
 
-            var updateResult = await Node.Handle(new WriteData()
+            var updateResult = await Node.Handle(new AddShardWriteOperation()
             {
                 Data = new TestData()
                 {
@@ -400,7 +207,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 Type = "number",
                 ObjectId = objectId
             });
-            
+
 
             Assert.True(dataResult.IsSuccessful);
             Assert.NotNull(dataResult.Data);

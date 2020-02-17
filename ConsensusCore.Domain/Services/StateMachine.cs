@@ -2,6 +2,7 @@
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Utility;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -20,8 +21,25 @@ namespace ConsensusCore.Domain.Services
         where Z : BaseState, new()
     {
         public Z DefaultState { get; set; }
-        public Z CurrentState { get; private set; }
+        public Z CurrentState{
+            get;
+            set;
+        }
+        public int CommitIndex { get; set; }
+        public int CurrentTerm { get; set; }
+        public Guid Id { get; set; }
+        private ILogger _logger;
+        private bool _disabledLogging = true;
+
         private object currentStateLock = new object();
+
+        public StateMachine(ILogger<StateMachine<Z>> logger)
+        {
+            DefaultState = new Z();
+            CurrentState = DefaultState;
+            _logger = logger;
+            _disabledLogging = false;
+        }
 
         public StateMachine()
         {
@@ -35,11 +53,15 @@ namespace ConsensusCore.Domain.Services
             {
                 try
                 {
-                    CurrentState.ApplyCommand(command);
+                    lock (currentStateLock)
+                    {
+                        CurrentState.ApplyCommand(command);
+                    }
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e.Message);
+                    if(!_disabledLogging)
+                        _logger.LogDebug("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
                 }
             }
         }
@@ -48,20 +70,26 @@ namespace ConsensusCore.Domain.Services
         {
             List<string> FailedLogs = new List<string>();
             var copy = entries.OrderBy(c => c.Index).Select(e => e.DeepCopy());
-            lock (currentStateLock)
+            foreach (var entry in copy)
             {
-                foreach (var entry in copy)
+                foreach (var command in entry.Commands)
                 {
-                    foreach (var command in entry.Commands)
+                    try
                     {
-                        try
+                        if (!_disabledLogging)
+                            _logger.LogDebug("Applying command " + Environment.NewLine + JsonConvert.SerializeObject(command, Formatting.Indented));
+
+                        lock (currentStateLock)
                         {
                             CurrentState.ApplyCommand(command);
                         }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e.Message);
-                        }
+                        if (!_disabledLogging)
+                            _logger.LogDebug("State " + Environment.NewLine + JsonConvert.SerializeObject(CurrentState, Formatting.Indented));
+                    }
+                    catch (Exception e)
+                    {
+                        if (!_disabledLogging)
+                            _logger.LogDebug("Failed to apply entry with message: " + e.Message + Environment.NewLine + e.StackTrace);
                     }
                 }
             }
@@ -87,7 +115,7 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes.ContainsKey(type);
         }
 
-        public SharedShardMetadata[] GetShards(string type = null)
+        public ShardAllocationMetadata[] GetShards(string type = null)
         {
             if (type == null)
             {
@@ -96,17 +124,17 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes[type].Shards.ToArray();
         }
 
-        public SharedShardMetadata[] GetShards(Guid nodeId)
+        public ShardAllocationMetadata[] GetShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(n => n.InsyncAllocations.Contains(nodeId) || n.StaleAllocations.Contains(nodeId))).ToArray();
         }
 
-        public SharedShardMetadata GetShard(string type, Guid shardId)
+        public ShardAllocationMetadata GetShard(string type, Guid shardId)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();
         }
 
-        public List<SharedShardMetadata> GetAllPrimaryShards(Guid nodeId)
+        public List<ShardAllocationMetadata> GetAllPrimaryShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.PrimaryAllocation == nodeId)).ToList();
         }
@@ -153,7 +181,7 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.Indexes[type].Shards.ToDictionary(k => k.Id, v => v.PrimaryAllocation);
         }
 
-        public SharedShardMetadata GetShardMetadata(Guid shardId, string type)
+        public ShardAllocationMetadata GetShardMetadata(Guid shardId, string type)
         {
             return CurrentState.Indexes[type].Shards.Where(s => s.Id == shardId).FirstOrDefault();
         }
@@ -192,7 +220,7 @@ namespace ConsensusCore.Domain.Services
         /// <summary>
         /// List of shard ids and types that are out of sync for the given node
         /// </summary>
-        public IEnumerable<SharedShardMetadata> GetAllOutOfSyncShards(Guid nodeId)
+        public IEnumerable<ShardAllocationMetadata> GetAllOutOfSyncShards(Guid nodeId)
         {
             return CurrentState.Indexes.SelectMany(i => i.Value.Shards.Where(s => s.StaleAllocations.Contains(nodeId)));
         }
@@ -205,6 +233,11 @@ namespace ConsensusCore.Domain.Services
         public ConcurrentDictionary<Guid, ObjectLock> GetObjectLocks()
         {
             return new ConcurrentDictionary<Guid, ObjectLock>(CurrentState.ObjectLocks);
+        }
+
+        public void ApplySnapshotToStateMachine(BaseState state)
+        {
+            throw new NotImplementedException();
         }
     }
 }

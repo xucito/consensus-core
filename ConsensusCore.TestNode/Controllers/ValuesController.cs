@@ -5,9 +5,14 @@ using System.Threading.Tasks;
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.RPCs.Shard;
+using ConsensusCore.Domain.Services;
 using ConsensusCore.Node;
+using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
 using ConsensusCore.Node.Services;
+using ConsensusCore.Node.Services.Data;
+using ConsensusCore.Node.Services.Raft;
 using ConsensusCore.TestNode.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,13 +22,16 @@ namespace ConsensusCore.TestNode.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        IConsensusCoreNode<TestState> _node;
+        ClusterClient _clusterClient;
         TestDataRouter _router;
+        NodeStateService _node;
 
-        public ValuesController(IConsensusCoreNode<TestState> node, IDataRouter router)
+        public ValuesController(IDataRouter router, ClusterClient clusterClient,
+            NodeStateService node)
         {
-            _node = node;
+            _clusterClient = clusterClient;
             _router = (TestDataRouter)router;
+            _node = node;
         }
         // POST api/values
         [HttpPost]
@@ -32,7 +40,7 @@ namespace ConsensusCore.TestNode.Controllers
             if (_node.InCluster)
             {
                 var newId = Guid.NewGuid();
-                var result = await (_node.Handle(new WriteData()
+                var result = await (_clusterClient.Send(new AddShardWriteOperation()
                 {
                     Data = new TestData()
                     {
@@ -65,7 +73,7 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                return Ok((await _node.Handle(new RequestDataShard()
+                return Ok((await _clusterClient.Send(new RequestDataShard()
                 {
                     ObjectId = id,
                     Type = "number"
@@ -84,7 +92,7 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                return Ok((await _node.Handle(new RequestDataShard()
+                return Ok((await _clusterClient.Send(new RequestDataShard()
                 {
                     ObjectId = id,
                     Type = "number",
@@ -119,19 +127,19 @@ namespace ConsensusCore.TestNode.Controllers
         {
             if (_node.InCluster)
             {
-                var number = (await _node.Handle(new RequestDataShard()
+                var number = (await _clusterClient.Send(new RequestDataShard()
                 {
                     ObjectId = id,
                     Type = "number"
                 }));
 
-                if (number != null && number.IsSuccessful)
+                if (number != null && number.Data != null && number.IsSuccessful)
                 {
 
                     var updatedObject = (TestData)number.Data;
                     updatedObject.Data = value;
 
-                    var result = _node.Handle(new WriteData()
+                    var result = _clusterClient.Send(new AddShardWriteOperation()
                     {
                         Data = new TestData()
                         {

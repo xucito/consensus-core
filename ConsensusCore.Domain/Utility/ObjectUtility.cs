@@ -2,37 +2,37 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ConsensusCore.Domain.Utility
 {
-    /*public static class ObjectUtility
+    public static class ObjectUtility
     {
-        public static T DeepClone<T>(T obj)
+        public static string HashStrings(string stringOne, string stringTwo)
         {
-            using (var ms = new MemoryStream())
-            {
-                var formatter = new BinaryFormatter();
-                formatter.Serialize(ms, obj);
-                ms.Position = 0;
+            return GetSha256Hash(SHA1.Create(), stringOne + stringTwo);
+        }
 
-                return (T)formatter.Deserialize(ms);
+        static string GetSha256Hash(SHA1 shaHash, string input)
+        {
+            // Convert the input string to a byte array and compute the hash.
+            byte[] data = shaHash.ComputeHash(Encoding.UTF8.GetBytes(input));
+
+            // Create a new Stringbuilder to collect the bytes
+            // and create a string.
+            StringBuilder sBuilder = new StringBuilder();
+
+            // Loop through each byte of the hashed data 
+            // and format each one as a hexadecimal string.
+            for (int i = 0; i < data.Length; i++)
+            {
+                sBuilder.Append(data[i].ToString("x2"));
             }
+
+            // Return the hexadecimal string.
+            return sBuilder.ToString();
         }
     }
-    public static class ExtensionMethods
-    {
-        // Deep clone
-        public static T DeepClone<T>(this T a)
-        {
-            using (MemoryStream stream = new MemoryStream())
-            {
-                BinaryFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(stream, a);
-                stream.Position = 0;
-                return (T)formatter.Deserialize(stream);
-            }
-        }
-    }*/
 
 }
