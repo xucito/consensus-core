@@ -199,7 +199,7 @@ namespace ConsensusCore.Node.Services.Data
                         List<Lock> expiredLocks = new List<Lock>();
                         foreach (var clusterLock in objectLocks)
                         {
-                            if (clusterLock.Value.IsExpired)
+                            if (clusterLock.Value.IsExpired())
                             {
                                 _logger.LogDebug("Detected that lock for object " + clusterLock.Key + " is expired.");
                                 expiredLocks.Add(clusterLock.Value);

@@ -40,9 +40,10 @@ namespace ConsensusCore.Domain.Services
         public State LastSnapshot { get; set; }
         public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
 
+        [JsonIgnore]
         public ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>> CommandsQueue = new ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>>();
+        [JsonIgnore]
         private int _currentActiveLog = 0;
-
         [JsonIgnore]
         public object _locker = new object();
         [JsonIgnore]
@@ -53,9 +54,6 @@ namespace ConsensusCore.Domain.Services
         public readonly object _saveLocker = new object();
         [JsonIgnore]
         public Thread _saveThread;
-        [JsonIgnore]
-        public Thread _logConcatenationThread;
-        private object commandLock = new object();
 
         Timer _concatenateCommands;
 

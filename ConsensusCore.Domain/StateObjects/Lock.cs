@@ -10,6 +10,6 @@ namespace ConsensusCore.Domain.BaseClasses
         public string Name { get; set; }
         public DateTime CreatedOn { get; set; }
         public int LockTimeoutMs { get; set; }
-        public bool IsExpired { get { return (DateTime.Now - CreatedOn).TotalMilliseconds > LockTimeoutMs; } }
+        public bool IsExpired() { return (DateTime.Now - CreatedOn).TotalMilliseconds > LockTimeoutMs; }
     }
 }
