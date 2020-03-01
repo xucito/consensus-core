@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -38,6 +39,10 @@ namespace ConsensusCore.Domain.Services
         /// </summary>
         public State LastSnapshot { get; set; }
         public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
+
+        public ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>> CommandsQueue = new ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>>();
+        private int _currentActiveLog = 0;
+
         [JsonIgnore]
         public object _locker = new object();
         [JsonIgnore]
@@ -48,6 +53,11 @@ namespace ConsensusCore.Domain.Services
         public readonly object _saveLocker = new object();
         [JsonIgnore]
         public Thread _saveThread;
+        [JsonIgnore]
+        public Thread _logConcatenationThread;
+        private object commandLock = new object();
+
+        Timer _concatenateCommands;
 
         public NodeStorage()
         {
@@ -77,6 +87,9 @@ namespace ConsensusCore.Domain.Services
                 Save();
             }
 
+            _currentActiveLog = GetLastLogIndex() + 1;
+            CommandsQueue.TryAdd(_currentActiveLog, new ConcurrentQueue<BaseCommand>());
+
             if (_repository != null)
             {
                 _saveThread = new Thread(() =>
@@ -86,7 +99,40 @@ namespace ConsensusCore.Domain.Services
                 _saveThread.Start();
             }
 
+            _concatenateCommands = new Timer(CommitCommandsEventHandler);
+
+            _concatenateCommands.Change(0, 50);
             // var loadedData = _repository.LoadNodeData();
+        }
+
+        public void CommitCommandsEventHandler(object args)
+        {
+            try
+            {
+                var stopwatch = new Stopwatch();
+                stopwatch.Start();
+                var evaluatedLog = _currentActiveLog;
+                CommandsQueue.TryAdd(evaluatedLog + 1, new ConcurrentQueue<BaseCommand>());
+                //If there are logs pending
+                if (CommandsQueue.ContainsKey(evaluatedLog) && CommandsQueue[evaluatedLog].Count() > 0 && evaluatedLog == (Interlocked.Increment(ref _currentActiveLog) - 1))
+                {
+                    var count = CommandsQueue[evaluatedLog].Count();
+                    Logs.Add(evaluatedLog, new LogEntry()
+                    {
+                        Commands = CommandsQueue[evaluatedLog].ToList(),
+                        Term = CurrentTerm,
+                        Index = evaluatedLog
+                    });
+                    CommandsQueue.Remove(evaluatedLog, out _);
+                    Save();
+                    Logger.LogDebug("Adding logs for index " + evaluatedLog + " Log concatenation took " + stopwatch.ElapsedMilliseconds + " to add " + count);
+                    //Console.WriteLine("Log concatenation took " + stopwatch.ElapsedMilliseconds + " to add " + count);
+                }
+            }
+            catch(Exception e)
+            {
+                Logger.LogError("Failed to commit commands with error " + e.Message + Environment.StackTrace + e.StackTrace);
+            }
         }
 
         public void SetLastSnapshot(State snapshot, int lastIncludedIndex, int lastIncludedTerm)
@@ -98,6 +144,19 @@ namespace ConsensusCore.Domain.Services
                 LastSnapshotIncludedTerm = lastIncludedTerm;
             }
             Save();
+        }
+
+        public int EnqueueCommand(List<BaseCommand> commands)
+        {
+            foreach (var command in commands)
+            {
+                /*if (!CommandsQueue.ContainsKey(_currentActiveLog))
+                /*{
+                    CommandsQueue.TryAdd(_currentActiveLog, new ConcurrentQueue<BaseCommand>());
+                }*/
+                CommandsQueue[_currentActiveLog].Enqueue(command);
+            }
+            return _currentActiveLog;
         }
 
         public void CreateSnapshot(int indexIncludedTo, int trailingLogCount)
@@ -250,19 +309,7 @@ namespace ConsensusCore.Domain.Services
         {
             if (commands.Count > 0)
             {
-                int index;
-                lock (_locker)
-                {
-                    index = GetTotalLogCount() + 1;
-                    Logs.Add(index, new LogEntry()
-                    {
-                        Commands = commands,
-                        Term = term,
-                        Index = index
-                    });
-                }
-                Save();
-                return index;
+                return EnqueueCommand(commands);
             }
             throw new Exception("Weird, I was sent a empty list of base commands");
         }
@@ -282,6 +329,7 @@ namespace ConsensusCore.Domain.Services
                     throw new MissingLogEntryException("Something has gone wrong with the concurrency of adding the logs! Failed to add entry " + entry.Index + " as the current index is " + GetTotalLogCount());
                 }
             }
+            _currentActiveLog = entry.Index;
             Save();
         }
 
@@ -303,6 +351,8 @@ namespace ConsensusCore.Domain.Services
                     }
                 }
             }
+
+            _currentActiveLog = entries.Last().Index;
             Save();
         }
 
