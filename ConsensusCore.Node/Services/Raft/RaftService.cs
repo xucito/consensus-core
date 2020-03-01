@@ -105,8 +105,7 @@ namespace ConsensusCore.Node.Services.Raft
                     }
                 }).GetAwaiter().GetResult();
             }
-
-
+            
         }
 
         public void HeartbeatTimeoutEventHandler(object args)

@@ -13,6 +13,7 @@ namespace ConsensusCore.Domain.RPCs.Shard
         public bool WaitForSafeWrite { get; set; }
         public override string RequestName => "AddShardOperation";
         public bool RemoveLock { get; set; } = false;//Remove any lock that may exist on the object
+        public Guid LockId { get; set; }
         public bool Metric = true;
     }
 

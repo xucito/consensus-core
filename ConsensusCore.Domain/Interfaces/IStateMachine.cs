@@ -29,9 +29,9 @@ namespace ConsensusCore.Domain.Interfaces
         bool IndexExists(string type);
         bool IsNodeContactable(Guid nodeId);
         bool IsNodeContactable(string transportUrl);
-        bool IsObjectLocked(Guid objectId);
-        bool IsLockObtained(Guid objectId, Guid lockId); //Check the lock Id whether it was obtained
+        bool IsLocked(string name);
+        bool IsLockObtained(string name, Guid lockId);
         BaseTask GetRunningTask(string uniqueId);
-        ConcurrentDictionary<Guid, ObjectLock> GetObjectLocks();
+        ConcurrentDictionary<string, Lock> GetLocks();
     }
 }
