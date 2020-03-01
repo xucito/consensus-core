@@ -31,6 +31,7 @@ namespace ConsensusCore.Node.Services.Data
         private Task _indexCreationTask;
         private Task _allocationTask;
         private Task _replicaValidationChecksTask;
+        private Task _objectLockWatcher;
 
         //Performance Objects
         ConcurrentDictionary<int, double> totals = new ConcurrentDictionary<int, double>();
@@ -46,7 +47,6 @@ namespace ConsensusCore.Node.Services.Data
         ConcurrentQueue<string> IndexCreationQueue { get; set; } = new ConcurrentQueue<string>();
         private readonly NodeStateService _nodeStateService;
         private readonly NodeOptions _nodeOptions;
-
 
         //Internal Components
         public readonly Writer<State> Writer;
@@ -104,7 +104,7 @@ namespace ConsensusCore.Node.Services.Data
                 if (_writeCache.TransitQueue.Count() > 0)
                 {
                     _logger.LogInformation("Found transactions in transit, attempting to reapply them...");
-                    foreach (var operationKV in _writeCache.TransitQueue)
+                    foreach (var operationKV in _writeCache.TransitQueue.ToDictionary(entry => entry.Key, entry => entry.Value))
                     {
                         var operation = operationKV.Value;
                         try
@@ -163,6 +163,9 @@ namespace ConsensusCore.Node.Services.Data
             _allocationTask.Start();
             _replicaValidationChecksTask = Task.Run(async () => await CheckAllReplicas());
 
+            _objectLockWatcher = new Task(async () => await CheckLocks());
+            _objectLockWatcher.Start();
+
 
             if (_nodeOptions.EnablePerformanceLogging)
             {
@@ -181,6 +184,68 @@ namespace ConsensusCore.Node.Services.Data
                     }
                 });
                 performancePrinting.Start();
+            }
+        }
+
+        public async Task CheckLocks()
+        {
+            while (true)
+            {
+                if (_nodeStateService.Role == NodeState.Leader)
+                {
+                    try
+                    {
+                        var objectLocks = _stateMachine.GetLocks();
+                        List<Lock> expiredLocks = new List<Lock>();
+                        foreach (var clusterLock in objectLocks)
+                        {
+                            if (clusterLock.Value.IsExpired)
+                            {
+                                _logger.LogDebug("Detected that lock for object " + clusterLock.Key + " is expired.");
+                                expiredLocks.Add(clusterLock.Value);
+
+                                //Clear the locks if you reach 50
+                                if (expiredLocks.Count() > 50)
+                                {
+                                    await _clusterClient.Send(new ExecuteCommands()
+                                    {
+                                        Commands = expiredLocks.Select(el =>
+                                               new RemoveLock()
+                                               {
+                                                   Name = el.Name,
+                                                   LockId = el.LockId
+                                               }).ToList(),
+                                        WaitForCommits = true
+                                    });
+                                    expiredLocks = new List<Lock>();
+                                }
+                            }
+                        }
+
+                        if (expiredLocks.Count() > 0)
+                        {
+                            await _clusterClient.Send(new ExecuteCommands()
+                            {
+                                Commands = expiredLocks.Select(el =>
+                                       new RemoveLock()
+                                       {
+                                           Name = el.Name,
+                                           LockId = el.LockId
+                                       }).ToList(),
+                                WaitForCommits = true
+                            });
+                        }
+                    }
+                    catch(Exception e)
+                    {
+                        _logger.LogError("Failed to release locks with exception " + e.Message + Environment.NewLine + e.StackTrace);
+                    }
+                }
+                else
+                {
+                    //Sleep for 10 seconds if you are not the leader.
+                    Thread.Sleep(10000);
+                }
             }
         }
 
@@ -269,18 +334,18 @@ namespace ConsensusCore.Node.Services.Data
             {
                 try
                 {
-                    if (!_stateMachine.IsObjectLocked(request.ObjectId))
+                    if (!_stateMachine.IsLocked(request.GetLockName()))
                     {
                         Guid newLockId = Guid.NewGuid();
                         await _clusterClient.Send(new ExecuteCommands()
                         {
                             Commands = new List<BaseCommand>{
-                                    new SetObjectLock()
+                                    new SetLock()
                                     {
-                                        ObjectId = request.ObjectId,
-                                        Type = request.Type,
+                                        Name = request.GetLockName(),
                                         LockId = newLockId,
-                                        TimeoutMs = request.LockTimeoutMs
+                                        TimeoutMs = request.LockTimeoutMs,
+                                        CreatedOn = DateTime.Now
                                     }
                                 },
                             WaitForCommits = true
@@ -288,7 +353,7 @@ namespace ConsensusCore.Node.Services.Data
 
                         var lockStartTime = DateTime.Now;
                         //While the object is not locked yet, wait
-                        while (!_stateMachine.IsObjectLocked(request.ObjectId))
+                        while (!_stateMachine.IsLocked(request.GetLockName()))
                         {
                             if ((DateTime.Now - lockStartTime).TotalMilliseconds > _clusterOptions.LatencyToleranceMs)
                             {
@@ -298,7 +363,7 @@ namespace ConsensusCore.Node.Services.Data
                         }
 
                         //After the objects been locked check the ID
-                        if (!_stateMachine.IsLockObtained(request.ObjectId, newLockId))
+                        if (!_stateMachine.IsLockObtained(request.GetLockName(), newLockId))
                         {
                             throw new ConflictingObjectLockException("Object was locked by another process...");
                         }
@@ -315,7 +380,7 @@ namespace ConsensusCore.Node.Services.Data
                 {
                     return new RequestDataShardResponse()
                     {
-                        IsSuccessful = true,
+                        IsSuccessful = false,
                         AppliedLocked = false,
                         SearchMessage = "Object " + request.ObjectId + " is locked."
                     };
@@ -442,10 +507,10 @@ namespace ConsensusCore.Node.Services.Data
                 {
                     Commands = new List<BaseCommand>()
                         {
-                            new RemoveObjectLock()
+                            new RemoveLock()
                             {
-                                ObjectId = request.Data.Id,
-                                Type = shardMetadata.Type
+                                Name = request.Data.GetLockName(),
+                                LockId = request.LockId
                             }
                 },
                     WaitForCommits = true

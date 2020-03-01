@@ -2,11 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs;
+using ConsensusCore.Domain.RPCs.Raft;
 using ConsensusCore.Domain.RPCs.Shard;
 using ConsensusCore.Domain.Services;
+using ConsensusCore.Domain.StateObjects;
+using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Node;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Node.Repositories;
@@ -25,13 +29,18 @@ namespace ConsensusCore.TestNode.Controllers
         ClusterClient _clusterClient;
         TestDataRouter _router;
         NodeStateService _node;
+        IStateMachine<TestState> _stateMachine;
 
-        public ValuesController(IDataRouter router, ClusterClient clusterClient,
-            NodeStateService node)
+        public ValuesController(
+            IDataRouter router,
+            ClusterClient clusterClient,
+            NodeStateService node,
+            IStateMachine<TestState> stateMachine)
         {
             _clusterClient = clusterClient;
             _router = (TestDataRouter)router;
             _node = node;
+            _stateMachine = stateMachine;
         }
         // POST api/values
         [HttpPost]
@@ -99,6 +108,36 @@ namespace ConsensusCore.TestNode.Controllers
                     CreateLock = true,
                     LockTimeoutMs = 10000
                 })));
+            }
+            else
+            {
+                return StatusCode(503);
+
+            }
+            //return Ok(_router._numberStore.Where(n => n.Id == id));
+        }
+
+        [HttpPost("lock/{name}")]
+        public async Task<IActionResult> ApplyNumberLock(string name)
+        {
+            if (_node.InCluster)
+            {
+                var lockId = Guid.NewGuid();
+                await _clusterClient.Send(new ExecuteCommands()
+                {
+                    Commands = new List<BaseCommand>()
+                    {
+                       new SetLock()
+                       {
+                           Name = name,
+                           CreatedOn = DateTime.Now,
+                           LockId =lockId,
+                           TimeoutMs = 10000
+                       }
+                    },
+                    WaitForCommits = true
+                });
+                return Ok(_stateMachine.IsLockObtained(name, lockId));
             }
             else
             {

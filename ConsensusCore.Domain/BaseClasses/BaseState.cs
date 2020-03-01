@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Models;
+using ConsensusCore.Domain.StateObjects;
 using ConsensusCore.Domain.SystemCommands;
 using ConsensusCore.Domain.SystemCommands.ShardMetadata;
 using ConsensusCore.Domain.SystemCommands.Tasks;
@@ -21,8 +22,7 @@ namespace ConsensusCore.Domain.BaseClasses
         public ConcurrentDictionary<Guid, NodeInformation> Nodes { get; set; } = new ConcurrentDictionary<Guid, NodeInformation>();
         public ConcurrentDictionary<string, Index> Indexes { get; set; } = new ConcurrentDictionary<string, Index>();
         public ConcurrentDictionary<Guid, BaseTask> ClusterTasks { get; set; } = new ConcurrentDictionary<Guid, BaseTask>();
-        //object id and Shard id
-        public ConcurrentDictionary<Guid, ObjectLock> ObjectLocks = new ConcurrentDictionary<Guid, ObjectLock>();
+        public ConcurrentDictionary<string, Lock> Locks = new ConcurrentDictionary<string, Lock>();
 
         public BaseState()
         {
@@ -49,7 +49,7 @@ namespace ConsensusCore.Domain.BaseClasses
         {
             return SystemExtension.Clone(ClusterTasks.Where(ct => statuses.Contains(ct.Value.Status) && ct.Value.NodeId == nodeId).Select(b => b.Value));
         }
-        
+
         public void ApplyCommand(BaseCommand command)
         {
             try
@@ -75,7 +75,7 @@ namespace ConsensusCore.Domain.BaseClasses
                                 var nodes = Nodes.Where(n => n.Value.TransportAddress == t1.TransportAddress);
                                 if (nodes.Count() > 0)
                                 {
-                                    foreach(var node in nodes)
+                                    foreach (var node in nodes)
                                     {
                                         Nodes.Remove(node.Key, out _);
                                     }
@@ -166,14 +166,6 @@ namespace ConsensusCore.Domain.BaseClasses
                             }
                         }
                         break;
-                    /*case UpdateShardMetadata t1:
-                        if (!t1.IgnoreAllocations)
-                        {
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().PrimaryAllocation = t1.PrimaryAllocation;
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = t1.InsyncAllocations;
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = t1.StaleAllocations;
-                        }
-                        break;*/
                     case UpdateShardMetadataAllocations t1:
                         if (t1.InsyncAllocationsToAdd != null)
                         {
@@ -200,24 +192,11 @@ namespace ConsensusCore.Domain.BaseClasses
                                 newList.Add(allocation);
                             }
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = new HashSet<Guid>(newList);
-                            /*
-                            foreach (var allocation in t1.StaleAllocationsToAdd)
-                            {
-                                Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Add(allocation);
-                            }*/
-                            //  Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations = Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().InsyncAllocations.Where(sa => !t1.StaleAllocationsToAdd.Contains(sa)).ToHashSet();
                         }
                         if (t1.StaleAllocationsToRemove != null)
                         {
                             var newList = new HashSet<Guid>();
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations.Where(sa => !t1.StaleAllocationsToRemove.Contains(sa)).ToList().ForEach(ia => newList.Add(ia));
-                            /*foreach (var allocation in t1.StaleAllocationsToRemove)
-                            {
-                                if (newList.Contains(allocation))
-                                {
-                                    newList.Remove(allocation);
-                                }
-                            }*/
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = new HashSet<Guid>(newList);
                         }
 
@@ -231,40 +210,32 @@ namespace ConsensusCore.Domain.BaseClasses
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().PrimaryAllocation = t1.PrimaryAllocation.Value;
                         }
                         break;
-                    case SetObjectLock t1:
-                        var result = ObjectLocks.TryAdd(t1.ObjectId, new ObjectLock()
+                    case SetLock t1:
+                        var stringLockResult = Locks.TryAdd(t1.Name, new Lock()
                         {
                             LockTimeoutMs = t1.TimeoutMs,
-                            ObjectId = t1.ObjectId,
-                            Type = t1.Type,
-                            LockId = t1.LockId
+                            Name = t1.Name,
+                            LockId = t1.LockId,
+                            CreatedOn = t1.CreatedOn
                         });
-                        if (!result)
+                        if (!stringLockResult)
                         {
-                            throw new ConflictingObjectLockException("Object " + t1.ObjectId + " is already locked.");
+                            throw new ConflictingObjectLockException("String " + t1.Name + " is already locked.");
                         }
                         break;
-                    case RemoveObjectLock t1:
-                        Guid objectIdLocked = t1.ObjectId;
-                        if (t1.LockId.HasValue)
+                    case RemoveLock t1:
+                        string lockName = t1.Name;
+                        var objectLocksWithLockId = Locks.Where(ob => ob.Value.LockId == t1.LockId).Select(t => t.Value);
+                        if (objectLocksWithLockId.Count() == 0)
                         {
-                            var objectLocksWithLockId = ObjectLocks.Where(ob => ob.Value.LockId == t1.LockId).Select(t => t.Value);
-                            if (objectLocksWithLockId.Count() == 0)
-                            {
-                                throw new ConflictingObjectLockException("No lock with id " + t1.LockId.Value);
-                            }
-                            else
-                            {
-                                //Change the lock
-                                objectIdLocked = objectLocksWithLockId.First().ObjectId;
-                            }
+                            throw new ConflictingObjectLockException("No lock with id " + t1.LockId);
                         }
 
-                        ObjectLock existingLock;
-                        var removeResult = ObjectLocks.TryRemove(objectIdLocked, out existingLock);
-                        if (!removeResult)
+                        Lock existingStringLock;
+                        var removeStringLockResult = Locks.TryRemove(t1.Name, out existingStringLock);
+                        if (!removeStringLockResult)
                         {
-                            throw new ConflictingObjectLockException("Object " + t1.ObjectId + " did not exist in lock.");
+                            throw new ConflictingObjectLockException("String Lock " + t1.Name + " did not exist in locks.");
                         }
                         break;
                     default:

@@ -173,8 +173,11 @@ namespace ConsensusCore.Domain.Services
             {
                 return LastSnapshotIncludedTerm;
             }
-            var lastLog = Logs.LastOrDefault();
-            return lastLog.Value.Term;
+            lock (_locker)
+            {
+                var lastLog = Logs.LastOrDefault();
+                return lastLog.Value.Term;
+            }
         }
 
         public int GetLastLogIndex()
@@ -188,8 +191,11 @@ namespace ConsensusCore.Domain.Services
             {
                 return LastSnapshotIncludedIndex;
             }
-            var lastLog = Logs.LastOrDefault();
-            return lastLog.Value.Index;
+            lock (_locker)
+            {
+                var lastLog = Logs.LastOrDefault();
+                return lastLog.Value.Index;
+            }
         }
 
         public void SetVotedFor(Guid? id)

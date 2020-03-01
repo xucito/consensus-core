@@ -186,10 +186,10 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             Assert.True((await Node.Handle(new ExecuteCommands()
             {
-                Commands = new List<BaseCommand>(){ new RemoveObjectLock()
+                Commands = new List<BaseCommand>(){ new RemoveLock()
                 {
-                    ObjectId = objectId,
-                    Type = "number"
+                    Name = dataResult.Data.GetLockName(),
+                    LockId = dataResult.LockId.Value
                 }},
                 WaitForCommits = true
             })).IsSuccessful);

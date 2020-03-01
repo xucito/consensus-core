@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text;
 
 namespace ConsensusCore.Domain.BaseClasses
@@ -22,6 +23,11 @@ namespace ConsensusCore.Domain.BaseClasses
                 return Id == ((ShardData)obj).Id;
             }
             return false;
+        }
+
+        public string GetLockName()
+        {
+            return "_object:" + ShardType + ":" + Id;
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text;
 
 namespace ConsensusCore.Domain.RPCs.Shard
@@ -18,9 +19,14 @@ namespace ConsensusCore.Domain.RPCs.Shard
         public int TimeoutMs = 3000;
         public bool CreateLock { get; set; }
         public int LockTimeoutMs { get; set; } = 30000;
+
+        public string GetLockName()
+        {
+            return "_object:" + Type + ":" + ObjectId;
+        }
     }
 
-    public class RequestDataShardResponse: BaseResponse
+    public class RequestDataShardResponse : BaseResponse
     {
         public Guid? ShardId { get; set; }
         public Guid? NodeId { get; set; }

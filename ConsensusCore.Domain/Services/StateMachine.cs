@@ -205,16 +205,14 @@ namespace ConsensusCore.Domain.Services
             return false;
         }
 
-        public bool IsObjectLocked(Guid objectId)
+        public bool IsLocked(string name)
         {
-            return CurrentState.ObjectLocks.ContainsKey(objectId);
+            return CurrentState.Locks.ContainsKey(name);
         }
 
-
-
-        public bool IsLockObtained(Guid objectId, Guid lockId)
+        public bool IsLockObtained(string name, Guid lockId)
         {
-            return CurrentState.ObjectLocks.ContainsKey(objectId) && CurrentState.ObjectLocks[objectId].LockId == lockId;
+            return CurrentState.Locks.ContainsKey(name) && CurrentState.Locks[name].LockId == lockId;
         }
 
         /// <summary>
@@ -230,9 +228,9 @@ namespace ConsensusCore.Domain.Services
             return CurrentState.GetRunningTask(uniqueId);
         }
 
-        public ConcurrentDictionary<Guid, ObjectLock> GetObjectLocks()
+        public ConcurrentDictionary<string, Lock> GetLocks()
         {
-            return new ConcurrentDictionary<Guid, ObjectLock>(CurrentState.ObjectLocks);
+            return new ConcurrentDictionary<string, Lock>(CurrentState.Locks);
         }
 
         public void ApplySnapshotToStateMachine(BaseState state)
