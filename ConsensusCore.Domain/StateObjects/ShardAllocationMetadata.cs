@@ -12,10 +12,6 @@ namespace ConsensusCore.Domain.BaseClasses
         public Guid PrimaryAllocation { get; set; }
         public HashSet<Guid> InsyncAllocations { get; set; } = new HashSet<Guid>();
         public HashSet<Guid> StaleAllocations { get; set; } = new HashSet<Guid>();
-        /// <summary>
-        /// The latest operation detected by the leader
-        /// </summary>
-        public int LatestOperationPos { get; set; }
 
         public ShardAllocationMetadata DeepCopy()
         {

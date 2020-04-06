@@ -159,8 +159,7 @@ namespace ConcensusCore.Node.Tests
                                     InsyncAllocations = new HashSet<Guid>(){ nodeStorageId },
                                     PrimaryAllocation = nodeStorageId,
                                     Type = "number",
-                                    StaleAllocations = new HashSet<Guid>(),
-                                    LatestOperationPos = 0
+                                    StaleAllocations = new HashSet<Guid>()
                                 }
                             }
                         }

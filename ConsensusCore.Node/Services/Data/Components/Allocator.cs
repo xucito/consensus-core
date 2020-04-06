@@ -61,7 +61,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                             throw new ClusterOperationTimeoutException("Failed to create indext type " + type + " request timed out...");
                         }
                         _logger.LogWarning(_nodeStateService.GetNodeLogId() + "No eligible nodes found, awaiting eligible nodes.");
-                        Thread.Sleep(1000);
+                        await Task.Delay(1000);
                         eligbleNodes = _stateMachine.CurrentState.Nodes.Where(n => n.Value.IsContactable).ToDictionary(k => k.Key, v => v.Value);
                     }
 

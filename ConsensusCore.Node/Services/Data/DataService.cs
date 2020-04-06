@@ -147,7 +147,7 @@ namespace ConsensusCore.Node.Services.Data
                         else
                         {
                             //Release write thread for a small amount of time
-                            Thread.Sleep(100);
+                            await Task.Delay(100);
                         }
                     }
                     catch (Exception e)
@@ -157,7 +157,7 @@ namespace ConsensusCore.Node.Services.Data
                 }
             });
             _writeTask.Start();
-            TaskUtility.RestartTask(ref _indexCreationTask, () => CreateIndexLoop());
+            TaskUtility.RestartTask(ref _indexCreationTask, async () => await CreateIndexLoop());
 
             _allocationTask = new Task(async () => await AllocateShards());
             _allocationTask.Start();
@@ -180,7 +180,7 @@ namespace ConsensusCore.Node.Services.Data
                             Console.WriteLine(value.Key + ":" + (value.Value / totalRequests));
                         }
                         Console.WriteLine("Queue:" + _writeCache.OperationsInQueue);
-                        Thread.Sleep(1000);
+                        Task.Delay(1000);
                     }
                 });
                 performancePrinting.Start();
@@ -235,8 +235,9 @@ namespace ConsensusCore.Node.Services.Data
                                 WaitForCommits = true
                             });
                         }
+                        await Task.Delay(100);
                     }
-                    catch(Exception e)
+                    catch (Exception e)
                     {
                         _logger.LogError("Failed to release locks with exception " + e.Message + Environment.NewLine + e.StackTrace);
                     }
@@ -244,7 +245,7 @@ namespace ConsensusCore.Node.Services.Data
                 else
                 {
                     //Sleep for 10 seconds if you are not the leader.
-                    Thread.Sleep(10000);
+                    await Task.Delay(10000);
                 }
             }
         }
@@ -359,7 +360,7 @@ namespace ConsensusCore.Node.Services.Data
                             {
                                 throw new ClusterOperationTimeoutException("Locking operation timed out on " + request.ObjectId);
                             }
-                            Thread.Sleep(100);
+                            await Task.Delay(100);
                         }
 
                         //After the objects been locked check the ID
@@ -419,7 +420,7 @@ namespace ConsensusCore.Node.Services.Data
                         {
                             throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " is already queued.");
                         }
-                        Thread.Sleep(10);
+                        await Task.Delay(10);
                     }
                 }
                 else
@@ -436,7 +437,7 @@ namespace ConsensusCore.Node.Services.Data
                         {
                             throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " timed out.");
                         }
-                        Thread.Sleep(100);
+                        await Task.Delay(100);
                     }
                 }
             }
@@ -484,7 +485,7 @@ namespace ConsensusCore.Node.Services.Data
                     {
                         throw new IndexCreationFailedException("Queue clearance for transaction " + operationId + request.Data.ShardType + " timed out.");
                     }
-                    Thread.Sleep(totalOperation);
+                    await Task.Delay(totalOperation);
                 }
                 // printCheckPoint(ref startDate, ref checkpoint, "wait for completion");
             }
@@ -544,7 +545,7 @@ namespace ConsensusCore.Node.Services.Data
             return new AllocateShardResponse() { };
         }
 
-        private Task CreateIndexLoop()
+        private async Task CreateIndexLoop()
         {
             while (true)
             {
@@ -571,7 +572,7 @@ namespace ConsensusCore.Node.Services.Data
                                         throw new Exception("Failed to create index " + typeToCreate + ", timed out index detection.");
                                     }
                                     _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Awaiting index creation.");
-                                    Thread.Sleep(100);
+                                    await Task.Delay(100);
                                 }
                             }
                             else
@@ -581,11 +582,11 @@ namespace ConsensusCore.Node.Services.Data
                         }
                     }
                     while (isSuccessful);
-                    Thread.Sleep(1000);
+                    await Task.Delay(1000);
                 }
                 else
                 {
-                    Thread.Sleep(1000);
+                    await Task.Delay(1000);
                 }
             }
         }
@@ -621,7 +622,7 @@ namespace ConsensusCore.Node.Services.Data
                         //Get the shard positions
                         var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
                         //Wait 2 times the latency tolerance
-                        Thread.Sleep(_clusterOptions.LatencyToleranceMs * 5);
+                        await Task.Delay(_clusterOptions.LatencyToleranceMs * 5);
 
                         ConcurrentBag<Guid> staleNodes = new ConcurrentBag<Guid>();
 
@@ -668,7 +669,7 @@ namespace ConsensusCore.Node.Services.Data
                 {
                     _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to check all replicas with exception " + e.Message + Environment.NewLine + e.StackTrace);
                 }
-                Thread.Sleep(1000);
+                await Task.Delay(1000);
             }
         }
 
@@ -807,16 +808,6 @@ namespace ConsensusCore.Node.Services.Data
                                 ShardId = shard.Id,
                                 Type = shard.Type
                             });
-
-                            if (_stateMachine.GetShard(shard.Type, shard.Id).LatestOperationPos != latestOperation.LatestPosition)
-                            {
-                                updates.Add(new UpdateShardMetadataAllocations()
-                                {
-                                    ShardId = shard.Id,
-                                    Type = shard.Type,
-                                    LatestPos = latestOperation.LatestPosition
-                                });
-                            }
                         }
 
                         if (newTasks.Count > 0)
@@ -836,11 +827,11 @@ namespace ConsensusCore.Node.Services.Data
                             });
                         }
 
-                        Thread.Sleep(3000);
+                        await Task.Delay(3000);
                     }
                     else
                     {
-                        Thread.Sleep(5000);
+                        await Task.Delay(5000);
                     }
                 }
                 catch (Exception e)

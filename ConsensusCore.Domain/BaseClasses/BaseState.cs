@@ -200,11 +200,6 @@ namespace ConsensusCore.Domain.BaseClasses
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().StaleAllocations = new HashSet<Guid>(newList);
                         }
 
-                        if (t1.LatestPos != null)
-                        {
-                            Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().LatestOperationPos = t1.LatestPos.Value;
-                        }
-
                         if (t1.PrimaryAllocation != null)
                         {
                             Indexes[t1.Type].Shards.Where(s => s.Id == t1.ShardId).FirstOrDefault().PrimaryAllocation = t1.PrimaryAllocation.Value;

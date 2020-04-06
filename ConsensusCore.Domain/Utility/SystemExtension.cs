@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using Force.DeepCloner;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,8 +11,7 @@ namespace ConsensusCore.Domain.Utility
     {
         public static T Clone<T>(this T source)
         {
-            var serialized = JsonConvert.SerializeObject(source);
-            return JsonConvert.DeserializeObject<T>(serialized);
+            return source.DeepClone();
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Models;
 
@@ -17,7 +18,7 @@ namespace ConsensusCore.Domain.Services
         string Name { get; set; }
         double Version { get; set; }
         Guid? VotedFor { get; set; }
-        int AddCommands(List<BaseCommand> commands, int term);
+        int AddCommands(BaseCommand[] commands, int term);
         void AddLog(LogEntry entry);
         void AddLogs(List<LogEntry> entries);
         void CreateSnapshot(int indexIncludedTo, int trailingLogCount);
@@ -29,7 +30,7 @@ namespace ConsensusCore.Domain.Services
         int GetTotalLogCount();
         bool LogExists(int logIndex);
         void Save();
-        void SaveThread();
+        Task<bool> SaveThread();
         void SetCurrentTerm(int newTerm);
         void SetVotedFor(Guid? id);
     }

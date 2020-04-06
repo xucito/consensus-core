@@ -61,7 +61,6 @@ namespace ConsensusCore.Node.Services.Raft
                         Logger.LogWarning("Node at url " + url + " was unreachable...");
                     }
                 }
-
                 if (myUrl == null)
                 {
                     Logger.LogWarning("Node is not discoverable from the given node urls!");

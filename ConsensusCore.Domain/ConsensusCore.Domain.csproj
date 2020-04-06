@@ -2,10 +2,17 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.2</TargetFramework>
-    <Version>1.0.3.7-alpha</Version>
+    <Version>1.0.3.8-alpha</Version>
+    <Company>ConsensusCore</Company>
+    <Authors>Xucito</Authors>
+    <Description>Consensus Algorithm based on Raft that allows for .NET Core applications to implement a clustered configuration.</Description>
+    <PackageLicenseUrl>https://github.com/xucito/consensus-core/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageProjectUrl>https://github.com/xucito/consensus-core</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/xucito/consensus-core</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="DeepCloner" Version="0.10.2" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="2.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.2" />
   </ItemGroup>

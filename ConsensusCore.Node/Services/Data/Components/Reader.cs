@@ -100,7 +100,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                     {
                         throw new ClusterOperationTimeoutException("Get data request for object " + objectId + " from shard " + shardId + " timed out.");
                     }
-                    Thread.Sleep(10);
+                    await Task.Delay(10);
                 }
 
                 return finalObject;

@@ -14,6 +14,7 @@ using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ConsensusCore.Domain.Services
 {
@@ -41,7 +42,7 @@ namespace ConsensusCore.Domain.Services
         public SortedList<int, LogEntry> Logs { get; set; } = new SortedList<int, LogEntry>();
 
         [JsonIgnore]
-        public ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>> CommandsQueue = new ConcurrentDictionary<int, ConcurrentQueue<BaseCommand>>();
+        public ConcurrentStack<BaseCommand> CommandsQueue = new ConcurrentStack<BaseCommand>();
         [JsonIgnore]
         private int _currentActiveLog = 0;
         [JsonIgnore]
@@ -54,8 +55,7 @@ namespace ConsensusCore.Domain.Services
         public readonly object _saveLocker = new object();
         [JsonIgnore]
         public Thread _saveThread;
-
-        Timer _concatenateCommands;
+        public Task _logConcatThread;
 
         public NodeStorage()
         {
@@ -86,24 +86,57 @@ namespace ConsensusCore.Domain.Services
             }
 
             _currentActiveLog = GetLastLogIndex() + 1;
-            CommandsQueue.TryAdd(_currentActiveLog, new ConcurrentQueue<BaseCommand>());
+            // CommandsQueue.TryAdd(_currentActiveLog, new ConcurrentQueue<BaseCommand>());
 
             if (_repository != null)
             {
-                _saveThread = new Thread(() =>
+                _saveThread = new Thread(async () =>
                 {
-                    SaveThread();
+                    await SaveThread();
                 });
                 _saveThread.Start();
             }
 
-            _concatenateCommands = new Timer(CommitCommandsEventHandler);
-
-            _concatenateCommands.Change(0, 50);
+            //  _concatenateCommands = new Timer(CommitCommandsEventHandler);
+            // _concatenateCommands.Change(0, 50);
             // var loadedData = _repository.LoadNodeData();
+            _logConcatThread = Task.Run(() =>
+            {
+                Thread.Sleep(1000);
+                Logger.LogInformation("Starting log concatenation.");
+                ConcatenateLogs(); ;
+            });
         }
 
-        public void CommitCommandsEventHandler(object args)
+        public void ConcatenateLogs()
+        {
+            while (true)
+            {
+                var stopwatch = new Stopwatch();
+                stopwatch.Start();
+                var evaluatedLog = _currentActiveLog;
+                var totalObjects = CommandsQueue.Count();
+                totalObjects = totalObjects < 50 ? totalObjects : 50;
+                if (totalObjects > 0)
+                {
+                    BaseCommand[] totalCommands = new BaseCommand[totalObjects];
+                    CommandsQueue.TryPopRange(totalCommands, 0, totalObjects);
+                    Logs.TryAdd(evaluatedLog, new LogEntry()
+                    {
+                        Commands = totalCommands.ToList(),
+                        Term = CurrentTerm,
+                        Index = evaluatedLog
+                    });
+                    _currentActiveLog += 1;
+                    Save();
+                    Logger.LogDebug("Adding logs for index " + evaluatedLog + " Log concatenation took " + stopwatch.ElapsedMilliseconds + " to add " + totalObjects);
+                    //Console.WriteLine("Adding logs for index " + evaluatedLog + " Log concatenation took " + stopwatch.ElapsedMilliseconds + " to add " + totalObjects);
+                }
+                Thread.Sleep(10);
+            }
+        }
+
+        /*public void CommitCommandsEventHandler(object args)
         {
             try
             {
@@ -115,7 +148,7 @@ namespace ConsensusCore.Domain.Services
                 if (CommandsQueue.ContainsKey(evaluatedLog) && CommandsQueue[evaluatedLog].Count() > 0 && evaluatedLog == (Interlocked.Increment(ref _currentActiveLog) - 1))
                 {
                     var count = CommandsQueue[evaluatedLog].Count();
-                    Logs.Add(evaluatedLog, new LogEntry()
+                    Logs.TryAdd(evaluatedLog, new LogEntry()
                     {
                         Commands = CommandsQueue[evaluatedLog].ToList(),
                         Term = CurrentTerm,
@@ -127,11 +160,11 @@ namespace ConsensusCore.Domain.Services
                     //Console.WriteLine("Log concatenation took " + stopwatch.ElapsedMilliseconds + " to add " + count);
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Logger.LogError("Failed to commit commands with error " + e.Message + Environment.StackTrace + e.StackTrace);
             }
-        }
+        }*/
 
         public void SetLastSnapshot(State snapshot, int lastIncludedIndex, int lastIncludedTerm)
         {
@@ -144,16 +177,9 @@ namespace ConsensusCore.Domain.Services
             Save();
         }
 
-        public int EnqueueCommand(List<BaseCommand> commands)
+        public int EnqueueCommand(BaseCommand[] commands)
         {
-            foreach (var command in commands)
-            {
-                /*if (!CommandsQueue.ContainsKey(_currentActiveLog))
-                /*{
-                    CommandsQueue.TryAdd(_currentActiveLog, new ConcurrentQueue<BaseCommand>());
-                }*/
-                CommandsQueue[_currentActiveLog].Enqueue(command);
-            }
+            CommandsQueue.PushRange(commands);
             return _currentActiveLog;
         }
 
@@ -303,9 +329,9 @@ namespace ConsensusCore.Domain.Services
             return Logs.ContainsKey(logIndex);
         }
 
-        public int AddCommands(List<BaseCommand> commands, int term)
+        public int AddCommands(BaseCommand[] commands, int term)
         {
-            if (commands.Count > 0)
+            if (commands.Length > 0)
             {
                 return EnqueueCommand(commands);
             }
@@ -391,18 +417,18 @@ namespace ConsensusCore.Domain.Services
             RequireSave = true;
         }
 
-        public void SaveThread()
+        public async Task<bool> SaveThread()
         {
             while (true)
             {
                 if (RequireSave)
                 {
                     RequireSave = false;
-                    _repository.SaveNodeDataAsync(this).GetAwaiter().GetResult();
+                    await _repository.SaveNodeDataAsync(this);
                 }
                 else
                 {
-                    Thread.Sleep(500);
+                    await Task.Delay(500);
                 }
             }
         }

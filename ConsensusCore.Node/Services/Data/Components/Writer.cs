@@ -184,7 +184,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                     {
                         return false;
                     }
-                    Thread.Sleep(100);
+                    await Task.Delay(100);
                 }
 
                 if (lastOperation.Pos != operation.Pos - 1)

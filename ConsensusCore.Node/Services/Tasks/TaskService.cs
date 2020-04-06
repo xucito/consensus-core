@@ -109,7 +109,7 @@ namespace ConsensusCore.Node.Services.Tasks
                         }
                     }
                 }
-                Thread.Sleep(1000);
+                await Task.Delay(1000);
             }
         }
 

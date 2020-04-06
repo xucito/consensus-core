@@ -10,7 +10,7 @@ namespace ConsensusCore.Node.Services.Raft
     {
         AppendEntryResponse AppendEntryRPCHandler(AppendEntry entry);
         void ElectionTimeoutEventHandler(object args);
-        ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request);
+        Task<ExecuteCommandsResponse> ExecuteCommandsRPCHandler(ExecuteCommands request);
         Task<TResponse> Handle<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new();
         InstallSnapshotResponse InstallSnapshotHandler(InstallSnapshot request);
         Task MonitorCommits(bool loop);

@@ -35,8 +35,6 @@ namespace ConsensusCore.Node.Services.Raft
         private Bootstrapper<State> _bootstrapService;
         private Discovery _discovery;
         private CommitService<State> _commitService;
-
-
         private IClusterConnectionPool _clusterConnectionPool;
         //Used to track whether you are currently already sending logs to a particular node to not double send
         public ConcurrentDictionary<Guid, bool> LogsSent = new ConcurrentDictionary<Guid, bool>();
@@ -77,11 +75,12 @@ namespace ConsensusCore.Node.Services.Raft
 
             if (!ClusterOptions.TestMode)
             {
-                _bootstrapTask = Task.Run(() =>
+                _bootstrapTask = Task.Run(async () =>
                 {
                     //Wait for the rest of the node to bootup
+                    Logger.LogInformation("Starting bootstrap...");
                     Thread.Sleep(3000);
-                    nodeStateService.Url = _bootstrapService.GetMyUrl(ClusterOptions.GetClusterUrls(), TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs)).GetAwaiter().GetResult();
+                    nodeStateService.Url = await _bootstrapService.GetMyUrl(ClusterOptions.GetClusterUrls(), TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs));
                     NodeStateService.IsBootstrapped = true;
                     SetNodeRole(NodeState.Follower);
                 });
@@ -124,7 +123,7 @@ namespace ConsensusCore.Node.Services.Raft
             switch (request)
             {
                 case ExecuteCommands t1:
-                    response = (TResponse)(object)ExecuteCommandsRPCHandler(t1);
+                    response = (TResponse)(object)await ExecuteCommandsRPCHandler(t1);
                     break;
                 case RequestVote t1:
                     response = (TResponse)(object)RequestVoteRPCHandler(t1);
@@ -173,9 +172,9 @@ namespace ConsensusCore.Node.Services.Raft
             }
         }
 
-        public ExecuteCommandsResponse ExecuteCommandsRPCHandler(ExecuteCommands request)
+        public async Task<ExecuteCommandsResponse> ExecuteCommandsRPCHandler(ExecuteCommands request)
         {
-            int index = _nodeStorage.AddCommands(request.Commands.ToList(), _nodeStorage.CurrentTerm);
+            int index = _nodeStorage.AddCommands(request.Commands.ToArray(), _nodeStorage.CurrentTerm);
             var startDate = DateTime.Now;
             while (request.WaitForCommits)
             {
@@ -199,7 +198,7 @@ namespace ConsensusCore.Node.Services.Raft
                 }
                 else
                 {
-                    Thread.Sleep(100);
+                    await Task.Delay(100);
                 }
             }
             return new ExecuteCommandsResponse()
@@ -489,11 +488,11 @@ namespace ConsensusCore.Node.Services.Raft
                                 NodeStateService.Url = myNodeInfo.First().TransportAddress;
                             }
                         }
-                        Thread.Sleep(100);
+                        await Task.Delay(100);
                     }
                     else
                     {
-                        Thread.Sleep(1000);
+                        await Task.Delay(1000);
                     }
                 }
                 catch (Exception e)
@@ -570,7 +569,7 @@ namespace ConsensusCore.Node.Services.Raft
                             _snapshotService.CheckAndApplySnapshots(NodeStateService.CommitIndex, ClusterOptions.SnapshottingTrailingLogCount, ClusterOptions.SnapshottingInterval);
                         }
                     }
-                    Thread.Sleep(5);
+                    await Task.Delay(5);
                 }
                 catch (Exception e)
                 {
