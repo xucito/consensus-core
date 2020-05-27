@@ -21,7 +21,7 @@ namespace ConsensusCore.Node.Services.Data.Components
         public object queueLock = new object();
         ConcurrentQueue<ShardWriteOperation> operations = new ConcurrentQueue<ShardWriteOperation>();
         //In-memory queue
-        public List<ShardWriteOperation> OperationQueue { get; set; } = new List<ShardWriteOperation>();
+        public Dictionary<string, ShardWriteOperation> OperationQueue { get; set; } = new Dictionary<string, ShardWriteOperation>();
         public Dictionary<string, ShardWriteOperation> TransitQueue { get; set; } = new Dictionary<string, ShardWriteOperation>();
         private readonly bool _persistToDisk;
 
@@ -35,7 +35,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             if (_persistToDisk)
             {
                 _logger.LogDebug("Loading transactions to queue...");
-                OperationQueue = _operationCacheRepository.GetOperationQueueAsync().GetAwaiter().GetResult().ToList();
+                OperationQueue = _operationCacheRepository.GetOperationQueueAsync().GetAwaiter().GetResult().ToDictionary(k => k.Id, v => v);
                 TransitQueue = _operationCacheRepository.GetTransitQueueAsync().GetAwaiter().GetResult().ToList().ToDictionary(swo => swo.Id, swo => swo);
             }
             else
@@ -48,7 +48,7 @@ namespace ConsensusCore.Node.Services.Data.Components
         {
             lock (queueLock)
             {
-                OperationQueue.Add(transaction);
+                OperationQueue.Add(transaction.Id, transaction);
             }
             if (_persistToDisk)
                 return await _operationCacheRepository.EnqueueOperationAsync(transaction);
@@ -63,14 +63,14 @@ namespace ConsensusCore.Node.Services.Data.Components
                 if (operationQueueResult.Count() > 0)
                 {
                     var operation = operationQueueResult.First();
-                    TransitQueue.TryAdd(operation.Id, SystemExtension.Clone(operation));
-                    OperationQueue.Remove(operation);
+                    TransitQueue.TryAdd(operation.Key, SystemExtension.Clone(operation.Value));
+                    OperationQueue.Remove(operation.Key);
                     if (_persistToDisk)
                     {
-                        _operationCacheRepository.AddOperationToTransitAsync(operation).GetAwaiter().GetResult();
-                        _operationCacheRepository.DeleteOperationFromQueueAsync(operation).GetAwaiter().GetResult();
+                        _operationCacheRepository.AddOperationToTransitAsync(operation.Value).GetAwaiter().GetResult();
+                        _operationCacheRepository.DeleteOperationFromQueueAsync(operation.Value).GetAwaiter().GetResult();
                     }
-                    return operation;
+                    return operation.Value;
                 }
                 return null;
             }
@@ -91,11 +91,7 @@ namespace ConsensusCore.Node.Services.Data.Components
 
         public bool IsOperationComplete(string transactionId)
         {
-            lock (queueLock)
-            {
-                var isOperationInQueue = OperationQueue.Find(oq => oq.Id == transactionId) != null;
-                return (!TransitQueue.ContainsKey(transactionId) && !isOperationInQueue);
-            }
+                return (!TransitQueue.ContainsKey(transactionId) && !OperationQueue.ContainsKey(transactionId));
         }
     }
 }

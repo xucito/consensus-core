@@ -18,7 +18,12 @@ namespace TestConsole
         public static ILogger logger;
         static Random rand = new Random();
         static Thread chaosMonkey;
-        static object DataLock = new object();
+        //static object DataLock = new object();
+        /// <summary>
+        /// 0 for write enabled
+        /// 1 for pause writes
+        /// </summary>
+        static int WriteState = 0;
         static int TestLoops = 0;
         static int RandomFailures = 0;
         static int TotalTimeDown = 0;
@@ -75,7 +80,7 @@ namespace TestConsole
                 {
                     List<Task> allThreads = new List<Task>();
                     int numberOfConcurrentThreads = 10;
-                    lock (DataLock)
+                    if (WriteState == 0)
                     {
                         for (var i = 0; i < numberOfConcurrentThreads; i++)
                         {
@@ -217,48 +222,47 @@ namespace TestConsole
                     }
                 }
 
-                lock (DataLock)
+                Interlocked.Increment(ref WriteState);
+
+                while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
                 {
-                    while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
-                    {
-                        Thread.Sleep(1000);
-                    }
-
-                    Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
-                    logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
-
-                    while (!client.IsClusterStateConsistent(Urls.ToList()).GetAwaiter().GetResult())
-                    {
-                        Console.WriteLine("State is still not consistent");
-                    }
-
-                    Console.WriteLine("State is still consistent");
-
-                    if (DataConsistencyCheck)
-                    {
-                        if (client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
-                        {
-
-                            Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY.");
-                        }
-                        else
-                        {
-                            Console.WriteLine("ERROR! THERE IS AN ISSUE WITH THE DATA CONSISTENCY AFTER RECOVERY.");
-                            Thread.Sleep(10000);
-                            while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
-                            {
-                                Thread.Sleep(1000);
-                            }
-                            while (!client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult())
-                            {
-                                Console.WriteLine("After 10 seconds the cluster is still inconsistent.");
-                                Thread.Sleep(1000);
-                            }
-                            Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
-                        }
-                    }
-
+                    Thread.Sleep(1000);
                 }
+
+                Interlocked.Add(ref TotalTimeDown, (int)(DateTime.Now - killTime).TotalMilliseconds);
+                logger.LogInformation("Cluster recovery took " + (DateTime.Now - killTime).TotalMilliseconds + "ms");
+                JObject diff;
+                while ((diff = client.IsClusterStateConsistent(Urls.ToList()).GetAwaiter().GetResult()) != null)
+                {
+                    Console.WriteLine("State is still not consistent, diff: " + Environment.NewLine + diff.ToString(Newtonsoft.Json.Formatting.Indented));
+                    Thread.Sleep(3000);
+                }
+
+                Console.WriteLine("State is consistent");
+                JObject datastoreCheck;
+                if (DataConsistencyCheck)
+                {
+                    if ((datastoreCheck = client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult()) == null)
+                    {
+                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("ERROR! THERE IS AN ISSUE WITH THE DATA CONSISTENCY AFTER RECOVERY.");
+                        Thread.Sleep(10000);
+                        while (!client.AreAllNodesGreen(Urls.ToArray()).GetAwaiter().GetResult())
+                        {
+                            Thread.Sleep(1000);
+                        }
+                        while ((datastoreCheck = client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult()) != null)
+                        {
+                            Console.WriteLine("datastore is still not consistent, diff: " + Environment.NewLine + datastoreCheck.ToString(Newtonsoft.Json.Formatting.Indented));
+                            Thread.Sleep(1000);
+                        }
+                        Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
+                    }
+                }
+                Interlocked.Decrement(ref WriteState);
             }
         }
 
@@ -300,6 +304,7 @@ namespace TestConsole
             }
             var updatedValue = rand.Next(0, 99999);
             TrySend(async () => await Client.UpdateValue(addResult.Item2, updatedValue)).GetAwaiter().GetResult();
+            TrySend(async () => await Client.DeleteValue(addResult.Item2)).GetAwaiter().GetResult();
             /* if ((TrySend(async () => await Client.GetValue(getUrl, result))).GetAwaiter().GetResult() == updatedValue)
              {
                  Console.WriteLine("Successfully updated the object");
@@ -595,6 +600,28 @@ namespace TestConsole
             }
         }
 
+        public async Task<Tuple<string, bool>> DeleteValue(Guid id, string url = null)
+        {
+            try
+            {
+                if (url == null)
+                {
+                    url = Urls[rand.Next(0, Urls.Length)];
+                }
+
+                using (var client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri(url);
+                    var result = await client.DeleteAsync("api/values/" + id);
+                    return new Tuple<string, bool>(url, true);
+                }
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
+        }
+
         public async Task<bool> IsNodeInCluster(string url)
         {
             try
@@ -690,7 +717,7 @@ namespace TestConsole
             }
         }
 
-        public async Task<bool> IsClusterDataStoreConsistent(List<string> urls)
+        public async Task<JObject> IsClusterDataStoreConsistent(List<string> urls)
         {
             try
             {
@@ -710,19 +737,19 @@ namespace TestConsole
                     if (!JToken.DeepEquals(allResults[i], allResults[i - 1]))
                     {
                         //Console.WriteLine("Object " + allResults[i]["value"]["id"].ToObject<string>() + " is not consistent.." + Environment.NewLine + allResults[i].ToString(Newtonsoft.Json.Formatting.Indented));
-                        return false;
+                        return allResults[i].FindDiff(allResults[i - 1]);
                     }
                 }
             }
             catch (Exception e)
             {
                 Console.WriteLine("Failed to compare data with exception " + e.Message + Environment.NewLine + e.StackTrace);
-                return false;
+                return new JObject();
             }
-            return true;
+            return null;
         }
 
-        public async Task<bool> IsClusterStateConsistent(List<string> urls)
+        public async Task<JObject> IsClusterStateConsistent(List<string> urls)
         {
             try
             {
@@ -741,15 +768,16 @@ namespace TestConsole
                 {
                     if (!JToken.DeepEquals(allResults[i], allResults[i - 1]))
                     {
-                        return false;
+                        return allResults[i].FindDiff(allResults[i - 1]);
                     }
                 }
             }
             catch (Exception e)
             {
-                return false;
+                Console.WriteLine("Failed to get cluster consistency with error " + e.Message);
+                return new JObject();
             }
-            return true;
+            return null;
         }
     }
 
@@ -764,4 +792,5 @@ namespace TestConsole
         Failure,
         Suspension
     }
+
 }

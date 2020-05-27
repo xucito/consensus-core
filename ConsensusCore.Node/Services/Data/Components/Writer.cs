@@ -94,7 +94,21 @@ namespace ConsensusCore.Node.Services.Data.Components
             var writeOperation = await _shardRepository.AddShardWriteOperationAsync(operation); //Add shard operation
             if (writeOperation)
             {
-                ApplyOperationToDatastore(operation);
+                try
+                {
+                    ApplyOperationToDatastore(operation);
+                }
+                catch(Exception e)
+                {
+                    if(operation.Operation == ShardOperationOptions.Update)
+                    {
+                        var allOperations = await _shardRepository.GetAllObjectShardWriteOperationAsync(operation.Data.ShardId.Value, operation.Data.Id);
+                        if(allOperations.Where(ao => ao.Value.Operation == ShardOperationOptions.Delete).Count() == 0 && allOperations.Where(ao => ao.Value.Operation == ShardOperationOptions.Create).Count() == 1)
+                        {
+                            throw e;
+                        }
+                    }
+                }
                 var shardMetadata = _stateMachine.GetShard(operation.Data.ShardType, operation.Data.ShardId.Value);
                 //Mark operation as applied
                 await _shardRepository.MarkShardWriteOperationAppliedAsync(operation.Id);
@@ -170,34 +184,57 @@ namespace ConsensusCore.Node.Services.Data.Components
         }
 
 
-        public async Task<bool> ReplicateShardWriteOperationAsync(ShardWriteOperation operation)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="operation"></param>
+        /// <param name="forceReplicate">This is used to force replication of failed transactions</param>
+        /// <returns></returns>
+        public async Task<bool> ReplicateShardWriteOperationAsync(Guid shardId, ShardWriteOperation operation, bool forceReplicate)
         {
+            if (operation == null)
+            {
+                Console.WriteLine("Was asked to replicate a null transaction.");
+                return true;
+            }
             // Get the last operation
             ShardWriteOperation lastOperation;
             var startTime = DateTime.Now;
             if (operation.Pos != 1)
             {
-                while ((lastOperation = await GetOrPopulateOperationCache(operation.Data.ShardId.Value)) == null || !lastOperation.Applied || lastOperation.Pos < operation.Pos - 1)
-                {
-                    //Assume in the next 3 seconds you should receive the previos requests
-                    if ((DateTime.Now - startTime).TotalMilliseconds > 3000)
+                if (!forceReplicate)
+                    while ((lastOperation = await GetOrPopulateOperationCache(shardId)) == null || !lastOperation.Applied || lastOperation.Pos < operation.Pos - 1)
                     {
-                        return false;
+                        //Assume in the next 3 seconds you should receive the previos requests
+                        if ((DateTime.Now - startTime).TotalMilliseconds > 3000)
+                        {
+                            return false;
+                        }
+                        await Task.Delay(100);
                     }
-                    await Task.Delay(100);
+                else
+                    lastOperation = await GetOrPopulateOperationCache(shardId);
+
+                if (lastOperation != null && lastOperation.Pos != operation.Pos - 1)
+                {
+                    lastOperation = await _shardRepository.GetShardWriteOperationAsync(shardId, operation.Pos - 1);
                 }
 
-                if (lastOperation.Pos != operation.Pos - 1)
+                if (lastOperation != null)
                 {
-                    lastOperation = await _shardRepository.GetShardWriteOperationAsync(operation.Data.ShardId.Value, operation.Pos - 1);
-                }
+                    string newHash;
+                    if ((newHash = ObjectUtility.HashStrings(lastOperation.ShardHash, operation.Id)) != operation.ShardHash)
+                    {
+                        //Critical error with data concurrency, revert back to last known good commit via the resync process
+                        _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
+                        throw new Exception(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
+                    }
 
-                string newHash;
-                if ((newHash = ObjectUtility.HashStrings(lastOperation.ShardHash, operation.Id)) != operation.ShardHash)
-                {
-                    //Critical error with data concurrency, revert back to last known good commit via the resync process
-                    _logger.LogError(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
-                    throw new Exception(_nodeStateService.GetNodeLogId() + "Failed to check the hash for operation " + operation.Id + ", marking shard as out of sync...");
+                    if (lastOperation.Pos >= operation.Pos)
+                    {
+                        _logger.LogDebug("Found that operation " + operation.Pos + " for shard " + shardId + " has already occurred.");
+                        return true;
+                    }
                 }
             }
 
@@ -213,10 +250,25 @@ namespace ConsensusCore.Node.Services.Data.Components
 
             _shardRepository.AddShardWriteOperationAsync(operation).GetAwaiter().GetResult();
             //Run shard operation
-            ApplyOperationToDatastore(operation);
+            //ApplyOperationToDatastore(operation);
+            try
+            {
+                ApplyOperationToDatastore(operation);
+            }
+            catch (Exception e)
+            {
+                if (operation.Operation == ShardOperationOptions.Update)
+                {
+                    var allOperations = await _shardRepository.GetAllObjectShardWriteOperationAsync(operation.Data.ShardId.Value, operation.Data.Id);
+                    if (allOperations.Where(ao => ao.Value.Operation == ShardOperationOptions.Delete).Count() == 0 && allOperations.Where(ao => ao.Value.Operation == ShardOperationOptions.Create).Count() == 1)
+                    {
+                        throw e;
+                    }
+                }
+            }
             _shardRepository.MarkShardWriteOperationAppliedAsync(operation.Id).GetAwaiter().GetResult();
             //Update the cache
-            UpdateOperationCache(operation.Data.ShardId.Value, operation);
+            UpdateOperationCache(shardId, operation);
             //}
             /* }
              else
@@ -277,8 +329,9 @@ namespace ConsensusCore.Node.Services.Data.Components
 
                 await _shardRepository.RemoveShardWriteOperationAsync(shardId, operation.Pos);
             }
+
             //Update the cache
-            _shardLastOperationCache.Remove(operation.Data.ShardId.Value, out _);
+            _shardLastOperationCache.Remove(shardId, out _);
         }
 
         public async void ApplyOperationToDatastore(ShardWriteOperation operation)

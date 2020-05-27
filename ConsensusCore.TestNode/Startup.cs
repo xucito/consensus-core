@@ -98,7 +98,12 @@ namespace ConsensusCore.TestNode
                     logger.LogInformation("Restoring node");
                     raftService.SetNodeRole(Domain.Enums.NodeState.Follower);
                 }
-                
+
+                if (context.Request.Path == "/api/delete" && context.Request.Method == "POST")
+                {
+                    System.Environment.Exit(0);
+                }
+
                 if (Killed == false)
                 {
                     await next();

@@ -117,6 +117,32 @@ namespace ConsensusCore.TestNode.Controllers
             //return Ok(_router._numberStore.Where(n => n.Id == id));
         }
 
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteData(Guid id)
+        {
+            if (_node.InCluster)
+            {
+                var result = await (_clusterClient.Send(new AddShardWriteOperation()
+                {
+                    Data = (await _clusterClient.Send(new RequestDataShard()
+                    {
+                        ObjectId = id,
+                        Type = "number",
+                        CreateLock = false
+                    })).Data,
+                    Operation = ShardOperationOptions.Delete,
+                    WaitForSafeWrite = true
+                }));
+            }
+            else
+            {
+                return StatusCode(503);
+
+            }
+            return Ok();
+            //return Ok(_router._numberStore.Where(n => n.Id == id));
+        }
+
         [HttpPost("lock/{name}")]
         public async Task<IActionResult> ApplyNumberLock(string name)
         {

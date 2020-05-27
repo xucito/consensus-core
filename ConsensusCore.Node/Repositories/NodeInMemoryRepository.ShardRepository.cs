@@ -1,4 +1,5 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
+using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.Utility;
@@ -68,7 +69,14 @@ namespace ConsensusCore.Node.Repositories
 
         public Task<ShardWriteOperation> GetShardWriteOperationAsync(Guid shardId, int syncPos)
         {
-            return Task.FromResult(SystemExtension.Clone(ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Pos == syncPos).FirstOrDefault().Value));
+            Console.WriteLine("Trying to get shard " + shardId + "position " + syncPos);
+            var filteredSWO = ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Pos == syncPos).ToList();
+            if(filteredSWO.Count() == 0)
+            {
+                return Task.FromResult<ShardWriteOperation>(null);
+            }
+            Console.WriteLine("FOUND " + filteredSWO.Count());
+            return Task.FromResult(SystemExtension.Clone(filteredSWO.FirstOrDefault().Value));
         }
 
         public Task<ShardWriteOperation> GetShardWriteOperationAsync(string transacionId)
@@ -78,6 +86,11 @@ namespace ConsensusCore.Node.Repositories
                 return Task.FromResult(ShardWriteOperations[transacionId]);
             }
             return Task.FromResult< ShardWriteOperation>(null);
+        }
+
+        public Task<List<ShardWriteOperation>> GetShardWriteOperationsAsync(ShardOperationOptions option)
+        {
+            return Task.FromResult(ShardWriteOperations.Where(swo => swo.Value.Operation == option).Select(s => s.Value).ToList());
         }
 
         public Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to)
@@ -93,7 +106,8 @@ namespace ConsensusCore.Node.Repositories
 
         public int GetTotalShardWriteOperationsCount(Guid shardId)
         {
-            return ShardWriteOperations.Count();
+            var sortedShardWrites = new SortedDictionary<int, ShardWriteOperation>(ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId).ToDictionary(k => k.Value.Pos, v => v.Value));
+            return sortedShardWrites.Count() == 0 ? 0 : sortedShardWrites.Last().Value.Pos;
         }
 
         public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)

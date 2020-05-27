@@ -14,5 +14,10 @@ namespace ConsensusCore.Node
         public bool AlwaysPrimary { get; set; } = false;
         public bool EnablePerformanceLogging { get; set; } = false;
         public bool PersistWriteQueue { get; set; } = false;
+        /// <summary>
+        /// How far to trail the transaction counts and transaction cleanup
+        /// </summary>
+        public int StaleDataTrailingLogCount { get; set; } = 50;
+        public int StaleDataCleanupIntervalMs { get; set; } = 300000;
     }
 }

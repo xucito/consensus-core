@@ -87,7 +87,8 @@ namespace ConsensusCore.Node.Services.Data.Components
 
         public async Task<bool> SyncShard(Guid shardId, string type)
         {
-            var lastOperation = await _shardRepository.GetShardWriteOperationAsync(shardId, _shardRepository.GetTotalShardWriteOperationsCount(shardId));
+            var totalOperations = _shardRepository.GetTotalShardWriteOperationsCount(shardId);
+            var lastOperation = totalOperations != 0 ? await _shardRepository.GetShardWriteOperationAsync(shardId, totalOperations) : null;
             int lastOperationPos = lastOperation == null ? 0 : lastOperation.Pos;
 
             var shardMetadata = _stateMachine.GetShard(type, shardId);
@@ -116,7 +117,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                     //Check whether the hash is equal, if not equal roll back each transaction
                     var currentPosition = lastOperationPos;
                     ShardWriteOperation currentOperation = null;
-                    if (lastOperationPos != 0 && !(result.Operations[lastOperationPos].ShardHash == lastOperation.ShardHash))
+                    if (lastOperationPos != 0 && result.Operations[lastOperationPos] != null && !(result.Operations[lastOperationPos].ShardHash == lastOperation.ShardHash))
                     {
                         //While the shard position does not match 
                         while (!((await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
@@ -151,14 +152,18 @@ namespace ConsensusCore.Node.Services.Data.Components
                         }
                     }
 
-                    while (result.LatestPosition != (_shardRepository.GetTotalShardWriteOperationsCount(shardId)))
+                    while (result.LatestPosition > (_shardRepository.GetTotalShardWriteOperationsCount(shardId)))
                     {
                         foreach (var operation in result.Operations)
                         {
                             _logger.LogDebug(_nodeStateService.Id + "Replicated operation " + operation.Key + " for shard " + shardId);
-                            await _writer.ReplicateShardWriteOperationAsync(operation.Value);
+                            await _writer.ReplicateShardWriteOperationAsync(shardId, operation.Value, true);
                         }
-                        currentPosition = result.Operations.Last().Key;
+                        //If it does equal zero, it means the transaction has been deleted
+                        if (result.Operations.Count() > 0)
+                            currentPosition = result.Operations.Last().Key;
+                        else
+                            currentPosition++;
                         result = await _clusterClient.Send(shardMetadata.PrimaryAllocation, new RequestShardWriteOperations()
                         {
                             ShardId = shardId,

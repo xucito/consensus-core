@@ -136,7 +136,7 @@ namespace ConsensusCore.Domain.BaseClasses
                                 }
                             }
                         }
-                        if (t1.TasksToRemove != null)
+                        /*if (t1.TasksToRemove != null)
                         {
                             foreach (var task in t1.TasksToRemove)
                             {
@@ -145,7 +145,7 @@ namespace ConsensusCore.Domain.BaseClasses
                                     throw new Exception("Critical error while trying to remove cluster task " + task);
                                 }
                             }
-                        }
+                        }*/
                         if (t1.TasksToUpdate != null)
                         {
                             foreach (var task in t1.TasksToUpdate)

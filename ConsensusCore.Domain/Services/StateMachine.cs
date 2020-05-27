@@ -69,7 +69,8 @@ namespace ConsensusCore.Domain.Services
         public void ApplyLogsToStateMachine(IEnumerable<LogEntry> entries)
         {
             List<string> FailedLogs = new List<string>();
-            var copy = entries.OrderBy(c => c.Index).Select(e => e.DeepCopy());
+            //There is a null scenario for entries
+            var copy = entries.Where(e => e != null).OrderBy(c => c.Index).Select(e => e.DeepCopy());
             foreach (var entry in copy)
             {
                 foreach (var command in entry.Commands)
@@ -93,11 +94,6 @@ namespace ConsensusCore.Domain.Services
                     }
                 }
             }
-
-            /*if(FailedLogs.Count() > 0)
-            {
-                throw new Exception("Failed to apply all commands successfully, the following logs failed to apply to state" + Environment.NewLine + JsonConvert.SerializeObject(FailedLogs));
-            }*/
         }
 
         public void ApplySnapshotToStateMachine(Z state)

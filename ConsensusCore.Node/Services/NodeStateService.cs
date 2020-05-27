@@ -15,6 +15,13 @@ namespace ConsensusCore.Node.Services.Raft
         public Dictionary<Guid, int> NextIndex { get; private set; } = new Dictionary<Guid, int>();
         public ConcurrentDictionary<Guid, int> MatchIndex { get; private set; } = new ConcurrentDictionary<Guid, int>();
         public int LatestLeaderCommit { get; set; }
+        public bool IsStale { get {
+                if( Role == NodeState.Leader)
+                {
+                    return false;
+                }
+                return CommitIndex != LatestLeaderCommit;
+            } }
         public string Url { get; set; }
         public bool IsBootstrapped { get; set; }
         public Guid? CurrentLeader { get; set; }
