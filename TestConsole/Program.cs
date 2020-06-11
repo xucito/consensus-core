@@ -304,7 +304,10 @@ namespace TestConsole
             }
             var updatedValue = rand.Next(0, 99999);
             TrySend(async () => await Client.UpdateValue(addResult.Item2, updatedValue)).GetAwaiter().GetResult();
-            TrySend(async () => await Client.DeleteValue(addResult.Item2)).GetAwaiter().GetResult();
+            if (rand.Next(0, 2) == 1)
+            {
+                TrySend(async () => await Client.DeleteValue(addResult.Item2)).GetAwaiter().GetResult();
+            }
             /* if ((TrySend(async () => await Client.GetValue(getUrl, result))).GetAwaiter().GetResult() == updatedValue)
              {
                  Console.WriteLine("Successfully updated the object");

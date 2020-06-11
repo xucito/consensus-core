@@ -52,35 +52,19 @@ namespace ConsensusCore.Node.Services.Data.Components
             foreach (var shard in await _shardRepository.GetAllShardMetadataAsync())
             {
                 _logger.LogInformation("Checking shard " + shard.ShardId);
-                var unappliedShardOperations = await _shardRepository.GetAllUnappliedOperationsAsync(shard.ShardId);
-                foreach (var unappliedShardOperation in unappliedShardOperations)
+                var totalOperations = _shardRepository.GetTotalShardWriteOperationsCount(shard.ShardId);
+                if (totalOperations > 0)
                 {
-                    ShardWriteOperation lastOperation;
-                    //If the previous operation exists and has been applied
-                    if ((lastOperation = await _shardRepository.GetShardWriteOperationAsync(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Pos - 1)) != null && lastOperation.Applied)
+                    var lastOperationAppliedPos = await _writer.GetLastOperationApplied(shard.ShardId);
+                    var lastOperation = await _shardRepository.GetShardWriteOperationAsync(shard.ShardId, totalOperations);
+                    if (lastOperation.Pos != lastOperationAppliedPos)
                     {
-                        string newHash;
-
-                        //Run shard operation
-                        _writer.ApplyOperationToDatastore(unappliedShardOperation.Value);
-                        await _shardRepository.MarkShardWriteOperationAppliedAsync(unappliedShardOperation.Value.Id);
-                    }
-                    //Reverse all the last operations
-                    else
-                    {
-                        var removeFrom = unappliedShardOperation.Value.Pos;
-                        for (var i = _shardRepository.GetTotalShardWriteOperationsCount(shard.ShardId); i >= removeFrom; i--)
-                        {
-                            _logger.LogWarning("Detected out of order operations from " + removeFrom + ", removing operations onwards.");
-                            _writer.ReverseLocalTransaction(unappliedShardOperation.Value.Data.ShardId.Value, unappliedShardOperation.Value.Data.ShardType, i);
-                        }
-                        //Break out of loop
-                        break;
+                        _writer.ReverseLocalTransaction(shard.ShardId, shard.Type, lastOperation.Pos);
                     }
                 }
-            }
 
-            _logger.LogDebug("Finished Resyncing Operations");
+                _logger.LogDebug("Finished Resyncing Operations");
+            }
         }
 
 

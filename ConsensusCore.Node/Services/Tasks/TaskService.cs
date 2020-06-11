@@ -36,6 +36,7 @@ namespace ConsensusCore.Node.Services.Tasks
         private readonly Monitor<State> _monitor;
         private ConcurrentDictionary<Guid, NodeTaskMetadata> _nodeTasks { get; set; } = new ConcurrentDictionary<Guid, NodeTaskMetadata>();
 
+        public List<Guid> RunningTasks { get { return _nodeTasks.Keys.ToList(); } }
         //Background processes
         private readonly Task _scanTasks;
 
@@ -70,7 +71,7 @@ namespace ConsensusCore.Node.Services.Tasks
                     var currentTasksNo = _nodeTasks.Where(t => !t.Value.Task.IsCompleted).Count();
                     var numberOfTasksToAssign = (tasks.Count() > (_clusterOptions.ConcurrentTasks - currentTasksNo)) ? (_clusterOptions.ConcurrentTasks - currentTasksNo) : tasks.Count();
 
-                    _logger.LogDebug(_nodeStateService.GetNodeLogId() + numberOfTasksToAssign + "tasks to run. || " + currentTasksNo);
+                    _logger.LogDebug(_nodeStateService.GetNodeLogId() + numberOfTasksToAssign + "tasks to run. || " + currentTasksNo + "|| open tasks " + tasks.Count());
                     if (numberOfTasksToAssign > 0)
                     {
                         await _clusterClient.Send(new ExecuteCommands()
@@ -109,7 +110,7 @@ namespace ConsensusCore.Node.Services.Tasks
                         }
                     }
                 }
-                await Task.Delay(1000);
+                await Task.Delay(5000);
             }
         }
 

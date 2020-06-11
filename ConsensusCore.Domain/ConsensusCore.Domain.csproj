@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.2</TargetFramework>
-    <Version>1.0.4.1-alpha</Version>
+    <Version>1.0.4.4-alpha</Version>
     <Company>ConsensusCore</Company>
     <Authors>Xucito</Authors>
     <Description>Consensus Algorithm based on Raft that allows for .NET Core applications to implement a clustered configuration.</Description>

@@ -69,13 +69,13 @@ namespace ConsensusCore.Node.Repositories
 
         public Task<ShardWriteOperation> GetShardWriteOperationAsync(Guid shardId, int syncPos)
         {
-            Console.WriteLine("Trying to get shard " + shardId + "position " + syncPos);
+            //Console.WriteLine("Trying to get shard " + shardId + "position " + syncPos);
             var filteredSWO = ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId && swo.Value.Pos == syncPos).ToList();
             if(filteredSWO.Count() == 0)
             {
                 return Task.FromResult<ShardWriteOperation>(null);
             }
-            Console.WriteLine("FOUND " + filteredSWO.Count());
+            //Console.WriteLine("FOUND " + filteredSWO.Count());
             return Task.FromResult(SystemExtension.Clone(filteredSWO.FirstOrDefault().Value));
         }
 

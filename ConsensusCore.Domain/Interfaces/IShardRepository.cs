@@ -18,9 +18,9 @@ namespace ConsensusCore.Domain.Interfaces
         /// <returns></returns>
         int GetTotalShardWriteOperationsCount(Guid shardId);
         Task<bool> AddShardWriteOperationAsync(ShardWriteOperation operation);
-        Task<bool> MarkShardWriteOperationAppliedAsync(string operationId);
+        //Task<bool> MarkShardWriteOperationAppliedAsync(string operationId);
         Task<bool> RemoveShardWriteOperationAsync(Guid shardId, int pos);
-        Task<SortedDictionary<int, ShardWriteOperation>> GetAllUnappliedOperationsAsync(Guid shardId);
+        //Task<SortedDictionary<int, ShardWriteOperation>> GetAllUnappliedOperationsAsync(Guid shardId);
         Task<List<ShardMetadata>> GetAllShardMetadataAsync();
         Task<bool> AddDataReversionRecordAsync(DataReversionRecord record);
         Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker);

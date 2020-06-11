@@ -54,8 +54,9 @@ namespace ConsensusCore.Domain.Services
         [JsonIgnore]
         public readonly object _saveLocker = new object();
         [JsonIgnore]
-        public Thread _saveThread;
-        public Task _logConcatThread;
+        private Thread _saveThread;
+        [JsonIgnore]
+        private Task _logConcatThread;
 
         public NodeStorage()
         {

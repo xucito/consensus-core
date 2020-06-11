@@ -16,12 +16,14 @@ namespace ConsensusCore.TestNode.Models
 
         public async Task<bool> DeleteDataAsync(ShardData data)
         {
+            await Task.Delay(50);
             _numberStore.TryRemove(data.Id, out _);
             return true;
         }
 
         public async Task<ShardData> GetDataAsync(string type, Guid objectId)
         {
+            await Task.Delay(50);
             if (_numberStore.ContainsKey(objectId))
                 return _numberStore[objectId];
             return null;
@@ -29,6 +31,7 @@ namespace ConsensusCore.TestNode.Models
 
         public async Task<ShardData> InsertDataAsync(ShardData data)
         {
+            await Task.Delay(50);
             switch (data)
             {
                 case TestData t1:
@@ -64,6 +67,7 @@ namespace ConsensusCore.TestNode.Models
 
         public async Task<ShardData> UpdateDataAsync(ShardData data)
         {
+            await Task.Delay(50);
             switch (data)
             {
                 case TestData t1:

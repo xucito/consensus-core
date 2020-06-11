@@ -13,7 +13,7 @@ namespace ConsensusCore.Domain.RPCs.Shard
         public int To { get; set; }
         public string Type { get; set; }
 
-        public override string RequestName => "RequestShardOperation";
+        public override string RequestName => "RequestShardWriteOperations";
     }
 
     public class RequestShardWriteOperationsResponse: BaseResponse

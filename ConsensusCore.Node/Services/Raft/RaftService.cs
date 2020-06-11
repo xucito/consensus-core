@@ -658,11 +658,12 @@ namespace ConsensusCore.Node.Services.Raft
 
                         if (result != null && node.Key != result.NodeId && result.NodeId != default(Guid))
                         {
-                            Logger.LogInformation("Detected change of client");
+                            Console.WriteLine("Detected change of client");
+                            var address = node.Value.Address;
                             RemoveNodesFromCluster(new Guid[] { node.Key });
                             AddNodesToCluster(new NodeInformation[] { new NodeInformation {
                                 Id = result.NodeId,
-                                TransportAddress = node.Value.Address,
+                                TransportAddress = address,
                                 IsContactable = true,
                                 Name = "",
                             }});

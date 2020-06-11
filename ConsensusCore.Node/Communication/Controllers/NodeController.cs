@@ -11,6 +11,7 @@ using ConsensusCore.Node.Communication.Clients;
 using ConsensusCore.Node.Communication.Controllers;
 using ConsensusCore.Node.Services;
 using ConsensusCore.Node.Services.Raft;
+using ConsensusCore.Node.Services.Tasks;
 using ConsensusCore.Node.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -31,6 +32,7 @@ namespace ConsensusCore.Node.Controllers
         private INodeStorage<State> _nodeStorage;
         private IClusterConnectionPool _clusterConnectionPool;
         private IShardRepository _shardRepository;
+        private ITaskService _taskService;
 
         public NodeController(IClusterRequestHandler handler,
             ILogger<NodeController<State>> logger,
@@ -38,7 +40,8 @@ namespace ConsensusCore.Node.Controllers
              IStateMachine<State> stateMachine,
              INodeStorage<State> nodeStorage,
              IClusterConnectionPool clusterConnectionPool,
-             IShardRepository shardRepository)
+             IShardRepository shardRepository,
+             ITaskService taskService)
         {
             _handler = handler;
             Logger = logger;
@@ -47,6 +50,13 @@ namespace ConsensusCore.Node.Controllers
             _nodeStorage = nodeStorage;
             _clusterConnectionPool = clusterConnectionPool;
             _shardRepository = shardRepository;
+            _taskService = taskService;
+        }
+
+        [HttpGet("tasks")]
+        public IActionResult GetTasks()
+        {
+            return Ok(_taskService.RunningTasks);
         }
 
         [HttpPost("RPC")]
