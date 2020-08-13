@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.2</TargetFramework>
-    <Version>1.0.4.4-alpha</Version>
+    <Version>1.0.4.9-alpha</Version>
     <Authors>Xucito</Authors>
     <Company>ConsensusCore</Company>
     <Description>Consensus Algorithm based on Raft that allows for .NET Core applications to implement a clustered configuration.</Description>
     <PackageProjectUrl>https://github.com/xucito/consensus-core</PackageProjectUrl>
     <PackageLicenseUrl>https://github.com/xucito/consensus-core/blob/master/LICENSE</PackageLicenseUrl>
     <RepositoryUrl>https://github.com/xucito/consensus-core</RepositoryUrl>
-    <AssemblyVersion>1.0.4.4</AssemblyVersion>
+    <AssemblyVersion>1.0.4.9</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,6 +22,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ConsensusCore.Domain\ConsensusCore.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Threading.Channels">
+      <HintPath>..\..\..\..\..\..\..\Program Files\dotnet\sdk\NuGetFallbackFolder\system.threading.channels\4.5.0\lib\netcoreapp2.1\System.Threading.Channels.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

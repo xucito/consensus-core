@@ -88,9 +88,9 @@ namespace ConsensusCore.Node.Repositories
             return Task.FromResult< ShardWriteOperation>(null);
         }
 
-        public Task<List<ShardWriteOperation>> GetShardWriteOperationsAsync(ShardOperationOptions option)
+        public Task<List<ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, ShardOperationOptions option, int limit)
         {
-            return Task.FromResult(ShardWriteOperations.Where(swo => swo.Value.Operation == option).Select(s => s.Value).ToList());
+            return Task.FromResult(ShardWriteOperations.Where(swo => swo.Value.Operation == option).Take(limit).OrderBy(swo => swo.Value.TransactionDate).Select(s => s.Value).ToList());
         }
 
         public Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to)
@@ -104,7 +104,7 @@ namespace ConsensusCore.Node.Repositories
             return Task.FromResult(operations);
         }
 
-        public int GetTotalShardWriteOperationsCount(Guid shardId)
+        public int GetLastShardWriteOperationPos(Guid shardId)
         {
             var sortedShardWrites = new SortedDictionary<int, ShardWriteOperation>(ShardWriteOperations.Where(swo => swo.Value.Data.ShardId == shardId).ToDictionary(k => k.Value.Pos, v => v.Value));
             return sortedShardWrites.Count() == 0 ? 0 : sortedShardWrites.Last().Value.Pos;
@@ -131,6 +131,15 @@ namespace ConsensusCore.Node.Repositories
         public async Task<bool> RemoveShardWriteOperationAsync(Guid shardId, int pos)
         {
             return ShardWriteOperations.TryRemove((await GetShardWriteOperationAsync(shardId, pos)).Id, out _);
+        }
+
+        public async Task<bool> DeleteShardWriteOperationsAsync(List<ShardWriteOperation> shardWriteOperations)
+        {
+            foreach(var operation in shardWriteOperations)
+            {
+                ShardWriteOperations.TryRemove(operation.Id, out _);
+            }
+            return true;
         }
     }
 }

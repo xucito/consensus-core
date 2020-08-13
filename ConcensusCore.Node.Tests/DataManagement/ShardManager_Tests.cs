@@ -186,7 +186,8 @@ namespace ConcensusCore.Node.Tests.DataManagement
                 Type = "number",
                 ShardId = TestUtility.DefaultShardId
             });
-            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", result.Operations.First().Value.Pos);
+            await _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", result.Operations.First().Value.Pos);
+            Assert.Null(_shardManager.Writer.GetLastOperationCache(TestUtility.DefaultShardId));
             var newResult = await _shardManager.Reader.GetData(recordId, "number", 3000);
             Assert.Null(newResult);
         }
@@ -263,7 +264,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
                         Data = 101,
                         Id = recordId
                     },
-                    ShardHash = ObjectUtility.HashStrings(ObjectUtility.HashStrings("",firstTransaction.OperationId), secondId)
+                    ShardHash = ObjectUtility.HashStrings(ObjectUtility.HashStrings("", firstTransaction.OperationId), secondId)
                 }
             });
 
@@ -286,7 +287,7 @@ namespace ConcensusCore.Node.Tests.DataManagement
         {
             Guid recordId = Guid.NewGuid();
             string transactionId = Guid.NewGuid().ToString();
-           var firstTransaction =  await _shardManager.Handle(new ReplicateShardWriteOperation()
+            var firstTransaction = await _shardManager.Handle(new ReplicateShardWriteOperation()
             {
                 Operation = new ShardWriteOperation()
                 {
@@ -370,8 +371,9 @@ namespace ConcensusCore.Node.Tests.DataManagement
 
             Assert.Equal(200, ((TestData)updatedResult.Data).Data);
 
-            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
+            await _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
             var revertedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
+            Assert.Equal(1, _shardManager.Writer.GetLastOperationCache(TestUtility.DefaultShardId).Pos);
             Assert.Equal(100, ((TestData)revertedResult.Data).Data);
         }
 
@@ -430,8 +432,9 @@ namespace ConcensusCore.Node.Tests.DataManagement
             var updatedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
 
             Assert.True(updatedResult.IsSuccessful);
-            _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
+            await _shardManager.Writer.ReverseLocalTransaction(TestUtility.DefaultShardId, "number", 2);
             var revertedResult = await _shardManager.Handle(new RequestDataShard() { ObjectId = recordId, Type = "number" });
+            Assert.Equal(1, _shardManager.Writer.GetLastOperationCache(TestUtility.DefaultShardId).Pos);
             Assert.Equal(100, ((TestData)revertedResult.Data).Data);
         }
 

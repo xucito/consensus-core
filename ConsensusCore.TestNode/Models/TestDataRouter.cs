@@ -17,7 +17,10 @@ namespace ConsensusCore.TestNode.Models
         public async Task<bool> DeleteDataAsync(ShardData data)
         {
             await Task.Delay(50);
-            _numberStore.TryRemove(data.Id, out _);
+            if (!_numberStore.TryRemove(data.Id, out _))
+            {
+                throw new Exception("Failed to delete data" + data.Id);
+            }
             return true;
         }
 
@@ -38,7 +41,7 @@ namespace ConsensusCore.TestNode.Models
                     var addResult = _numberStore.TryAdd(t1.Id, t1);
                     if (!addResult)
                     {
-                       // Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id + " replacing the existing data" + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
+                        // Console.WriteLine("Failed to insert data, there seems to be a concurrency issue! The data must already exist for object..." + t1.Id + " replacing the existing data" + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
                         await UpdateDataAsync(data);
                     }
                     break;
@@ -68,17 +71,21 @@ namespace ConsensusCore.TestNode.Models
         public async Task<ShardData> UpdateDataAsync(ShardData data)
         {
             await Task.Delay(50);
+            if (!_numberStore.ContainsKey(data.Id))
+            {
+                throw new Exception("Cannot update data that does not exist...");
+            }
             switch (data)
             {
                 case TestData t1:
-                    if(!_numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]))
+                    if (!_numberStore.TryUpdate(data.Id, t1, _numberStore[data.Id]))
                     {
-                     //   Console.WriteLine("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
+                        //   Console.WriteLine("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
                         throw new Exception("Failed to update data " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
                     }
                     else
                     {
-                       // Console.WriteLine("Updated successfully object " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
+                        // Console.WriteLine("Updated successfully object " + data.Id + " on shard " + data.ShardId + " due to concurrency issues");
                     }
                     /*if (!updateResult)
                     {
@@ -87,6 +94,7 @@ namespace ConsensusCore.TestNode.Models
                     break;
                 default:
                     throw new Exception("Failed to match the data with a type");
+
             }
             return data;
         }

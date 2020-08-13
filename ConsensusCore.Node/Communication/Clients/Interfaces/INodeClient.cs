@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Connectors
 {
-    public interface INodeClient
+    public interface INodeClient: IDisposable
     {
         Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse;
         Task<NodeInfo> GetNodeInfoAsync();

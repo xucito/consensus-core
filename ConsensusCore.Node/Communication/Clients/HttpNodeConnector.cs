@@ -11,6 +11,7 @@ using ConsensusCore.Domain.Models;
 using ConsensusCore.Domain.RPCs;
 using ConsensusCore.Node.Connectors;
 using ConsensusCore.Domain.RPCs.Shard;
+using System.Threading.Channels;
 
 namespace ConsensusCore.Node.Communication.Clients
 {
@@ -19,15 +20,24 @@ namespace ConsensusCore.Node.Communication.Clients
         private HttpClient _httpClient;
         private HttpClient _dataClient;
         public string Url { get; set; }
-
         public string Address => Url;
+        private Channel<ShardWriteOperation> _queuedReplicationOperations;
 
-        public HttpNodeConnector(string baseUrl, TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval)
+        public HttpNodeConnector(string baseUrl, TimeSpan timeoutInterval, TimeSpan dataTimeoutInterval, bool acceptAnySSL = true)
         {
-            _httpClient = new HttpClient();
+            var handler = new HttpClientHandler();
+            if (acceptAnySSL)
+            {
+                handler = new HttpClientHandler()
+                {
+                    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                };
+            }
+
+            _httpClient = new HttpClient(handler);
             _httpClient.Timeout = timeoutInterval;
             _httpClient.BaseAddress = new Uri(baseUrl);
-            _dataClient = new HttpClient();
+            _dataClient = new HttpClient(handler);
             _dataClient.Timeout = dataTimeoutInterval;
             _dataClient.BaseAddress = new Uri(baseUrl);
             Url = baseUrl;
@@ -87,6 +97,12 @@ namespace ConsensusCore.Node.Communication.Clients
             {
                 throw e;
             }
+        }
+
+        public void Dispose()
+        {
+            _httpClient.Dispose();
+            _dataClient.Dispose();
         }
     }
 }

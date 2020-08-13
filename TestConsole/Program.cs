@@ -254,10 +254,19 @@ namespace TestConsole
                         {
                             Thread.Sleep(1000);
                         }
+                        JObject oldDataStore = null;
                         while ((datastoreCheck = client.IsClusterDataStoreConsistent(Urls.ToList()).GetAwaiter().GetResult()) != null)
                         {
-                            Console.WriteLine("datastore is still not consistent, diff: " + Environment.NewLine + datastoreCheck.ToString(Newtonsoft.Json.Formatting.Indented));
+                            if (!JToken.DeepEquals(datastoreCheck, oldDataStore))
+                            {
+                                Console.WriteLine("datastore is still not consistent, diff: " + Environment.NewLine + datastoreCheck.ToString(Newtonsoft.Json.Formatting.Indented));
+                            }
+                            else
+                            {
+                                Console.WriteLine("datastore is still not consistent");
+                            }
                             Thread.Sleep(1000);
+                            oldDataStore = datastoreCheck;
                         }
                         Console.WriteLine("CONGRATULATIONS, THE CLUSTER RECOVERED CONSISTENTLY. Failed nodes " + numberOfNodeFailures);
                     }

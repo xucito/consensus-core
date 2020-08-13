@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace ConsensusCore.Node.Connectors
@@ -19,9 +20,12 @@ namespace ConsensusCore.Node.Connectors
         private IServiceProvider _serviceProvider;
         private IClusterRequestHandler _clusterRequestHandler { get { return (IClusterRequestHandler)_serviceProvider.GetService(typeof(IClusterRequestHandler)); } }
         private NodeStateService _nodeStateService;
-        public ClusterClient(IClusterConnectionPool connectionPool,
+
+        public ClusterClient(
+            IClusterConnectionPool connectionPool,
             IServiceProvider serviceProvider,
-            NodeStateService nodeStateService)
+            NodeStateService nodeStateService
+           )
         {
             _clusterConnectionPool = connectionPool;
             _nodeStateService = nodeStateService;
@@ -47,7 +51,6 @@ namespace ConsensusCore.Node.Connectors
 
         public async Task<TResponse> Send<TResponse>(IClusterRequest<TResponse> request) where TResponse : BaseResponse, new()
         {
-
             return await _clusterRequestHandler.Handle(request);
         }
     }

@@ -12,5 +12,6 @@ namespace ConsensusCore.Node.Services.Data
         Task<ReplicateShardWriteOperationResponse> ReplicateShardWriteOperationHandler(ReplicateShardWriteOperation request);
         Task<RequestCreateIndexResponse> RequestCreateIndexHandler(RequestCreateIndex request);
         Task<RequestShardWriteOperationsResponse> RequestShardWriteOperationsHandler(RequestShardWriteOperations request);
+        object Info { get; }
     }
 }

@@ -33,6 +33,16 @@ namespace ConsensusCore.Node.Services.Data
         private Task _replicaValidationChecksTask;
         private Task _objectLockWatcher;
         private Task _staleDataCollectorTask;
+        public object Info
+        {
+            get
+            {
+                return new
+                {
+                    Writer = Writer.Info
+                };
+            }
+        }
 
         //Performance Objects
         ConcurrentDictionary<int, double> totals = new ConcurrentDictionary<int, double>();
@@ -55,6 +65,11 @@ namespace ConsensusCore.Node.Services.Data
         public readonly Allocator<State> Allocator;
         public readonly Syncer<State> Syncer;
         public readonly Reader<State> Reader;
+
+
+        //ConcurrentDictionary<string, object> _writeWaitThreads = new ConcurrentDictionary<string, object>();
+
+        object _writeLock = new object();
 
         public DataService(
             ILoggerFactory loggerFactory,
@@ -97,10 +112,9 @@ namespace ConsensusCore.Node.Services.Data
                 clusterClient
                 );
             Syncer = new Syncer<State>(shardRepository, loggerFactory.CreateLogger<Syncer<State>>(), stateMachine, clusterClient, nodeStateService, Writer);
-            _staleDataCollector = new StaleDataCollector(loggerFactory.CreateLogger<StaleDataCollector>(), shardRepository, dataRouter);
+            _staleDataCollector = new StaleDataCollector(loggerFactory.CreateLogger<StaleDataCollector>(), shardRepository, dataRouter, nodeOptions.Value.DeletionCacheSize);
 
-
-            _writeTask = new Task(async () =>
+            /*_writeTask = new Task(async () =>
             {
                 //Before you write you should first dequeue all transactions
                 if (_writeCache.TransitQueue.Count() > 0)
@@ -145,6 +159,7 @@ namespace ConsensusCore.Node.Services.Data
                                 _logger.LogError("Failed to write operation with exception " + e.Message + Environment.NewLine + JsonConvert.SerializeObject(operation, Formatting.Indented));
                             }
                             await _writeCache.CompleteOperation(operation.Id);
+                            _writeWaitThreads[operation.Id].Set();
                         }
                         else
                         {
@@ -158,25 +173,26 @@ namespace ConsensusCore.Node.Services.Data
                     }
                 }
             });
-            _writeTask.Start();
+            _writeTask.Start();*/
             TaskUtility.RestartTask(ref _indexCreationTask, async () => await CreateIndexLoop());
 
             _allocationTask = new Task(async () => await AllocateShards());
             _allocationTask.Start();
-            _replicaValidationChecksTask = Task.Run(async () => await CheckAllReplicas());
+            //_replicaValidationChecksTask = Task.Run(async () => await CheckAllReplicas());
 
             _objectLockWatcher = new Task(async () => await CheckLocks());
             _objectLockWatcher.Start();
 
             _staleDataCollectorTask = Task.Run(async () =>
             {
+                _logger.LogInformation("Started stale data clean up.");
                 while (true)
                 {
                     if (_nodeStateService.InCluster && !_nodeStateService.IsStale)
                     {
                         foreach (var shardMetadata in _stateMachine.GetShards().Where(s => s.StaleAllocations.Count() == 0 && s.InsyncAllocations.Contains(_nodeStateService.Id)))
                         {
-                            var totalDeleted = await _staleDataCollector.CleanUpShard(shardMetadata.Id, _shardRepository.GetTotalShardWriteOperationsCount(shardMetadata.Id) - nodeOptions.Value.StaleDataTrailingLogCount);
+                            var totalDeleted = await _staleDataCollector.CleanUpShard(shardMetadata.Id, _shardRepository.GetLastShardWriteOperationPos(shardMetadata.Id) - nodeOptions.Value.StaleDataTrailingLogCount);
                             if (totalDeleted > 0)
                                 _logger.LogDebug("Removed " + totalDeleted + " operations from " + shardMetadata.Id);
                         }
@@ -505,29 +521,30 @@ namespace ConsensusCore.Node.Services.Data
             {
                 var operationId = Guid.NewGuid().ToString();
                 finalResult.OperationId = operationId;
-                await _writeCache.EnqueueOperationAsync(new ShardWriteOperation()
+                finalResult.ShardId = request.Data.ShardId.Value;
+                // _writeWaitThreads.TryAdd(operationId, new object());
+                /*await _writeCache.EnqueueOperationAsync(new ShardWriteOperation()
                 {
                     Data = request.Data,
                     Id = operationId,
                     Operation = request.Operation,
                     TransactionDate = DateTime.Now
                 });
-                finalResult.IsSuccessful = true;
+                finalResult.IsSuccessful = true;*/
 
-                if (_nodeOptions.EnablePerformanceLogging) PerformanceMetricUtility.PrintCheckPoint(ref totalLock, ref totals, ref startDate, ref checkpoint, "enqueue");
-
-                ShardWriteOperation transaction;
-
-                writeCheckThreads.Wait();
-                while (!_writeCache.IsOperationComplete(operationId))
+                lock (_writeLock)
                 {
-                    if ((DateTime.Now - startDate).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
-                    {
-                        throw new IndexCreationFailedException("Queue clearance for transaction " + operationId + request.Data.ShardType + " timed out.");
-                    }
-                    await Task.Delay(1);
+                    finalResult.IsSuccessful = Writer.WriteShardData(request.Data, request.Operation, operationId, DateTime.Now).GetAwaiter().GetResult().IsSuccessful;
                 }
-                writeCheckThreads.Release();
+
+                if (_nodeOptions.EnablePerformanceLogging)
+                {
+                    PerformanceMetricUtility.PrintCheckPoint(ref totalLock, ref totals, ref startDate, ref checkpoint, "enqueue");
+                }
+
+                //wait for call back
+                /*var isSet = _writeWaitThreads[operationId].WaitOne();
+                _writeWaitThreads.Remove(operationId, out _);*/
                 // printCheckPoint(ref startDate, ref checkpoint, "wait for completion");
             }
             else
@@ -582,7 +599,7 @@ namespace ConsensusCore.Node.Services.Data
 
         public async Task<AllocateShardResponse> AllocateShardHandler(AllocateShard shard)
         {
-            Allocator.AllocateShard(shard.ShardId, shard.Type);
+            await Allocator.AllocateShard(shard.ShardId, shard.Type);
             return new AllocateShardResponse() { };
         }
 
@@ -638,16 +655,30 @@ namespace ConsensusCore.Node.Services.Data
             {
                 IsSuccessful = true,
                 Operations = await _shardRepository.GetShardWriteOperationsAsync(request.ShardId, request.From, request.To),
-                LatestPosition = _shardRepository.GetTotalShardWriteOperationsCount(request.ShardId)
+                LatestPosition = _shardRepository.GetLastShardWriteOperationPos(request.ShardId)
             };
         }
 
         public async Task<ReplicateShardWriteOperationResponse> ReplicateShardWriteOperationHandler(ReplicateShardWriteOperation request)
         {
-            return new ReplicateShardWriteOperationResponse()
+            try
             {
-                IsSuccessful = await Writer.ReplicateShardWriteOperationAsync(request.Operation.Data.ShardId.Value, request.Operation, false)
-            };
+                var replicationResult = Writer.ReplicateShardWriteOperationAsync(request.Operation.Data.ShardId.Value, request.Operation, false).GetAwaiter().GetResult();
+                return new ReplicateShardWriteOperationResponse()
+                {
+                    //The last item on the server is the same we tried to replicate
+                    IsSuccessful = replicationResult.Id == request.Operation.Id,
+                    LatestPosition = replicationResult == null ? 0 : replicationResult.Pos
+                };
+            }
+            catch (Exception e)
+            {
+                return new ReplicateShardWriteOperationResponse()
+                {
+                    //The last item on the server is the same we tried to replicate
+                    IsSuccessful = false
+                };
+            }
         }
 
         public async Task CheckAllReplicas()
@@ -661,7 +692,7 @@ namespace ConsensusCore.Node.Services.Data
                     foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
                     {
                         //Get the shard positions
-                        var shardPosition = _shardRepository.GetTotalShardWriteOperationsCount(shard.Id);
+                        var shardPosition = _shardRepository.GetLastShardWriteOperationPos(shard.Id);
                         //Wait 2 times the latency tolerance
                         await Task.Delay(_clusterOptions.LatencyToleranceMs * 5);
 
@@ -840,15 +871,6 @@ namespace ConsensusCore.Node.Services.Data
                                     _logger.LogError("Shard " + shard.Id + " has no primaries available, shard is unavailable...");
                                 }
                             }
-
-                            //Get the latest position of the shard
-                            var latestOperation = await _clusterClient.Send(new RequestShardWriteOperations()
-                            {
-                                From = 0,
-                                To = 0,
-                                ShardId = shard.Id,
-                                Type = shard.Type
-                            });
                         }
 
                         if (newTasks.Count > 0)

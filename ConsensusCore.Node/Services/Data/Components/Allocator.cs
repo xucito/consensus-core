@@ -89,7 +89,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                             }
                             else
                             {
-                                AllocateShard(Shards[i].Id, type);
+                                await AllocateShard(Shards[i].Id, type);
                             }
                         }
                     }
@@ -115,13 +115,14 @@ namespace ConsensusCore.Node.Services.Data.Components
             return true;
         }
 
-        public async void AllocateShard(Guid shardId, string type)
+        public async Task<bool> AllocateShard(Guid shardId, string type)
         {
             await _shardRepository.AddShardMetadataAsync(new Domain.Models.ShardMetadata()
             {
                 ShardId = shardId,
                 Type = type
             });
+            return true;
         }
 
         public List<AllocationCandidate> GetAllocationCandidates(Guid shardId, string type)

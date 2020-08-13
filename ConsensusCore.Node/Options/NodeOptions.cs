@@ -18,6 +18,7 @@ namespace ConsensusCore.Node
         /// How far to trail the transaction counts and transaction cleanup
         /// </summary>
         public int StaleDataTrailingLogCount { get; set; } = 50;
-        public int StaleDataCleanupIntervalMs { get; set; } = 300000;
+        public int StaleDataCleanupIntervalMs { get; set; } = 30000;
+        public int DeletionCacheSize { get; set; } = 50;
     }
 }
