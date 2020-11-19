@@ -51,7 +51,6 @@ namespace ConsensusCore.Node.Services.Data
 
         private readonly IShardRepository _shardRepository;
         private readonly ILogger _logger;
-        private readonly WriteCache _writeCache;
         private readonly ClusterClient _clusterClient;
         private readonly IStateMachine<State> _stateMachine;
         private readonly ClusterOptions _clusterOptions;
@@ -79,14 +78,12 @@ namespace ConsensusCore.Node.Services.Data
             NodeStateService nodeStateService,
             ClusterClient clusterClient,
             IOptions<ClusterOptions> clusterOptions,
-            IOperationCacheRepository transactionCacheRepository,
             IOptions<NodeOptions> nodeOptions)
         {
             _nodeStateService = nodeStateService;
             _nodeOptions = nodeOptions.Value;
             _clusterOptions = clusterOptions.Value;
             _stateMachine = stateMachine;
-            _writeCache = new WriteCache(transactionCacheRepository, loggerFactory.CreateLogger<WriteCache>(), _nodeOptions.PersistWriteQueue);
             _logger = loggerFactory.CreateLogger<DataService<State>>();
             _shardRepository = shardRepository;
             _clusterClient = clusterClient;
@@ -192,7 +189,7 @@ namespace ConsensusCore.Node.Services.Data
                     {
                         foreach (var shardMetadata in _stateMachine.GetShards().Where(s => s.StaleAllocations.Count() == 0 && s.InsyncAllocations.Contains(_nodeStateService.Id)))
                         {
-                            var totalDeleted = await _staleDataCollector.CleanUpShard(shardMetadata.Id, _shardRepository.GetLastShardWriteOperationPos(shardMetadata.Id) - nodeOptions.Value.StaleDataTrailingLogCount);
+                            var totalDeleted = await _staleDataCollector.CleanUpShard(shardMetadata.Id, Writer.GetLastOperationCache(shardMetadata.Id).Pos - nodeOptions.Value.StaleDataTrailingLogCount);
                             if (totalDeleted > 0)
                                 _logger.LogDebug("Removed " + totalDeleted + " operations from " + shardMetadata.Id);
                         }
@@ -200,7 +197,7 @@ namespace ConsensusCore.Node.Services.Data
                     }
                     else
                     {
-                        await Task.Delay(10000);
+                        await Task.Delay(_nodeOptions.StaleDataCleanupIntervalMs * 5);
                     }
                 }
             });
@@ -218,7 +215,6 @@ namespace ConsensusCore.Node.Services.Data
                         {
                             Console.WriteLine(value.Key + ":" + (value.Value / totalRequests));
                         }
-                        Console.WriteLine("Queue:" + _writeCache.OperationsInQueue);
                         Task.Delay(1000);
                     }
                 });
@@ -655,7 +651,7 @@ namespace ConsensusCore.Node.Services.Data
             {
                 IsSuccessful = true,
                 Operations = await _shardRepository.GetShardWriteOperationsAsync(request.ShardId, request.From, request.To),
-                LatestPosition = _shardRepository.GetLastShardWriteOperationPos(request.ShardId)
+                LatestPosition = Writer.GetLastOperationCache(request.ShardId).Pos
             };
         }
 
@@ -692,7 +688,7 @@ namespace ConsensusCore.Node.Services.Data
                     foreach (var shard in _stateMachine.GetAllPrimaryShards(_nodeStateService.Id))
                     {
                         //Get the shard positions
-                        var shardPosition = _shardRepository.GetLastShardWriteOperationPos(shard.Id);
+                        var shardPosition = Writer.GetLastOperationCache(shard.Id).Pos;
                         //Wait 2 times the latency tolerance
                         await Task.Delay(_clusterOptions.LatencyToleranceMs * 5);
 

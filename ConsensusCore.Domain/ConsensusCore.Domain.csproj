@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
-    <Version>1.0.4.9-alpha</Version>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <Version>1.0.4.12-alpha</Version>
     <Company>ConsensusCore</Company>
     <Authors>Xucito</Authors>
     <Description>Consensus Algorithm based on Raft that allows for .NET Core applications to implement a clustered configuration.</Description>

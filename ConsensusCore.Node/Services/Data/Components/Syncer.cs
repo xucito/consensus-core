@@ -85,7 +85,7 @@ namespace ConsensusCore.Node.Services.Data.Components
 
             if (result.IsSuccessful)
             {
-                var totalPositions = _shardRepository.GetLastShardWriteOperationPos(shardId);
+                var totalPositions = _writer.GetLastOperationCache(shardId).Pos; //_shardRepository.GetLastShardWriteOperationPos(shardId);
                 //If the primary has less operations
                 if (result.LatestPosition < lastOperationPos)
                 {
@@ -132,7 +132,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         To = currentPosition + 50
                     });
 
-                    var totalShards = (_shardRepository.GetLastShardWriteOperationPos(shardId));
+                    var totalShards = (_writer.GetLastOperationCache(shardId).Pos);
                     //If you have more operations
                     if (result.LatestPosition < totalShards)
                     {
@@ -144,7 +144,7 @@ namespace ConsensusCore.Node.Services.Data.Components
                         }
                     }
 
-                    while (result.LatestPosition > (_shardRepository.GetLastShardWriteOperationPos(shardId)))
+                    while (result.LatestPosition > (_writer.GetLastOperationCache(shardId).Pos))
                     {
                         foreach (var operation in result.Operations)
                         {

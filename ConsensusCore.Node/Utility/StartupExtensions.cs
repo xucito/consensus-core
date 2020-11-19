@@ -24,19 +24,17 @@ namespace ConsensusCore.Node.Utility
     public static class StartupExtensions
     {
 
-        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(
-            this IServiceCollection services, Func<IServiceProvider, Repository> implementationFactory,
+        public static void AddConsensusCore<State, Repository, ShardRepository>(
+            this IServiceCollection services, 
+            Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
-            Func<IServiceProvider, operationCache> operationCacheImplementationFactory,
             Action<NodeOptions> nodeOptions,
             Action<ClusterOptions> clusterOptions
             )
                 where State : BaseState, new()
                 where Repository : class, IBaseRepository<State>
         where ShardRepository : class, IShardRepository
-            where operationCache : class, IOperationCacheRepository
         {
-            services.AddSingleton<IOperationCacheRepository, operationCache>(operationCacheImplementationFactory);
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             // services.AddSingleton<NodeStorage>();
             services.AddSingleton<IStateMachine<State>, StateMachine<State>>();
@@ -61,18 +59,16 @@ namespace ConsensusCore.Node.Utility
                     })));
         }
 
-        public static void AddConsensusCore<State, Repository, ShardRepository, operationCache>(this IServiceCollection services,
+        public static void AddConsensusCore<State, Repository, ShardRepository>(
+            this IServiceCollection services,
             Func<IServiceProvider, Repository> implementationFactory,
             Func<IServiceProvider, ShardRepository> shardRepositoryImplementationFactory,
-            Func<IServiceProvider, operationCache> operationCacheImplementationFactory,
             IConfigurationSection nodeOptions,
             IConfigurationSection clusterOptions)
                 where State : BaseState, new()
                 where Repository : class, IBaseRepository<State>
                 where ShardRepository : class, IShardRepository
-            where operationCache : class, IOperationCacheRepository
         {
-            services.AddSingleton<IOperationCacheRepository, operationCache>(operationCacheImplementationFactory);
             services.AddSingleton<IBaseRepository<State>, Repository>(implementationFactory);
             services.AddSingleton<IShardRepository, ShardRepository>(shardRepositoryImplementationFactory);
             // services.AddSingleton<NodeStorage

@@ -37,7 +37,7 @@ namespace ConsensusCore.Domain.Interfaces
         /// <param name="option"></param>
         /// <param name="limit"></param>
         /// <returns></returns>
-        Task<List<ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, ShardOperationOptions option, int limit);
+        Task<IEnumerable<ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, ShardOperationOptions option, int limit);
         /// <summary>
         /// Must be ACID transaction
         /// </summary>

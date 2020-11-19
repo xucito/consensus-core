@@ -33,7 +33,6 @@ namespace ConcensusCore.Node.Tests
 
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton<IOperationCacheRepository, NodeInMemoryRepository<TestState>>();
             services.AddSingleton<IBaseRepository<TestState>>(s => new NodeInMemoryRepository<TestState>());
             services.AddSingleton<IShardRepository>(s => new NodeInMemoryRepository<TestState>());
             // services.AddSingleton<NodeStorage>();

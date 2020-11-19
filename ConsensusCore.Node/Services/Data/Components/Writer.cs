@@ -77,7 +77,7 @@ namespace ConsensusCore.Node.Services.Data.Components
         {
             foreach (var shard in await _shardRepository.GetAllShardMetadataAsync())
             {
-                var lastOperation = await GetLastOperationApplied(shard.ShardId);
+                var lastOperation = _shardRepository.GetLastShardWriteOperationPos(shard.ShardId);//await GetLastOperationApplied(shard.ShardId);
                 if (lastOperation != null)
                     _lastOperationAppliedCache.TryAdd(shard.ShardId, await _shardRepository.GetShardWriteOperationAsync(shard.ShardId, lastOperation));
             }
@@ -393,13 +393,18 @@ namespace ConsensusCore.Node.Services.Data.Components
 
         private async Task<int> GetLastOperationApplied(Guid shardId)
         {
-            var lastPosition = _shardRepository.GetLastShardWriteOperationPos(shardId);
+            var lastPosition = 0; //if(_lastOperationAppliedCache.ContainsKey)//_shardRepository.GetLastShardWriteOperationPos(shardId);
 
-            if (lastPosition == 0)
+            if (!_lastOperationAppliedCache.ContainsKey(shardId))
             {
                 return 0;
             }
-            var lastOperation = await _shardRepository.GetShardWriteOperationAsync(shardId, lastPosition);
+            else
+            {
+                lastPosition = _lastOperationAppliedCache[shardId].Pos;
+            }
+
+            var lastOperation = _lastOperationAppliedCache[shardId]; //await _shardRepository.GetShardWriteOperationAsync(shardId, lastPosition);
 
             if (lastOperation == null)
             {

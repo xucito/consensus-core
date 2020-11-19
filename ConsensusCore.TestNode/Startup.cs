@@ -22,6 +22,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
 using Swashbuckle.AspNetCore.Swagger;
 
@@ -43,21 +44,24 @@ namespace ConsensusCore.TestNode
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<IDataRouter, TestDataRouter>();
-            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
+            services.AddConsensusCore<TestState, NodeInMemoryRepository<TestState>, NodeInMemoryRepository<TestState>>(s => new NodeInMemoryRepository<TestState>(), s => new NodeInMemoryRepository<TestState>(), Configuration.GetSection("Node"), Configuration.GetSection("Cluster"));
             services.AddSwaggerGen(c =>
             {
-                c.SwaggerDoc("v1", new Info { Title = "My API", Version = "v1" });
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
             });
 
             services.AddMvc(options =>
             {
                 options.Conventions.Add(new RouteTokenTransformerConvention(
                 new SlugifyParameterTransformer()));
+                options.EnableEndpointRouting = false;
             })
             .AddJsonOptions(options => {
-                options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+                options.JsonSerializerOptions.IgnoreNullValues = true;
             })
+            .AddNewtonsoftJson()
             .SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

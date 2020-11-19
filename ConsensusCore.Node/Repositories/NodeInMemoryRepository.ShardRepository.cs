@@ -88,9 +88,9 @@ namespace ConsensusCore.Node.Repositories
             return Task.FromResult< ShardWriteOperation>(null);
         }
 
-        public Task<List<ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, ShardOperationOptions option, int limit)
+        public Task<IEnumerable<ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, ShardOperationOptions option, int limit)
         {
-            return Task.FromResult(ShardWriteOperations.Where(swo => swo.Value.Operation == option).Take(limit).OrderBy(swo => swo.Value.TransactionDate).Select(s => s.Value).ToList());
+            return Task.FromResult(ShardWriteOperations.Where(swo => swo.Value.Operation == option).Take(limit).OrderBy(swo => swo.Value.TransactionDate).Select(s => s.Value));
         }
 
         public Task<SortedDictionary<int, ShardWriteOperation>> GetShardWriteOperationsAsync(Guid shardId, int from, int to)
