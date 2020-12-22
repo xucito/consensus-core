@@ -154,12 +154,20 @@ namespace ConsensusCore.Node.Services.Data.Components
             var hash = lastOperation == null ? "" : lastOperation.ShardHash;
             operation.ShardHash = ObjectUtility.HashStrings(hash, operation.Id);
             _logger.LogDebug(_nodeStateService.GetNodeLogId() + "writing new operation " + operationId + " with data " + Environment.NewLine + JsonConvert.SerializeObject(data, Formatting.Indented));
-
+            operation.Data.Versions.Add(operationId);
             var writeOperation = await _shardRepository.AddShardWriteOperationAsync(operation); //Add shard operation
             if (writeOperation)
             {
                 try
                 {
+                    if (operation.Operation == ShardOperationOptions.Delete)
+                        await _shardRepository.MarkObjectForDeletionAsync(new ObjectDeletionMarker()
+                        {
+                            ShardId = operation.Data.ShardId.Value,
+                            Pos = operation.Pos,
+                            ShardWriteOperationIds = operation.Data.Versions,
+                            Id = operation.Data.Id
+                        });
                     await ApplyOperationToDatastore(operation);
                     //Mark operation as applied
                     _lastOperationAppliedCache.AddOrUpdate(operation.Data.ShardId.Value, operation, (key, value) =>

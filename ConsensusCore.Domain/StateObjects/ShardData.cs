@@ -15,7 +15,8 @@ namespace ConsensusCore.Domain.BaseClasses
         public Guid? ShardId { get; set; }
         public string ShardType { get; set; }
         public string ClassName { get { return this.GetType().FullName; } }
-
+        // The version of the shard
+        public List<string> Versions { get; set; } = new List<string>();
         public override bool Equals(object obj)
         {
             if (obj is ShardData)

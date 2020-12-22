@@ -206,12 +206,7 @@ namespace ConsensusCore.TestNode.Controllers
 
                     var result = _clusterClient.Send(new AddShardWriteOperation()
                     {
-                        Data = new TestData()
-                        {
-                            Data = value,
-                            ShardType = "number",
-                            Id = id
-                        },
+                        Data = updatedObject,
                         Operation = ShardOperationOptions.Update,
                         WaitForSafeWrite = true
                     });

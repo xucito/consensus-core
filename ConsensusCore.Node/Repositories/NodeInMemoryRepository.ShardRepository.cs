@@ -23,6 +23,7 @@ namespace ConsensusCore.Node.Repositories
         public Task<bool> AddShardMetadataAsync(ShardMetadata shardMetadata)
         {
             ShardMetadata.Add(shardMetadata.ShardId, shardMetadata);
+            ObjectDeletionMarkers.TryAdd(shardMetadata.ShardId, new List<ObjectDeletionMarker>());
             return Task.FromResult(true);
         }
 
@@ -110,17 +111,6 @@ namespace ConsensusCore.Node.Repositories
             return sortedShardWrites.Count() == 0 ? 0 : sortedShardWrites.Last().Value.Pos;
         }
 
-        public bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId)
-        {
-            return ObjectDeletionMarker.Where(odm => odm.ObjectId == objectId && odm.ShardId == shardId).Count() > 0;
-        }
-
-        public Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker)
-        {
-            ObjectDeletionMarker.Add(SystemExtension.Clone(marker));
-            return Task.FromResult(true);
-        }
-
         public Task<bool> MarkShardWriteOperationAppliedAsync(string operationId)
         {
             if (ShardWriteOperations.ContainsKey(operationId))
@@ -133,13 +123,30 @@ namespace ConsensusCore.Node.Repositories
             return ShardWriteOperations.TryRemove((await GetShardWriteOperationAsync(shardId, pos)).Id, out _);
         }
 
-        public async Task<bool> DeleteShardWriteOperationsAsync(List<ShardWriteOperation> shardWriteOperations)
+        public async Task<bool> DeleteShardWriteOperationsAsync(List<string> shardWriteOperations)
         {
             foreach(var operation in shardWriteOperations)
             {
-                ShardWriteOperations.TryRemove(operation.Id, out _);
+                ShardWriteOperations.TryRemove(operation, out _);
             }
             return true;
+        }
+
+        public Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker)
+        {
+            ObjectDeletionMarkers[marker.ShardId].Add(SystemExtension.Clone(marker));
+            return Task.FromResult(true);
+        }
+
+        public Task<IEnumerable<ObjectDeletionMarker>> GetQueuedDeletions(Guid shardId, int toPos)
+        {
+            return Task.FromResult(ObjectDeletionMarkers[shardId].Where(p => p.Pos <= toPos));
+        }
+
+        public Task<bool> RemoveQueuedDeletions(Guid shardId, List<Guid> objectIds)
+        {
+            ObjectDeletionMarkers[shardId].RemoveAll(p => objectIds.Contains(p.Id));
+            return Task.FromResult(true);
         }
     }
 }

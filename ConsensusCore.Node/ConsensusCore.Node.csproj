@@ -2,15 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <Version>1.0.4.12-alpha</Version>
+    <Version>1.0.4.14-alpha</Version>
     <Authors>Xucito</Authors>
     <Company>ConsensusCore</Company>
     <Description>Consensus Algorithm based on Raft that allows for .NET Core applications to implement a clustered configuration.</Description>
     <PackageProjectUrl>https://github.com/xucito/consensus-core</PackageProjectUrl>
     <PackageLicenseUrl>https://github.com/xucito/consensus-core/blob/master/LICENSE</PackageLicenseUrl>
     <RepositoryUrl>https://github.com/xucito/consensus-core</RepositoryUrl>
-    <AssemblyVersion>1.0.4.12</AssemblyVersion>
-    <FileVersion>1.0.4.12</FileVersion>
+    <AssemblyVersion>1.0.4.14</AssemblyVersion>
+    <FileVersion>1.0.4.14</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

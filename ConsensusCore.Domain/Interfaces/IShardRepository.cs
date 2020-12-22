@@ -10,7 +10,6 @@ namespace ConsensusCore.Domain.Interfaces
 {
     public interface IShardRepository
     {
-        bool IsObjectMarkedForDeletion(Guid shardId, Guid objectId);
         /// <summary>
         /// Last shard operation position
         /// </summary>
@@ -24,7 +23,6 @@ namespace ConsensusCore.Domain.Interfaces
         //Task<SortedDictionary<int, ShardWriteOperation>> GetAllUnappliedOperationsAsync(Guid shardId);
         Task<List<ShardMetadata>> GetAllShardMetadataAsync();
         Task<bool> AddDataReversionRecordAsync(DataReversionRecord record);
-        Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker);
         Task<ShardWriteOperation> GetShardWriteOperationAsync(Guid shardId, int syncPos);
         Task<ShardWriteOperation> GetShardWriteOperationAsync(string transacionId);
         // To should be inclusive.
@@ -43,9 +41,19 @@ namespace ConsensusCore.Domain.Interfaces
         /// </summary>
         /// <param name="shardWriteOperations"></param>
         /// <returns></returns>
-        Task<bool> DeleteShardWriteOperationsAsync(List<ShardWriteOperation> shardWriteOperations);
+        Task<bool> DeleteShardWriteOperationsAsync(List<string> shardWriteOperations);
         Task<IEnumerable<ShardWriteOperation>> GetAllShardWriteOperationsAsync(Guid shardId);
         Task<bool> AddShardMetadataAsync(ShardMetadata shardMetadata);
         Task<ShardMetadata> GetShardMetadataAsync(Guid shardId);
+
+        /// <summary>
+        /// Get all deletions
+        /// </summary>
+        /// <param name="shardId"></param>
+        /// <param name="toPos"></param>
+        /// <returns></returns>
+        Task<IEnumerable<ObjectDeletionMarker>> GetQueuedDeletions(Guid shardId, int toPos);
+        Task<bool> MarkObjectForDeletionAsync(ObjectDeletionMarker marker);
+        Task<bool> RemoveQueuedDeletions(Guid shardId, List<Guid> objectIds);
     }
 }

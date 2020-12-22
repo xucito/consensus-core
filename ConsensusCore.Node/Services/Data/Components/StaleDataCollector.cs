@@ -31,37 +31,33 @@ namespace ConsensusCore.Node.Services.Data.Components
 
         public async Task<int> CleanUpShard(Guid shardId, int cleanUpto)
         {
-            var shard = await _shardRepository.GetShardMetadataAsync(shardId);
-            var allDeleteTransactions = await _shardRepository.GetShardWriteOperationsAsync(shardId, ShardOperationOptions.Delete, _deletionCacheSize * 5);
+            var allDeleteTransactions = await _shardRepository.GetQueuedDeletions(shardId, cleanUpto);
             var totalRemoved = 0;
-            List<ShardWriteOperation> deletionCache = new List<ShardWriteOperation>();
+            List<string> deletionCache = new List<string>();
+            List<Guid> objectsDeleted = new List<Guid>();
 
             foreach (var deleteTransaction in allDeleteTransactions)
             {
-                if (deleteTransaction.Pos <= cleanUpto)
-                {
-                    // You will delete the create request first and the delete request last
-                    foreach (var transaction in await _shardRepository.GetAllObjectShardWriteOperationAsync(shardId, deleteTransaction.Data.Id))
-                    {
-                        //Keep the delete operation
-                        _logger.LogDebug("Removing shard operation " + transaction.Key + " from shard " + shardId);
-                        //await _shardRepository.RemoveShardWriteOperationAsync(shardId, transaction.Key);
-                        deletionCache.Add(transaction.Value);
-                        totalRemoved++;
-                    }
-                }
+                deletionCache.AddRange(deleteTransaction.ShardWriteOperationIds);
+                objectsDeleted.Add(deleteTransaction.Id);
 
-                if(deletionCache.Count >= _deletionCacheSize)
+                if (deletionCache.Count >= _deletionCacheSize)
                 {
+                    totalRemoved += deletionCache.Count;
                     await _shardRepository.DeleteShardWriteOperationsAsync(deletionCache);
-                    deletionCache = new List<ShardWriteOperation>();
+                    await _shardRepository.RemoveQueuedDeletions(shardId, objectsDeleted);
+                    deletionCache.Clear();
+                    objectsDeleted.Clear();
                 }
             }
 
             if(deletionCache.Count > 0)
             {
+                totalRemoved += deletionCache.Count;
                 await _shardRepository.DeleteShardWriteOperationsAsync(deletionCache);
+                await _shardRepository.RemoveQueuedDeletions(shardId, objectsDeleted);
             }
+
             return totalRemoved;
         }
     }

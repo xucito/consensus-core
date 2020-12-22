@@ -12,7 +12,6 @@ namespace ConsensusCore.Domain.BaseClasses
         public Guid PrimaryAllocation { get; set; }
         public HashSet<Guid> InsyncAllocations { get; set; } = new HashSet<Guid>();
         public HashSet<Guid> StaleAllocations { get; set; } = new HashSet<Guid>();
-
         public ShardAllocationMetadata DeepCopy()
         {
             ShardAllocationMetadata other = (ShardAllocationMetadata)this.MemberwiseClone();

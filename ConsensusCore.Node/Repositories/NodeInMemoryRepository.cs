@@ -19,12 +19,14 @@ namespace ConsensusCore.Node.Repositories
     {
         public ConcurrentBag<DataReversionRecord> DataReversionRecords { get; set; } = new ConcurrentBag<DataReversionRecord>();
         private ConcurrentDictionary<string, ShardWriteOperation> ShardWriteOperations { get; set; } = new ConcurrentDictionary<string, ShardWriteOperation>();
-        public ConcurrentBag<ObjectDeletionMarker> ObjectDeletionMarker { get; set; } = new ConcurrentBag<ObjectDeletionMarker>();
+        /// <summary>
+        /// Store the deletion marker
+        /// </summary>
+        public ConcurrentDictionary<Guid, List<ObjectDeletionMarker>> ObjectDeletionMarkers { get; set; } = new ConcurrentDictionary<Guid, List<ObjectDeletionMarker>>();
         public List<ShardWriteOperation> OperationQueue { get; set; } = new List<ShardWriteOperation>();
         public Dictionary<string, ShardWriteOperation> TransitQueue { get; set; } = new Dictionary<string, ShardWriteOperation>();
         public Dictionary<Guid, ShardMetadata> ShardMetadata { get; set; } = new Dictionary<Guid, ShardMetadata>();
         public object queueLock = new object();
-
 
         public NodeInMemoryRepository()
         {

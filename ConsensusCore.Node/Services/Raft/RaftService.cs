@@ -46,6 +46,7 @@ namespace ConsensusCore.Node.Services.Raft
         Snapshotter<State> _snapshotService;
         object VoteLock = new object();
         ILoggerFactory _loggerFactory { get; set; }
+        ILogger _logger;
 
         public RaftService(
             ILoggerFactory logger,
@@ -69,9 +70,19 @@ namespace ConsensusCore.Node.Services.Raft
             _clusterClient = clusterClient;
             _clusterConnectionPool = clusterConnectionPool;
             NodeStateService.Id = _nodeStorage.Id;
+            _logger = logger.CreateLogger<RaftService<State>>();
 
-            _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
-            _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+
+
+            if (ClusterOptions.GetClusterUrls().Length == 1)
+            {
+                _logger.LogWarning("Only one url found in config, skipping discovery processes...");
+            }
+            else
+            {
+                _electionTimeoutTimer = new Timer(ElectionTimeoutEventHandler);
+                _heartbeatTimer = new Timer(HeartbeatTimeoutEventHandler);
+            }
 
             if (!ClusterOptions.TestMode)
             {
@@ -82,7 +93,23 @@ namespace ConsensusCore.Node.Services.Raft
                     Thread.Sleep(3000);
                     nodeStateService.Url = await _bootstrapService.GetMyUrl(ClusterOptions.GetClusterUrls(), TimeSpan.FromMilliseconds(ClusterOptions.LatencyToleranceMs));
                     NodeStateService.IsBootstrapped = true;
-                    SetNodeRole(NodeState.Follower);
+
+                    if (ClusterOptions.GetClusterUrls().Length > 1)
+                    {
+                        SetNodeRole(NodeState.Follower);
+                    }
+                    else
+                    {
+                        SetNodeRole(NodeState.Leader);
+                        AddNodesToCluster(new List<NodeInformation> {
+                            new NodeInformation() {
+                                Id = NodeStateService.Id,
+                                Name = "",
+                                TransportAddress = nodeStateService.Url,
+                                IsContactable = true
+                            }
+                        });
+                    }
                 });
             }
             else
@@ -104,7 +131,6 @@ namespace ConsensusCore.Node.Services.Raft
                     }
                 }).GetAwaiter().GetResult();
             }
-
         }
 
         public void HeartbeatTimeoutEventHandler(object args)
@@ -452,11 +478,16 @@ namespace ConsensusCore.Node.Services.Raft
                     case NodeState.Leader:
                         NodeStateService.CurrentLeader = _nodeStorage.Id;
                         NodeStateService.ResetLeaderState();
-                        ResetTimer(_heartbeatTimer, 0, ClusterOptions.ElectionTimeoutMs / 4);
-                        StopTimer(_electionTimeoutTimer);
+
+                        if (ClusterOptions.GetClusterUrls().Length > 1)
+                        {
+                            ResetTimer(_heartbeatTimer, 0, ClusterOptions.ElectionTimeoutMs / 4);
+                            StopTimer(_electionTimeoutTimer);
+                        }
                         TaskUtility.RestartTask(ref _commitTask, () => MonitorCommits());
                         NodeStateService.InCluster = true;
-                        TaskUtility.RestartTask(ref _nodeDiscoveryTask, () => NodeDiscoveryLoop());
+                        if (ClusterOptions.GetClusterUrls().Length > 1)
+                            TaskUtility.RestartTask(ref _nodeDiscoveryTask, () => NodeDiscoveryLoop());
                         _clusterConnectionPool.CheckClusterConnectionPool();
                         break;
                     case NodeState.Disabled:
