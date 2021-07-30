@@ -90,7 +90,7 @@ namespace ConsensusCore.Node.Services.Data.Components
             {
                 while (_replicationQueues[nodeId].Reader.TryRead(out ShardWriteOperation item))
                 {
-                    if (_stateMachine.GetShard(item.Data.ShardType, item.Data.ShardId.Value).InsyncAllocations.Contains(nodeId))
+                    if (_stateMachine.GetShard(item.Data.ShardId.Value).InsyncAllocations.Contains(nodeId))
                     {
                         bool setNodeAsStale = false;
                         try
@@ -321,13 +321,14 @@ namespace ConsensusCore.Node.Services.Data.Components
             var operation = await _shardRepository.GetShardWriteOperationAsync(shardId, pos);
             if (operation != null)
             {
-                await _shardRepository.AddDataReversionRecordAsync(new DataReversionRecord()
+                _logger.LogError("Reverting data " + JsonConvert.SerializeObject(new DataReversionRecord()
                 {
                     OriginalOperation = operation,
-                    NewData = operation.Data,
-                    OriginalData = await _dataRouter.GetDataAsync(type, operation.Data.Id),
+                    //NewData = operation.Data,
+                    //OriginalData = await _dataRouter.GetDataAsync(type, operation.Data.Id),
                     RevertedTime = DateTime.Now
-                });
+                }));
+                //await _shardRepository.AddDataReversionRecordAsync();
 
                 ShardData data = operation.Data;
                 ShardWriteOperation lastObjectOperation = null;

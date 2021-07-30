@@ -12,11 +12,14 @@ namespace ConsensusCore.Domain.BaseClasses
     public abstract class ShardData
     {
         public Guid Id { get; set; }
-        public Guid? ShardId { get; set; }
-        public string ShardType { get; set; }
-        public string ClassName { get { return this.GetType().FullName; } }
-        // The version of the shard
-        public List<string> Versions { get; set; } = new List<string>();
+        /// <summary>
+        /// Corresponds to an index
+        /// </summary>
+        public string _index { get; set; }
+        /// <summary>
+        /// Corresponds to a shardId
+        /// </summary>
+        public string _routing { get; set; }
         public override bool Equals(object obj)
         {
             if (obj is ShardData)
@@ -28,7 +31,7 @@ namespace ConsensusCore.Domain.BaseClasses
 
         public string GetLockName()
         {
-            return "_object:" + ShardType + ":" + Id;
+            return "_object:" + Id;
         }
     }
 }

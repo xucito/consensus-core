@@ -1,4 +1,4 @@
-﻿using ConsensusCore.Domain.BaseClasses;
+﻿
 using ConsensusCore.Domain.Enums;
 using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Interfaces;
@@ -458,18 +458,18 @@ namespace ConsensusCore.Node.Services.Data
             var startDate = DateTime.Now;
             var checkpoint = 1;
             //var totalOperation = _writeCache.OperationQueue.Count();
-            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Received write request for object " + request.Data.Id + " for request " + request.Data.ShardId);
+            _logger.LogDebug(_nodeStateService.GetNodeLogId() + "Received write request for object " + request.Data.Id + " for request " + request.Index);
             AddShardWriteOperationResponse finalResult = new AddShardWriteOperationResponse();
             //Check if index exists, if not - create one
-            if (!_stateMachine.IndexExists(request.Data.ShardType))
+            if (!_stateMachine.IndexExists(request.Index))
             {
-                if (IndexCreationQueue.Where(icq => icq == request.Data.ShardType).Count() > 0)
+                if (IndexCreationQueue.Where(icq => icq == request.Index).Count() > 0)
                 {
-                    while (!_stateMachine.IndexExists(request.Data.ShardType))
+                    while (!_stateMachine.IndexExists(request.Index))
                     {
                         if ((DateTime.Now - startDate).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
                         {
-                            throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " is already queued.");
+                            throw new IndexCreationFailedException("Index creation for shard " + request.Index + " is already queued.");
                         }
                         await Task.Delay(10);
                     }
@@ -478,15 +478,15 @@ namespace ConsensusCore.Node.Services.Data
                 {
                     await _clusterClient.Send(_nodeStateService.CurrentLeader.Value, new RequestCreateIndex()
                     {
-                        Type = request.Data.ShardType
+                        Type = request.Index
                     });
 
                     DateTime startIndexCreation = DateTime.Now;
-                    while (!_stateMachine.IndexExists(request.Data.ShardType))
+                    while (!_stateMachine.IndexExists(request.Index))
                     {
                         if ((DateTime.Now - startIndexCreation).Milliseconds > _clusterOptions.DataTransferTimeoutMs)
                         {
-                            throw new IndexCreationFailedException("Index creation for shard " + request.Data.ShardType + " timed out.");
+                            throw new IndexCreationFailedException("Index creation for index " + request.Index + " timed out.");
                         }
                         await Task.Delay(100);
                     }
@@ -495,20 +495,11 @@ namespace ConsensusCore.Node.Services.Data
 
             if (_nodeOptions.EnablePerformanceLogging) PerformanceMetricUtility.PrintCheckPoint(ref totalLock, ref totals, ref startDate, ref checkpoint, "index allocation");
 
-            ShardAllocationMetadata shardMetadata;
+            var allocations = _stateMachine.GetShards(request.Index);
+            Random rand = new Random();
+            var selectedNodeIndex = rand.Next(0, allocations.Length);
+            ShardAllocationMetadata shardMetadata = allocations[selectedNodeIndex];
 
-            if (request.Data.ShardId == null)
-            {
-                var allocations = _stateMachine.GetShards(request.Data.ShardType);
-                Random rand = new Random();
-                var selectedNodeIndex = rand.Next(0, allocations.Length);
-                request.Data.ShardId = allocations[selectedNodeIndex].Id;
-                shardMetadata = allocations[selectedNodeIndex];
-            }
-            else
-            {
-                shardMetadata = _stateMachine.GetShard(request.Data.ShardType, request.Data.ShardId.Value);
-            }
 
             if (_nodeOptions.EnablePerformanceLogging) PerformanceMetricUtility.PrintCheckPoint(ref totalLock, ref totals, ref startDate, ref checkpoint, "shard Allocation");
 
@@ -517,16 +508,7 @@ namespace ConsensusCore.Node.Services.Data
             {
                 var operationId = Guid.NewGuid().ToString();
                 finalResult.OperationId = operationId;
-                finalResult.ShardId = request.Data.ShardId.Value;
-                // _writeWaitThreads.TryAdd(operationId, new object());
-                /*await _writeCache.EnqueueOperationAsync(new ShardWriteOperation()
-                {
-                    Data = request.Data,
-                    Id = operationId,
-                    Operation = request.Operation,
-                    TransactionDate = DateTime.Now
-                });
-                finalResult.IsSuccessful = true;*/
+                finalResult.ShardId = shardMetadata.Id;
 
                 lock (_writeLock)
                 {

@@ -22,7 +22,7 @@ namespace ConsensusCore.Domain.Interfaces
         NodeInformation GetNode(Guid nodeId);
         NodeInformation GetNode(string transportAddresss);
         NodeInformation[] GetNodes();
-        ShardAllocationMetadata GetShard(string type, Guid shardId);
+        ShardAllocationMetadata GetShard(Guid shardId);
         ShardAllocationMetadata GetShardMetadata(Guid shardId, string type);
         ShardAllocationMetadata[] GetShards(string type = null);
         ShardAllocationMetadata[] GetShards(Guid nodeId);

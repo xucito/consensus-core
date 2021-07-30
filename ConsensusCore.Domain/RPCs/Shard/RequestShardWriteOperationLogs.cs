@@ -1,5 +1,6 @@
 ﻿using ConsensusCore.Domain.BaseClasses;
 using ConsensusCore.Domain.Enums;
+using ConsensusCore.Domain.StateObjects;
 using System;
 using System.Collections.Generic;
 using System.Text;

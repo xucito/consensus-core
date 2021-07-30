@@ -5,42 +5,40 @@ using System.Text;
 
 namespace ConsensusCore.Domain.BaseClasses
 {
-    public class ShardWriteOperation
+    public class ShardWriteOperationLog
     {
-        /// <summary>
-        /// Unique Transaction Id
-        /// </summary>
         public string Id { get; set; }
         /// <summary>
         /// Position of the operation
         /// </summary>
         public int Pos { get; set; }
+        /// <summary>
+        /// The Unique id of the object this operation contains
+        /// </summary>
+        public Guid ObjectId { get; set; }
+        /// <summary>
+        /// Type of operation
+        /// </summary>
         public ShardOperationOptions Operation { get; set; }
-        public ShardData Data { get; set; }
+        /// <summary>
+        /// Compressed shard data
+        /// </summary>
+        public byte[] Data { get; set; }
         /// <summary>
         /// The hash of all transactions upto this point
         /// </summary>
         public string ShardHash { get; set; }
-        /// <summary>
-        /// Date the transaction was queued
-        /// </summary>
-        public DateTime TransactionDate { get; set; }
-
-        public bool Applied { get; set; }
-        
         public override bool Equals(object obj)
         {
             if (obj == null) return false;
-            ShardWriteOperation objAsPart = obj as ShardWriteOperation;
+            ShardWriteOperationLog objAsPart = obj as ShardWriteOperationLog;
             if (objAsPart == null) return false;
             else return Equals(objAsPart);
         }
 
-        public bool Equals(ShardWriteOperation operation)
+        public bool Equals(ShardWriteOperationLog operation)
         {
             return operation.Id == Id;
         }
-
-        public WriteConsistencyLevels ConsistencyLevel { get; set; } = WriteConsistencyLevels.Queued;
     }
 }

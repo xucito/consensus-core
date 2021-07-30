@@ -1,4 +1,4 @@
-﻿using ConsensusCore.Domain.BaseClasses;
+﻿
 using ConsensusCore.Domain.Exceptions;
 using ConsensusCore.Domain.Interfaces;
 using ConsensusCore.Domain.RPCs.Shard;
